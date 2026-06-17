@@ -2460,17 +2460,8 @@
                     // === 首次安装运行提示 (加载独立的 first-run.js 脚本) ===
                     const firstRunShownKey = 'themeManager_firstRunNotificationShown';
                     if (!localStorage.getItem(firstRunShownKey)) {
-                        // 动态获取当前脚本的目录前缀以保证路径自适应
-                        let baseDir = '/scripts/extensions/third-party/theme-manager-main/';
-                        try {
-                            throw new Error();
-                        } catch (e) {
-                            const stack = e.stack;
-                            const matches = stack.match(/https?:\/\/[^\/]+(\/[^?#]+\/)script\.js/);
-                            if (matches && matches[1]) {
-                                baseDir = matches[1];
-                            }
-                        }
+                        // 使用标准 ES Module 的 import.meta.url 获取当前脚本的绝对路径目录，确保在安装和任何目录下均能 100% 成功加载
+                        const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
                         const script = document.createElement('script');
                         // 增加时间戳查询参数以避免浏览器缓存旧版 JS 脚本
                         script.src = `${baseDir}first-run.js?v=${Date.now()}`;
