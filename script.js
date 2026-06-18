@@ -351,7 +351,7 @@
                     _tagsCache = tags; // 更新缓存
                     localStorage.setItem(THEME_TAGS_KEY, JSON.stringify(tags));
                     invalidateThemeTagIndex(); // 标签数据变了，反向索引也要失效
-                    document.dispatchEvent(new CustomEvent('themeManager:tagsUpdated', { detail: { tags } }));
+                    document.dispatchEvent(new CustomEvent('themeManager:tagsChanged', { detail: tags }));
                 }
                 function invalidateTagsCache() {
                     _tagsCache = null;
@@ -379,16 +379,15 @@
                     return allTags.filter(t => t.themes && t.themes.includes(themeName)).map(t => t.id);
                 }
 
-                // 暴露 API 给其他扩展联动使用
+                // 暴露出 API 供其他扩展联动使用
                 window.themeManager = {
                     getTags: () => loadThemeTags(),
-                    getTagsForTheme: (themeName) => getTagsForTheme(themeName),
-                    saveTags: (tags) => {
-                        saveThemeTags(tags);
-                        softRefreshUI();
-                    },
-                    getFavorites: () => favorites,
-                    isFavorited: (themeName) => favoritesSet.has(themeName)
+                    getThemeTags: (themeName) => getTagsForTheme(themeName),
+                    onTagsChanged: (callback) => {
+                        document.addEventListener('themeManager:tagsChanged', (event) => {
+                            callback(event.detail);
+                        });
+                    }
                 };
 
                 const originalContainer = originalSelect.parentElement;
@@ -1233,7 +1232,7 @@
                 let _searchDebounceTimer = null;
                 searchBox.addEventListener('input', (e) => {
                     clearTimeout(_searchDebounceTimer);
-                    _searchDebounceTimer = setTimeout(() => filterThemeList(), 150);
+                    _searchDebounceTimer = setTimeout(() => filterThemeList(), 1000);
                 });
 
                 randomBtn.addEventListener('click', async () => {
