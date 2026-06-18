@@ -351,6 +351,7 @@
                     _tagsCache = tags; // 更新缓存
                     localStorage.setItem(THEME_TAGS_KEY, JSON.stringify(tags));
                     invalidateThemeTagIndex(); // 标签数据变了，反向索引也要失效
+                    document.dispatchEvent(new CustomEvent('themeManager:tagsUpdated', { detail: { tags } }));
                 }
                 function invalidateTagsCache() {
                     _tagsCache = null;
@@ -377,6 +378,18 @@
                     const allTags = cachedTags || loadThemeTags();
                     return allTags.filter(t => t.themes && t.themes.includes(themeName)).map(t => t.id);
                 }
+
+                // 暴露 API 给其他扩展联动使用
+                window.themeManager = {
+                    getTags: () => loadThemeTags(),
+                    getTagsForTheme: (themeName) => getTagsForTheme(themeName),
+                    saveTags: (tags) => {
+                        saveThemeTags(tags);
+                        softRefreshUI();
+                    },
+                    getFavorites: () => favorites,
+                    isFavorited: (themeName) => favoritesSet.has(themeName)
+                };
 
                 const originalContainer = originalSelect.parentElement;
                 if (!originalContainer) return;
@@ -527,6 +540,11 @@
                 const stKnownThemes = new Set(Array.from(originalSelect.options).map(opt => opt.value));
                 let isBatchEditMode = false;
                 let selectedForBatch = new Set();
+                let lastClickedThemeName = null;
+                let touchTimer = null;
+                let preventNextClick = false;
+                let touchStartX = 0;
+                let touchStartY = 0;
                 let themeBackgroundBindings = JSON.parse(localStorage.getItem(THEME_BACKGROUND_BINDINGS_KEY)) || {};
 
 
@@ -673,7 +691,7 @@
 
                     // 批量选中状态
                     if (isBatchEditMode && selectedForBatch.has(theme.value)) {
-                        item.classList.add('selected');
+                        item.classList.add('selected-for-batch');
                     }
 
                     return item;
@@ -932,10 +950,12 @@
                     const favChip = document.createElement('div');
                     favChip.className = `theme-tag-chip ${activeTagFilters.has('__FAVORITES__') ? 'active' : ''}`;
                     favChip.innerHTML = `收藏`;
-                    favChip.addEventListener('click', () => {
+                    favChip.addEventListener('click', (event) => {
+                        const isMultiSelect = event.ctrlKey || event.metaKey;
                         if (activeTagFilters.has('__FAVORITES__')) {
                             activeTagFilters.delete('__FAVORITES__');
                         } else {
+                            if (!isMultiSelect) activeTagFilters.clear();
                             activeTagFilters.add('__FAVORITES__');
                         }
                         handleTagFilterChange();
@@ -946,10 +966,12 @@
                     const uncatChip = document.createElement('div');
                     uncatChip.className = `theme-tag-chip ${activeTagFilters.has('__UNCATEGORIZED__') ? 'active' : ''}`;
                     uncatChip.innerHTML = `未分类`;
-                    uncatChip.addEventListener('click', () => {
+                    uncatChip.addEventListener('click', (event) => {
+                        const isMultiSelect = event.ctrlKey || event.metaKey;
                         if (activeTagFilters.has('__UNCATEGORIZED__')) {
                             activeTagFilters.delete('__UNCATEGORIZED__');
                         } else {
+                            if (!isMultiSelect) activeTagFilters.clear();
                             activeTagFilters.add('__UNCATEGORIZED__');
                         }
                         handleTagFilterChange();
@@ -963,10 +985,12 @@
                             chip.className = `theme-tag-chip ${activeTagFilters.has(tag.id) ? 'active' : ''}`;
                             chip.dataset.tagId = tag.id;
                             chip.innerHTML = `${escapeHtml(tag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${tag.themes ? tag.themes.length : 0})</span>`;
-                            chip.addEventListener('click', () => {
+                            chip.addEventListener('click', (event) => {
+                                const isMultiSelect = event.ctrlKey || event.metaKey;
                                 if (activeTagFilters.has(tag.id)) {
                                     activeTagFilters.delete(tag.id);
                                 } else {
+                                    if (!isMultiSelect) activeTagFilters.clear();
                                     activeTagFilters.add(tag.id);
                                 }
                                 handleTagFilterChange();
@@ -1055,6 +1079,7 @@
 
                     hideLoader();
                     selectedForBatch.clear();
+                    lastClickedThemeName = null;
                     managerPanel.querySelectorAll('.selected-for-batch').forEach(el => el.classList.remove('selected-for-batch'));
                     invalidateThemesCache(); // 使缓存失效，确保后续调用获取最新数据
                     filterThemeList();
@@ -1113,6 +1138,7 @@
                     }
 
                     selectedForBatch.clear();
+                    lastClickedThemeName = null;
                     hideLoader();
                     invalidateThemesCache();
                     toastr.success('批量删除完成！');
@@ -1233,6 +1259,7 @@
 
                     if (!isBatchEditMode) {
                         selectedForBatch.clear();
+                        lastClickedThemeName = null;
                         managerPanel.querySelectorAll('.selected-for-batch').forEach(item => item.classList.remove('selected-for-batch'));
                     }
                 });
@@ -1479,6 +1506,7 @@
                                 toastr.success('标签分配已保存');
                                 if (!singleMode && isBatchEditMode) {
                                     selectedForBatch.clear();
+                                    lastClickedThemeName = null;
                                 }
                                 softRefreshUI(themesToAssign); // 精准更新：只重建受影响的主题项的 pill
                             });
@@ -1535,6 +1563,7 @@
                                 }
                                 if (isBatchEditMode) {
                                     selectedForBatch.clear();
+                                    lastClickedThemeName = null;
                                 }
                                 softRefreshUI();
                             });
@@ -1545,6 +1574,10 @@
                 document.querySelector('#batch-delete-btn').addEventListener('click', performBatchDelete);
 
                 contentWrapper.addEventListener('click', async (event) => {
+                    if (preventNextClick) {
+                        preventNextClick = false;
+                        return;
+                    }
                     const target = event.target;
                     const button = target.closest('button');
                     const themeItem = target.closest('.theme-item');
@@ -1553,13 +1586,36 @@
                     const themeName = themeItem.dataset.value;
 
                     if (isBatchEditMode) {
-                        if (selectedForBatch.has(themeName)) {
-                            selectedForBatch.delete(themeName);
-                            themeItem.classList.remove('selected-for-batch');
+                        if (event.shiftKey && lastClickedThemeName) {
+                            const items = Array.from(contentWrapper.querySelectorAll('.theme-item')).filter(item => item.style.display !== 'none');
+                            const lastIdx = items.findIndex(item => item.dataset.value === lastClickedThemeName);
+                            const currentIdx = items.findIndex(item => item.dataset.value === themeName);
+                            if (lastIdx !== -1 && currentIdx !== -1) {
+                                const start = Math.min(lastIdx, currentIdx);
+                                const end = Math.max(lastIdx, currentIdx);
+                                const shouldSelect = !selectedForBatch.has(themeName);
+                                for (let i = start; i <= end; i++) {
+                                    const item = items[i];
+                                    const val = item.dataset.value;
+                                    if (shouldSelect) {
+                                        selectedForBatch.add(val);
+                                        item.classList.add('selected-for-batch');
+                                    } else {
+                                        selectedForBatch.delete(val);
+                                        item.classList.remove('selected-for-batch');
+                                    }
+                                }
+                            }
                         } else {
-                            selectedForBatch.add(themeName);
-                            themeItem.classList.add('selected-for-batch');
+                            if (selectedForBatch.has(themeName)) {
+                                selectedForBatch.delete(themeName);
+                                themeItem.classList.remove('selected-for-batch');
+                            } else {
+                                selectedForBatch.add(themeName);
+                                themeItem.classList.add('selected-for-batch');
+                            }
                         }
+                        lastClickedThemeName = themeName;
                     } else {
                         if (button && button.classList.contains('set-tag-btn')) {
                             openTagAssignmentPopup(themeName);
@@ -1753,6 +1809,88 @@
                             applyThemeDirect(themeName);
                             updateActiveState();
                         }
+                    }
+                });
+
+                // 移动端长按连选逻辑
+                contentWrapper.addEventListener('touchstart', (event) => {
+                    if (!isBatchEditMode) return;
+                    const themeItem = event.target.closest('.theme-item');
+                    if (!themeItem) return;
+
+                    const themeName = themeItem.dataset.value;
+                    const touch = event.touches[0];
+                    touchStartX = touch.clientX;
+                    touchStartY = touch.clientY;
+
+                    if (touchTimer) clearTimeout(touchTimer);
+
+                    touchTimer = setTimeout(() => {
+                        preventNextClick = true;
+                        touchTimer = null;
+
+                        // 震动反馈
+                        if (navigator.vibrate) {
+                            navigator.vibrate(50);
+                        }
+
+                        // 连选逻辑
+                        if (lastClickedThemeName && lastClickedThemeName !== themeName) {
+                            const items = Array.from(contentWrapper.querySelectorAll('.theme-item')).filter(item => item.style.display !== 'none');
+                            const lastIdx = items.findIndex(item => item.dataset.value === lastClickedThemeName);
+                            const currentIdx = items.findIndex(item => item.dataset.value === themeName);
+                            if (lastIdx !== -1 && currentIdx !== -1) {
+                                const start = Math.min(lastIdx, currentIdx);
+                                const end = Math.max(lastIdx, currentIdx);
+                                const shouldSelect = !selectedForBatch.has(themeName);
+                                for (let i = start; i <= end; i++) {
+                                    const item = items[i];
+                                    const val = item.dataset.value;
+                                    if (shouldSelect) {
+                                        selectedForBatch.add(val);
+                                        item.classList.add('selected-for-batch');
+                                    } else {
+                                        selectedForBatch.delete(val);
+                                        item.classList.remove('selected-for-batch');
+                                    }
+                                }
+                            }
+                        } else {
+                            if (selectedForBatch.has(themeName)) {
+                                selectedForBatch.delete(themeName);
+                                themeItem.classList.remove('selected-for-batch');
+                            } else {
+                                selectedForBatch.add(themeName);
+                                themeItem.classList.add('selected-for-batch');
+                            }
+                        }
+                        lastClickedThemeName = themeName;
+                    }, 500);
+                }, { passive: true });
+
+                contentWrapper.addEventListener('touchmove', (event) => {
+                    if (touchTimer) {
+                        const touch = event.touches[0];
+                        const deltaX = touch.clientX - touchStartX;
+                        const deltaY = touch.clientY - touchStartY;
+                        if (Math.sqrt(deltaX * deltaX + deltaY * deltaY) > 10) {
+                            clearTimeout(touchTimer);
+                            touchTimer = null;
+                        }
+                    }
+                }, { passive: true });
+
+                contentWrapper.addEventListener('touchend', () => {
+                    if (touchTimer) {
+                        clearTimeout(touchTimer);
+                        touchTimer = null;
+                    }
+                });
+
+                contentWrapper.addEventListener('touchcancel', () => {
+                    if (touchTimer) {
+                        clearTimeout(touchTimer);
+                        touchTimer = null;
                     }
                 });
 

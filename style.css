@@ -36,15 +36,15 @@
     transition: transform 0.2s ease;
 }
 
-/* 已收藏 - 实心星星 (跟随文字颜色) */
+/* 已收藏 - 实心星星 (使用酒馆强调色) */
 .theme-item-buttons .favorite-btn i.fa-solid.fa-star {
-    color: var(--SmartThemeBodyColor) !important;
+    color: var(--SmartThemeQuoteColor) !important;
 }
 
-/* 未收藏 - 空心星星 (较淡颜色) */
+/* 未收藏 - 空心星星 (较淡的文本主体颜色) */
 .theme-item-buttons .favorite-btn i.fa-regular.fa-star {
     color: var(--SmartThemeBodyColor) !important;
-    opacity: 0.5;
+    opacity: 0.4;
 }
 
 .theme-item-buttons .favorite-btn:hover i.fa-star {
