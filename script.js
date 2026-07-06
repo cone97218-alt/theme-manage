@@ -728,8 +728,28 @@
 
 
 
+                function isThemeListIdentical() {
+                    const options = Array.from(originalSelect.options).filter(opt => opt.value);
+                    if (allParsedThemes.length !== options.length) {
+                        return false;
+                    }
+                    for (let i = 0; i < allParsedThemes.length; i++) {
+                        if (allParsedThemes[i].value !== options[i].value) {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+
                 async function buildThemeUI() {
                     const scrollTop = contentWrapper.scrollTop;
+
+                    // 如果主题列表未发生变化，直接更新 active 状态即可，避免重建 DOM
+                    if (allParsedThemes.length > 0 && isThemeListIdentical() && themeItemMap.size > 0) {
+                        updateActiveState();
+                        return;
+                    }
+
                     contentWrapper.innerHTML = '正在加载主题...';
                     try {
                         allThemeObjects = await getCachedThemes();
@@ -754,7 +774,7 @@
                         allParsedThemes.forEach(t => allParsedThemesMap.set(t.value, t));
 
                         renderTagsUI(cachedTags);
-                        buildThemeList(cachedTags, scrollTop);
+                        buildThemeListLazy(scrollTop);
 
                     } catch (err) {
                         contentWrapper.innerHTML = '加载主题失败，请检查浏览器控制台获取更多信息。';
@@ -767,6 +787,40 @@
                 let themeItemMap = new Map(); // themeName -> HTMLElement
                 let _themeItemTemplate = null;
                 let _activeThemeItem = null; // O(1) 活跃项追踪，避免每次切换都 querySelectorAll 全量遍历
+
+                // 懒加载/分块渲染相关变量和函数
+                let filteredThemes = [];
+                let renderedCount = 0;
+                const CHUNK_SIZE = 35;
+
+                function renderNextChunk() {
+                    if (renderedCount >= filteredThemes.length) return;
+
+                    const cachedTags = loadThemeTags();
+                    const tagsMap = new Map(cachedTags.map(t => [t.id, t]));
+                    const list = contentWrapper.querySelector('.theme-list');
+                    if (!list) return;
+
+                    const fragment = document.createDocumentFragment();
+                    const nextIndex = Math.min(renderedCount + CHUNK_SIZE, filteredThemes.length);
+
+                    for (let i = renderedCount; i < nextIndex; i++) {
+                        const theme = filteredThemes[i];
+                        const item = createThemeItem(theme, tagsMap);
+                        themeItemMap.set(theme.value, item);
+
+                        // 初始化时设置 active 类
+                        if (theme.value === originalSelect.value) {
+                            item.classList.add('active');
+                            _activeThemeItem = item;
+                        }
+
+                        fragment.appendChild(item);
+                    }
+
+                    list.appendChild(fragment);
+                    renderedCount = nextIndex;
+                }
 
                 // 创建可复用的主题项模板（只执行一次 innerHTML 解析）
                 function getThemeItemTemplate() {
@@ -788,17 +842,25 @@
                     return tpl;
                 }
 
-                // 用模板构建单个主题项（cloneNode 比 innerHTML 快得多）
+                // 用模板构建单个主题项（cloneNode 比 innerHTML 快得多，用直系子元素 children 索引消除 querySelector 开销）
                 function createThemeItem(theme, tagsMap) {
                     const item = getThemeItemTemplate().cloneNode(true);
                     item.dataset.value = theme.value;
 
+                    const nameDiv = item.children[0];
+                    const nameSpan = nameDiv.children[0];
+                    const buttonsDiv = item.children[1];
+                    const setTagBtn = buttonsDiv.children[0];
+                    const linkBgBtn = buttonsDiv.children[1];
+                    const favoriteBtn = buttonsDiv.children[2];
+                    const renameBtn = buttonsDiv.children[3];
+                    const deleteBtn = buttonsDiv.children[4];
+
                     // 设置主题名
-                    item.querySelector('.theme-item-name-text').textContent = theme.display;
+                    nameSpan.textContent = theme.display;
 
                     // 设置标签药丸
                     if (theme.tags && theme.tags.length > 0) {
-                        const nameDiv = item.querySelector('.theme-item-name');
                         const tagsDiv = document.createElement('div');
                         tagsDiv.className = 'theme-item-tags';
                         theme.tags.forEach(tagId => {
@@ -816,17 +878,15 @@
                     // 设置收藏状态
                     const isFavorited = favoritesSet.has(theme.value);
                     if (isFavorited) {
-                        const starIcon = item.querySelector('.favorite-btn i');
-                        starIcon.className = 'fa-solid fa-star';
+                        favoriteBtn.children[0].className = 'fa-solid fa-star';
                     }
 
                     // 设置绑定状态
                     const isBound = !!themeBackgroundBindings[theme.value];
                     if (isBound) {
-                        const linkBtn = item.querySelector('.link-bg-btn');
-                        linkBtn.classList.add('linked');
-                        linkBtn.querySelector('i').className = 'fa-solid fa-link-slash';
-                        linkBtn.title = '取消背景图关联';
+                        linkBgBtn.classList.add('linked');
+                        linkBgBtn.children[0].className = 'fa-solid fa-link-slash';
+                        linkBgBtn.title = '取消背景图关联';
                     }
 
                     // 批量选中状态
@@ -838,37 +898,31 @@
                 }
 
                 // 首次构建：创建所有主题 DOM 节点并缓存
-                function buildThemeList(cachedTags, scrollTop) {
-                    const tags = cachedTags || loadThemeTags();
-                    const tagsMap = new Map(tags.map(t => [t.id, t]));
+                function buildThemeListLazy(scrollTop) {
                     const savedScroll = scrollTop !== undefined ? scrollTop : contentWrapper.scrollTop;
 
                     // 清空旧缓存和旧列表
                     themeItemMap.clear();
+                    _activeThemeItem = null;
                     const oldList = contentWrapper.querySelector('.theme-list');
                     if (oldList) oldList.remove();
 
                     const list = document.createElement('ul');
                     list.className = 'theme-list';
-                    const fragment = document.createDocumentFragment();
+                    contentWrapper.appendChild(list);
 
                     // 预计算筛选集合用于首次显示
                     const searchTerm = searchBox.value.toLowerCase();
 
-                    allParsedThemes.forEach(theme => {
-                        const item = createThemeItem(theme, tagsMap);
-                        themeItemMap.set(theme.value, item);
-
-                        // 首次构建时也应用筛选
+                    filteredThemes = allParsedThemes.filter(theme => {
                         const matchesTag = isThemeMatchingFilters(theme);
                         const matchesSearch = !searchTerm || theme.display.toLowerCase().includes(searchTerm);
-                        item.style.display = (matchesTag && matchesSearch) ? 'flex' : 'none';
-
-                        fragment.appendChild(item);
+                        return matchesTag && matchesSearch;
                     });
 
-                    list.appendChild(fragment);
-                    contentWrapper.appendChild(list);
+                    renderedCount = 0;
+                    renderNextChunk();
+
                     contentWrapper.scrollTop = savedScroll;
                     updateActiveState();
                 }
@@ -884,17 +938,9 @@
                     return false;
                 }
 
-                // 轻量级筛选：标签切换时只改 display，零 DOM 创建/销毁
-                function filterThemeList() {
-                    const searchTerm = searchBox.value.toLowerCase();
-                    // 直接遍历缓存，修改 display 属性（使用 Map 索引，O(1) 查找）
-                    for (const [themeName, item] of themeItemMap) {
-                        const theme = allParsedThemesMap.get(themeName);
-                        if (!theme) { item.style.display = 'none'; continue; }
-                        const matchesTag = isThemeMatchingFilters(theme);
-                        const matchesSearch = !searchTerm || theme.display.toLowerCase().includes(searchTerm);
-                        item.style.display = (matchesTag && matchesSearch) ? 'flex' : 'none';
-                    }
+                // 轻量级筛选：使用懒加载重新构建列表
+                function filterThemeList(scrollTop) {
+                    buildThemeListLazy(scrollTop);
                 }
 
                 // 快速更新标签芯片的 active 状态（纯 CSS 切换，不重建 DOM）
@@ -920,7 +966,7 @@
                 function handleTagFilterChange() {
                     localStorage.setItem(ACTIVE_TAGS_KEY, JSON.stringify(Array.from(activeTagFilters)));
                     updateTagChipsActiveState();
-                    filterThemeList(); // 只切换 display，不重建 DOM
+                    filterThemeList(0); // 筛选切换时滚动回顶部
                 }
 
                 // === 新增：轻量级更新标签和界面，不重建 DOM ===
@@ -956,12 +1002,12 @@
                         if (!theme) continue;
 
                         // 移除旧标签
-                        const oldTagsDiv = item.querySelector('.theme-item-tags');
+                        const nameDiv = item.children[0];
+                        const oldTagsDiv = nameDiv.children[1];
                         if (oldTagsDiv) oldTagsDiv.remove();
 
                         // 添加新标签
                         if (theme.tags && theme.tags.length > 0) {
-                            const nameDiv = item.querySelector('.theme-item-name');
                             const tagsDiv = document.createElement('div');
                             tagsDiv.className = 'theme-item-tags';
                             theme.tags.forEach(tagId => {
@@ -985,7 +1031,7 @@
                     const item = themeItemMap.get(oldName);
                     if (item) {
                         item.dataset.value = newName;
-                        const textSpan = item.querySelector('.theme-item-name-text');
+                        const textSpan = item.children[0].children[0];
                         if (textSpan) textSpan.textContent = newName;
                         themeItemMap.set(newName, item);
                         themeItemMap.delete(oldName);
@@ -1500,7 +1546,7 @@
                 let _searchDebounceTimer = null;
                 searchBox.addEventListener('input', (e) => {
                     clearTimeout(_searchDebounceTimer);
-                    _searchDebounceTimer = setTimeout(() => filterThemeList(), 1000);
+                    _searchDebounceTimer = setTimeout(() => filterThemeList(0), 1000);
                 });
 
                 randomBtn.addEventListener('click', async () => {
@@ -2230,6 +2276,12 @@
                         touchTimer = null;
                     }
                 });
+
+                contentWrapper.addEventListener('scroll', () => {
+                    if (contentWrapper.scrollHeight - contentWrapper.scrollTop - contentWrapper.clientHeight < 120) {
+                        renderNextChunk();
+                    }
+                }, { passive: true });
 
                 function applyBackgroundDirectly(bgFile) {
                     if (!bgFile) return;
