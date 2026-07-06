@@ -1,6 +1,146 @@
 (function () {
     'use strict';
 
+    let currentAutoThemeState = null;
+    let autoThemeApplied = false;
+
+    // 轻量级并发限制辅助函数，保证在低端设备或超大批量操作时网络请求有序，避免过载
+    async function limitConcurrency(concurrency, items, taskFn) {
+        const results = [];
+        const executing = new Set();
+
+        for (const item of items) {
+            const p = Promise.resolve().then(() => taskFn(item));
+            results.push(p);
+            executing.add(p);
+
+            const clean = () => executing.delete(p);
+            p.then(clean, clean);
+
+            if (executing.size >= concurrency) {
+                await Promise.race(executing);
+            }
+        }
+
+        return Promise.allSettled(results);
+    }
+
+    // 早期极速主题切换，避免双重排版与视觉闪烁
+    function applyEarlyAutoTheme(originalSelect, settings) {
+        if (!settings || !settings.enabled) return;
+
+        let newState = null;
+        if (settings.mode === 'system') {
+            newState = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'day';
+        } else if (settings.mode === 'time') {
+            const now = new Date();
+            const currentTime = now.getHours() * 60 + now.getMinutes();
+            const [dayH, dayM] = settings.dayStart.split(':').map(Number);
+            const [nightH, nightM] = settings.nightStart.split(':').map(Number);
+            const dayTime = dayH * 60 + dayM;
+            const nightTime = nightH * 60 + nightM;
+
+            if (dayTime < nightTime) {
+                newState = (currentTime >= dayTime && currentTime < nightTime) ? 'day' : 'night';
+            } else {
+                newState = (currentTime >= nightTime && currentTime < dayTime) ? 'night' : 'day';
+            }
+        }
+
+        if (!newState) return;
+        currentAutoThemeState = newState;
+
+        const target = newState === 'day' ? settings.dayTarget : settings.nightTarget;
+        if (!target) return;
+
+        let themeToApply = null;
+        if (target.startsWith('[Tag] ')) {
+            const tagId = target.replace('[Tag] ', '');
+            try {
+                const tags = JSON.parse(localStorage.getItem('themeManager_themeTags')) || [];
+                const tag = tags.find(t => t.id === tagId);
+                if (tag && tag.themes && tag.themes.length > 0) {
+                    const tagThemesSet = new Set(tag.themes);
+                    const pool = [];
+                    for (let i = 0; i < originalSelect.options.length; i++) {
+                        const val = originalSelect.options[i].value;
+                        if (tagThemesSet.has(val)) {
+                            pool.push(val);
+                        }
+                    }
+                    if (pool.length > 0) {
+                        themeToApply = pool[Math.floor(Math.random() * pool.length)];
+                    }
+                }
+            } catch (e) {
+                console.error('[Theme Manager] 早期检测解析标签数据失败:', e);
+            }
+        } else {
+            let hasOption = false;
+            for (let i = 0; i < originalSelect.options.length; i++) {
+                if (originalSelect.options[i].value === target) {
+                    hasOption = true;
+                    break;
+                }
+            }
+            if (hasOption) themeToApply = target;
+        }
+
+        if (themeToApply) {
+            const themeChanged = originalSelect.value !== themeToApply;
+            if (themeChanged) {
+                console.log(`[Theme Manager] 启动早期极速切换主题至: ${themeToApply}`);
+                originalSelect.value = themeToApply;
+                originalSelect.dispatchEvent(new Event('change'));
+            }
+
+            // 延迟应用背景，避免阻塞渲染
+            try {
+                const bindings = JSON.parse(localStorage.getItem('themeManager_backgroundBindings')) || {};
+                const boundBg = bindings[themeToApply];
+                if (boundBg) {
+                    setTimeout(() => {
+                        const bg1 = document.querySelector('#bg1');
+                        if (bg1) {
+                            const currentBg = bg1.style.backgroundImage;
+                            const targetUrl = `backgrounds/${encodeURIComponent(boundBg)}`;
+                            if (currentBg && (currentBg.includes(targetUrl) || currentBg.includes(boundBg))) {
+                                return; // 背景已正确设置，直接跳过，避免重复点击与重排
+                            }
+                        }
+
+                        const escapedBg = CSS.escape(boundBg);
+                        const bgElement = document.querySelector(`#bg_menu_content .bg_example[bgfile="${escapedBg}"], #bg_custom_content .bg_example[bgfile="${escapedBg}"]`);
+                        if (bgElement) {
+                            bgElement.click();
+                        } else if (bg1) {
+                            bg1.style.backgroundImage = `url("backgrounds/${encodeURIComponent(boundBg)}")`;
+                        }
+                    }, 500);
+                }
+            } catch (e) {
+                console.error('[Theme Manager] 早期检测应用背景图失败:', e);
+            }
+        }
+    }
+
+    // 早期轮询：一旦原生 select 可用且 SillyTavern 上下文已就绪，立即执行主题切换
+    const earlyAutoThemeInterval = setInterval(() => {
+        const originalSelect = document.querySelector('#themes');
+        if (originalSelect && window.SillyTavern?.getContext) {
+            clearInterval(earlyAutoThemeInterval);
+            if (!autoThemeApplied) {
+                autoThemeApplied = true;
+                try {
+                    const settings = JSON.parse(localStorage.getItem('themeManager_autoTheme'));
+                    applyEarlyAutoTheme(originalSelect, settings);
+                } catch (e) {
+                    console.error('[Theme Manager] 早期读取自动主题配置失败:', e);
+                }
+            }
+        }
+    }, 50);
+
     const initInterval = setInterval(() => {
         const originalSelect = document.querySelector('#themes');
         const updateButton = document.querySelector('#ui-preset-update-button');
@@ -9,6 +149,7 @@
         if (originalSelect && updateButton && saveAsButton && window.SillyTavern?.getContext && !document.querySelector('#theme-manager-panel')) {
             console.log("Theme Manager (v23.0 Final Stable): 初始化...");
             clearInterval(initInterval);
+            autoThemeApplied = true; // 确保不重复触发早期检测
 
             try {
                 const { getRequestHeaders, showLoader, hideLoader, callGenericPopup, eventSource, eventTypes } = SillyTavern.getContext();
@@ -891,32 +1032,33 @@
                 }
 
                 // 增量添加主题项到 UI，避免全量重建 DOM（批量导入时调用）
-                function softAddThemeUI(themeObject) {
+                function softAddThemeUI(themeObject, cachedTags = null, listFragment = null) {
                     const themeName = themeObject.name;
-                    const cachedTags = loadThemeTags();
-                    const tagIds = getTagsForTheme(themeName, cachedTags);
+                    const tags = cachedTags || loadThemeTags();
+                    const tagsMap = new Map(tags.map(t => [t.id, t]));
+                    const tagIds = getTagsForTheme(themeName, tags);
                     const newParsed = { value: themeName, display: themeName, tags: tagIds };
 
-                    // 更新 allParsedThemes（覆盖或追加）
-                    const existingParsedIdx = allParsedThemes.findIndex(t => t.value === themeName);
-                    if (existingParsedIdx > -1) {
-                        allParsedThemes[existingParsedIdx] = newParsed;
+                    // 更新 allParsedThemes（覆盖或追加）- O(1) Map 查找
+                    const existingParsed = allParsedThemesMap.get(themeName);
+                    if (existingParsed) {
+                        existingParsed.tags = tagIds;
                     } else {
                         allParsedThemes.push(newParsed);
+                        allParsedThemesMap.set(themeName, newParsed);
                     }
-                    allParsedThemesMap.set(themeName, newParsed);
 
-                    // 更新 allThemeObjects（覆盖或追加）
-                    const objIdx = allThemeObjects.findIndex(t => t.name === themeName);
-                    if (objIdx > -1) {
-                        allThemeObjects[objIdx] = themeObject;
+                    // 更新 allThemeObjects（覆盖或追加）- O(1) 原地更新
+                    const existingObj = allThemeObjectsMap.get(themeName);
+                    if (existingObj) {
+                        Object.assign(existingObj, themeObject);
                     } else {
                         allThemeObjects.push(themeObject);
+                        allThemeObjectsMap.set(themeName, themeObject);
                     }
-                    allThemeObjectsMap.set(themeName, themeObject);
 
                     // 构建并缓存 DOM 节点（cloneNode 比 innerHTML 快）
-                    const item = createThemeItem(newParsed, cachedTags);
+                    const item = createThemeItem(newParsed, tagsMap);
                     themeItemMap.set(themeName, item);
 
                     // 应用当前搜索和标签筛选（新项默认可见性）
@@ -925,9 +1067,13 @@
                     const matchesSearch = !searchTerm || themeName.toLowerCase().includes(searchTerm);
                     item.style.display = (matchesTag && matchesSearch) ? 'flex' : 'none';
 
-                    // 追加到列表末尾（DocumentFragment 单次 reflow）
-                    const list = contentWrapper.querySelector('.theme-list');
-                    if (list) list.appendChild(item);
+                    // 如果提供了 listFragment，则追加到 fragment 中以实现批量插入；否则直接 append 到 DOM
+                    if (listFragment) {
+                        listFragment.appendChild(item);
+                    } else {
+                        const list = contentWrapper.querySelector('.theme-list');
+                        if (list) list.appendChild(item);
+                    }
                 }
 
                 function renderTagsUI(cachedTags) {
@@ -1018,60 +1164,90 @@
                     let favoritesToUpdate = JSON.parse(localStorage.getItem(FAVORITES_KEY)) || [];
                     let tagsToUpdate = loadThemeTags();
 
+                    const renameTasks = [];
+
                     for (const oldName of selectedForBatch) {
+                        const themeObject = currentThemes.find(t => t.name === oldName);
+                        if (!themeObject) {
+                            console.warn(`批量操作：在API返回中未找到主题 "${oldName}"，已跳过。`);
+                            skippedCount++;
+                            continue;
+                        }
+                        const newName = renameLogic(oldName);
+                        if (currentThemes.some(t => t.name === newName && t.name !== oldName)) {
+                            console.warn(`批量操作：目标名称 "${newName}" 已存在，已跳过 "${oldName}"。`);
+                            toastr.warning(`主题 "${newName}" 已存在，跳过重命名。`);
+                            skippedCount++;
+                            continue;
+                        }
+
+                        if (newName === oldName) {
+                            successCount++; // 名字没变，不算作需要 API 的操作
+                            continue;
+                        }
+
+                        renameTasks.push({ oldName, newName, themeObject });
+                    }
+
+                    if (renameTasks.length > 0) {
+                        // 并行执行所有的重命名保存与删除操作 (限制并发为 3)
+                        const results = await limitConcurrency(3, renameTasks, async ({ oldName, newName, themeObject }) => {
+                            const newThemeObject = { ...themeObject, name: newName };
+                            // 保存新文件和删除旧文件并行进行
+                            await Promise.all([
+                                saveTheme(newThemeObject),
+                                deleteTheme(oldName)
+                            ]);
+                            return { oldName, newName, newThemeObject };
+                        });
+
+                        // 批量更新原生 DOM、内存与插件状态
+                        _suspendObserver = true;
                         try {
-                            const themeObject = currentThemes.find(t => t.name === oldName);
-                            if (!themeObject) {
-                                console.warn(`批量操作：在API返回中未找到主题 "${oldName}"，已跳过。`);
-                                skippedCount++;
-                                continue;
-                            }
-                            const newName = renameLogic(oldName);
-                            if (currentThemes.some(t => t.name === newName && t.name !== oldName)) {
-                                console.warn(`批量操作：目标名称 "${newName}" 已存在，已跳过 "${oldName}"。`);
-                                toastr.warning(`主题 "${newName}" 已存在，跳过重命名。`);
-                                skippedCount++;
-                                continue;
-                            }
-                            const isActive = originalSelect.value === oldName;
-                            if (newName !== oldName) {
-                                const newThemeObject = { ...themeObject, name: newName };
-                                await saveTheme(newThemeObject);
-                                await deleteTheme(oldName);
-                                manualUpdateOriginalSelect('rename', oldName, newName);
-                                if (isActive) {
-                                    activeThemeWasRenamed = true;
-                                }
-                                // delete+add 比 rename 更可靠：不依赖 ST 内部数组里必须存在 oldName
-                                updateSTThemeMemory({ name: oldName }, 'delete');
-                                updateSTThemeMemory(newThemeObject, 'add');
-                                softRenameThemeUI(oldName, newName); // 增量更新 DOM，避免全量重建
+                            results.forEach((res, index) => {
+                                const task = renameTasks[index];
+                                if (res.status === 'fulfilled') {
+                                    successCount++;
+                                    const { oldName, newName, newThemeObject } = res.value;
 
-                                const favIndex = favoritesToUpdate.indexOf(oldName);
-                                if (favIndex > -1) {
-                                    favoritesToUpdate[favIndex] = newName;
-                                }
-
-                                if (themeBackgroundBindings[oldName]) {
-                                    themeBackgroundBindings[newName] = themeBackgroundBindings[oldName];
-                                    delete themeBackgroundBindings[oldName];
-                                }
-
-                                // 同步更新标签数据中的主题名
-                                tagsToUpdate.forEach(tag => {
-                                    if (tag.themes) {
-                                        const idx = tag.themes.indexOf(oldName);
-                                        if (idx > -1) tag.themes[idx] = newName;
+                                    const isActive = originalSelect.value === oldName;
+                                    manualUpdateOriginalSelect('rename', oldName, newName);
+                                    if (isActive) {
+                                        activeThemeWasRenamed = true;
                                     }
-                                });
-                            }
-                            successCount++;
-                        } catch (error) {
-                            console.error(`批量重命名主题 "${oldName}" 时失败:`, error);
-                            toastr.error(`处理主题 "${oldName}" 时失败: ${error.message}`);
-                            errorCount++;
+
+                                    updateSTThemeMemory({ name: oldName }, 'delete');
+                                    updateSTThemeMemory(newThemeObject, 'add');
+                                    softRenameThemeUI(oldName, newName);
+
+                                    const favIndex = favoritesToUpdate.indexOf(oldName);
+                                    if (favIndex > -1) {
+                                        favoritesToUpdate[favIndex] = newName;
+                                    }
+
+                                    if (themeBackgroundBindings[oldName]) {
+                                        themeBackgroundBindings[newName] = themeBackgroundBindings[oldName];
+                                        delete themeBackgroundBindings[oldName];
+                                    }
+
+                                    // 同步更新标签数据中的主题名
+                                    tagsToUpdate.forEach(tag => {
+                                        if (tag.themes) {
+                                            const idx = tag.themes.indexOf(oldName);
+                                            if (idx > -1) tag.themes[idx] = newName;
+                                        }
+                                    });
+                                } else {
+                                    errorCount++;
+                                    console.error(`批量重命名主题 "${task.oldName}" 时失败:`, res.reason);
+                                    toastr.error(`处理主题 "${task.oldName}" 时失败: ${res.reason.message || res.reason}`);
+                                }
+                            });
+                        } finally {
+                            setTimeout(() => { _suspendObserver = false; }, 0);
                         }
                     }
+
                     updateFavorites(favoritesToUpdate);
                     localStorage.setItem(THEME_BACKGROUND_BINDINGS_KEY, JSON.stringify(themeBackgroundBindings));
                     saveThemeTags(tagsToUpdate);
@@ -1080,7 +1256,7 @@
                     selectedForBatch.clear();
                     lastClickedThemeName = null;
                     managerPanel.querySelectorAll('.selected-for-batch').forEach(el => el.classList.remove('selected-for-batch'));
-                    invalidateThemesCache(); // 使缓存失效，确保后续调用获取最新数据
+                    invalidateThemesCache();
                     filterThemeList();
 
                     let summary = `批量操作完成！成功 ${successCount} 个`;
@@ -1100,35 +1276,119 @@
                     if (!confirm(`确定要删除选中的 ${selectedForBatch.size} 个主题吗？`)) return;
 
                     showLoader();
+                    const deletedThemes = Array.from(selectedForBatch);
+                    const deletedSet = new Set(deletedThemes);
+
+                    // 并发发送 API 删除请求 (限制并发为 5)
+                    const results = await limitConcurrency(5, deletedThemes, name => deleteTheme(name));
+
+                    const successfullyDeleted = [];
+                    const failedDeleted = [];
+                    results.forEach((res, index) => {
+                        const name = deletedThemes[index];
+                        if (res.status === 'fulfilled') {
+                            successfullyDeleted.push(name);
+                        } else {
+                            failedDeleted.push(name);
+                            console.error(`删除主题 "${name}" 失败:`, res.reason);
+                        }
+                    });
+
+                    if (successfullyDeleted.length === 0) {
+                        hideLoader();
+                        toastr.error('批量删除全部失败，请检查后端权限或连接状况。');
+                        return;
+                    }
+
+                    const successSet = new Set(successfullyDeleted);
                     let tagsToUpdate = loadThemeTags();
 
-                    for (const themeName of selectedForBatch) {
-                        const isCurrentlyActive = originalSelect.value === themeName;
-                        await deleteTheme(themeName);
-                        manualUpdateOriginalSelect('delete', themeName);
-                        updateSTThemeMemory({ name: themeName }, 'delete');
-                        softDeleteThemeUI(themeName);
+                    // 判断被删除的主题中是否有当前激活的
+                    const isCurrentlyActiveDeleted = successSet.has(originalSelect.value);
+
+                    // 1. 批量更新 ST 原生下拉框
+                    _suspendObserver = true;
+                    try {
+                        successfullyDeleted.forEach(themeName => {
+                            const optionToDelete = findOptionByValue(originalSelect, themeName);
+                            if (optionToDelete) optionToDelete.remove();
+                        });
+                    } finally {
+                        setTimeout(() => { _suspendObserver = false; }, 0);
+                    }
+
+                    // 2. 批量同步 ST 内部主题内存
+                    try {
+                        const contexts = [];
+                        if (typeof power_user !== 'undefined') contexts.push(power_user);
+                        if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                            contexts.push(SillyTavern.getContext());
+                        }
+
+                        contexts.forEach(ctx => {
+                            if (ctx && Array.isArray(ctx.themes)) {
+                                ctx.themes = ctx.themes.filter(t => !successSet.has(t.name));
+                            }
+                        });
+
+                        if (typeof themes !== 'undefined' && Array.isArray(themes)) {
+                            for (let i = themes.length - 1; i >= 0; i--) {
+                                if (successSet.has(themes[i].name)) {
+                                    themes.splice(i, 1);
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('[Theme Manager] 批量同步 ST 内部主题内存失败:', e);
+                    }
+
+                    // 3. 批量删除主题 UI 状态
+                    successfullyDeleted.forEach(themeName => {
+                        // 从 DOM 移除
+                        const item = themeItemMap.get(themeName);
+                        if (item) {
+                            item.remove();
+                            themeItemMap.delete(themeName);
+                        }
+
+                        // 从数据缓存中移除
+                        const idx = allParsedThemes.findIndex(t => t.value === themeName);
+                        if (idx > -1) {
+                            allParsedThemes.splice(idx, 1);
+                            allParsedThemesMap.delete(themeName);
+                        }
+
+                        const objIndex = allThemeObjects.findIndex(t => t.name === themeName);
+                        if (objIndex > -1) {
+                            allThemeObjects.splice(objIndex, 1);
+                        }
+                        allThemeObjectsMap.set(themeName, null);
+                        allThemeObjectsMap.delete(themeName);
+                        stKnownThemes.delete(themeName);
+
                         if (themeBackgroundBindings[themeName]) {
                             delete themeBackgroundBindings[themeName];
                         }
-                        // 清理收藏
-                        favorites = favorites.filter(f => f !== themeName);
-                        // 清理标签数据
-                        tagsToUpdate.forEach(tag => {
-                            if (tag.themes) {
-                                const idx = tag.themes.indexOf(themeName);
-                                if (idx > -1) tag.themes.splice(idx, 1);
-                            }
-                        });
-                        if (isCurrentlyActive) {
-                            const azureOption = findOptionByValue(originalSelect, 'Azure');
-                            originalSelect.value = azureOption ? 'Azure' : (originalSelect.options[0]?.value || '');
-                            originalSelect.dispatchEvent(new Event('change'));
+                    });
+
+                    // 4. 清理收藏和标签数据
+                    favorites = favorites.filter(f => !successSet.has(f));
+                    tagsToUpdate.forEach(tag => {
+                        if (tag.themes) {
+                            tag.themes = tag.themes.filter(t => !successSet.has(t));
                         }
-                    }
+                    });
+
                     localStorage.setItem(THEME_BACKGROUND_BINDINGS_KEY, JSON.stringify(themeBackgroundBindings));
                     updateFavorites(favorites);
                     saveThemeTags(tagsToUpdate);
+
+                    // 5. 切换激活状态，如果被删的主题是当前激活的
+                    if (isCurrentlyActiveDeleted) {
+                        const azureOption = findOptionByValue(originalSelect, 'Azure');
+                        originalSelect.value = azureOption ? 'Azure' : (originalSelect.options[0]?.value || '');
+                        originalSelect.dispatchEvent(new Event('change'));
+                    }
 
                     // 批量操作完成后统一触发持久化
                     if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
@@ -1140,7 +1400,15 @@
                     lastClickedThemeName = null;
                     hideLoader();
                     invalidateThemesCache();
-                    toastr.success('批量删除完成！');
+
+                    // 更新顶部标签按钮计数器
+                    renderTagsUI(tagsToUpdate);
+
+                    if (failedDeleted.length > 0) {
+                        toastr.warning(`批量删除完成！成功 ${successfullyDeleted.length} 个，失败 ${failedDeleted.length} 个（${failedDeleted.join(', ')}）。`);
+                    } else {
+                        toastr.success(`批量删除完成！成功删除 ${successfullyDeleted.length} 个主题。`);
+                    }
 
                     updateActiveState();
                 }
@@ -1289,57 +1557,127 @@
                     if (!files.length) return;
 
                     showLoader();
-                    let successCount = 0;
-                    let errorCount = 0;
-                    let needsUIUpdate = false;
-                    const importedThemes = []; // 追踪本次导入的主题，用于增量更新 UI
 
-                    for (const file of files) {
+                    // 1. 并行读取文件内容并解析 JSON
+                    const fileReadPromises = Array.from(files).map(async (file) => {
                         try {
                             const fileContent = await file.text();
                             const themeObject = JSON.parse(fileContent);
-
                             if (themeObject && themeObject.name && typeof themeObject.main_text_color !== 'undefined') {
-                                await saveTheme(themeObject);
-                                successCount++;
-                                updateSTThemeMemory(themeObject, 'add');
-                                const existingOption = findOptionByValue(originalSelect, themeObject.name);
-                                const isNewTheme = !existingOption;
-                                if (isNewTheme) {
-                                    manualUpdateOriginalSelect('add', null, themeObject.name);
-                                }
-                                importedThemes.push({ themeObject, isNewTheme });
-                                needsUIUpdate = true;
-                            } else {
-                                console.warn(`文件 "${file.name}" 不是一个有效的主题文件，已跳过。`);
-                                errorCount++;
+                                return { file, themeObject, valid: true };
                             }
+                            return { file, valid: false, error: '非有效的主题文件' };
                         } catch (err) {
-                            console.error(`处理文件 "${file.name}" 时出错:`, err);
-                            errorCount++;
+                            return { file, valid: false, error: err.message };
                         }
-                    }
+                    });
 
-                    hideLoader();
-                    toastr.success(`批量导入完成！成功 ${successCount} 个，失败 ${errorCount} 个。`);
+                    const parsedFiles = await Promise.all(fileReadPromises);
+                    const validFiles = parsedFiles.filter(f => f.valid);
+                    const invalidFiles = parsedFiles.filter(f => !f.valid);
 
-                    if (needsUIUpdate) {
-                        invalidateThemesCache(); // 使缓存失效，确保后续调用获取最新数据
-                        // 增量更新 UI，仅处理本次导入的主题（无需全量重建 DOM）
-                        importedThemes.forEach(({ themeObject, isNewTheme }) => {
-                            if (isNewTheme) {
-                                softAddThemeUI(themeObject); // 新主题：创建 DOM 并追加
-                            } else {
-                                // 覆盖现有主题：只更新内存中的数据对象，DOM 无需变化
-                                const idx = allThemeObjects.findIndex(t => t.name === themeObject.name);
-                                if (idx > -1) allThemeObjects[idx] = themeObject;
-                                allThemeObjectsMap.set(themeObject.name, themeObject);
+                    let successCount = 0;
+                    let errorCount = invalidFiles.length;
+                    const importedThemes = [];
+                    let needsUIUpdate = false;
+
+                    // 2. 并行发送 API 保存请求 (限制并发为 5)
+                    if (validFiles.length > 0) {
+                        const saveResults = await limitConcurrency(5, validFiles, async ({ themeObject }) => {
+                            try {
+                                await saveTheme(themeObject);
+                                return { success: true, themeObject };
+                            } catch (err) {
+                                return { success: false, themeObject, error: err };
                             }
                         });
+
+                        // 收集保存成功的主题
+                        saveResults.forEach((res, index) => {
+                            const orig = validFiles[index];
+                            if (res.status === 'fulfilled' && res.value.success) {
+                                successCount++;
+                                const themeObject = res.value.themeObject;
+                                importedThemes.push(themeObject);
+                            } else {
+                                errorCount++;
+                                console.error(`保存主题 "${orig.themeObject.name}" 失败:`, res.status === 'fulfilled' ? res.value.error : res.reason);
+                            }
+                        });
+                    }
+
+                    // 3. 批量更新下拉框、内存及 UI DOM
+                    if (importedThemes.length > 0) {
+                        needsUIUpdate = true;
+
+                        // 批量更新 ST 原生下拉框 & 同步内部内存
+                        _suspendObserver = true;
+                        try {
+                            importedThemes.forEach(themeObject => {
+                                updateSTThemeMemory(themeObject, 'add');
+                                const existingOption = findOptionByValue(originalSelect, themeObject.name);
+                                if (!existingOption) {
+                                    const option = document.createElement('option');
+                                    option.value = themeObject.name;
+                                    option.textContent = themeObject.name;
+                                    originalSelect.appendChild(option);
+                                }
+                            });
+                        } finally {
+                            setTimeout(() => { _suspendObserver = false; }, 0);
+                        }
+
+                        invalidateThemesCache();
+
+                        // 预先读取一次标签并缓存
+                        const cachedTags = loadThemeTags();
+                        const listFragment = document.createDocumentFragment();
+                        const list = contentWrapper.querySelector('.theme-list');
+
+                        importedThemes.forEach(themeObject => {
+                            const themeName = themeObject.name;
+                            const existingParsed = allParsedThemesMap.get(themeName);
+                            const isNewTheme = !existingParsed;
+
+                            if (isNewTheme) {
+                                // 批量构建并追加到 DocumentFragment
+                                softAddThemeUI(themeObject, cachedTags, listFragment);
+                            } else {
+                                // 覆盖现有主题：使用 Object.assign 原地更新数据，免去 findIndex 的 O(N) 搜索开销
+                                const existingObj = allThemeObjectsMap.get(themeName);
+                                if (existingObj) {
+                                    Object.assign(existingObj, themeObject);
+                                } else {
+                                    allThemeObjects.push(themeObject);
+                                    allThemeObjectsMap.set(themeName, themeObject);
+                                }
+                            }
+                        });
+
+                        // 一次性挂载到 DOM，减少 Reflow
+                        if (list && listFragment.children.length > 0) {
+                            list.appendChild(listFragment);
+                        }
+
                         if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
                             const ctx = SillyTavern.getContext();
                             if (ctx.saveSettingsDebounced) ctx.saveSettingsDebounced();
                         }
+                    }
+
+                    hideLoader();
+                    
+                    let summary = `批量导入完成！成功 ${successCount} 个`;
+                    if (errorCount > 0) {
+                        summary += `，失败 ${errorCount} 个。`;
+                        toastr.warning(summary);
+                    } else {
+                        summary += '。';
+                        toastr.success(summary);
+                    }
+
+                    if (needsUIUpdate) {
+                        updateActiveState();
                     }
 
                     event.target.value = '';
@@ -1896,6 +2234,17 @@
                 function applyBackgroundDirectly(bgFile) {
                     if (!bgFile) return;
 
+                    // 检查当前背景是否已经是此背景，避免重复应用与重排
+                    const bg1 = document.querySelector('#bg1');
+                    if (bg1) {
+                        const currentBg = bg1.style.backgroundImage;
+                        const targetUrl = `backgrounds/${encodeURIComponent(bgFile)}`;
+                        if (currentBg && (currentBg.includes(targetUrl) || currentBg.includes(bgFile))) {
+                            console.log(`[Theme Manager] 背景图已经是 ${bgFile}，跳过应用`);
+                            return;
+                        }
+                    }
+
                     // 尝试通过 DOM 元素点击（桌面端通常可用）
                     const escapedBg = CSS.escape(bgFile);
                     const bgElement = document.querySelector(`#bg_menu_content .bg_example[bgfile="${escapedBg}"], #bg_custom_content .bg_example[bgfile="${escapedBg}"]`);
@@ -2142,8 +2491,8 @@
                             return pool[Math.floor(Math.random() * pool.length)].value;
                         }
                     } else {
-                        // 检查主题是否仍然存在
-                        if (Array.from(document.querySelectorAll('#themes option')).some(opt => opt.value === target)) return target;
+                        // 检查主题是否仍然存在 (O(1) Set 快速检索，避免 DOM 扫描)
+                        if (stKnownThemes.has(target)) return target;
                     }
                     return null;
                 }
@@ -2215,7 +2564,6 @@
                     dayTarget: '',
                     nightTarget: ''
                 };
-                let currentAutoThemeState = null;
                 let autoThemeCheckInterval = null;
 
 
@@ -2510,39 +2858,53 @@
                         if (selectedBgs.size === 0) return;
                         if (!confirm(`确定要删除选中的 ${selectedBgs.size} 个背景图吗？此操作不可撤销。`)) return;
 
+                        showLoader();
                         const headers = getRequestHeaders();
+                        const bgsToDelete = Array.from(selectedBgs);
+
+                        // 并发发送 API 请求 (限制并发为 5)
+                        const results = await limitConcurrency(5, bgsToDelete, async (bgFile) => {
+                            const response = await fetch('/api/backgrounds/delete', {
+                                method: 'POST',
+                                headers: headers,
+                                body: JSON.stringify({ bg: bgFile })
+                            });
+                            if (!response.ok) throw new Error(await response.text());
+                            return bgFile;
+                        });
+
                         let successCount = 0;
                         let errorCount = 0;
                         const successfullyDeleted = [];
 
-                        for (const bgFile of selectedBgs) {
-                            try {
-                                const response = await fetch('/api/backgrounds/delete', {
-                                    method: 'POST',
-                                    headers: headers,
-                                    body: JSON.stringify({ bg: bgFile })
-                                });
-                                if (!response.ok) throw new Error(await response.text());
+                        results.forEach((res, index) => {
+                            const bgFile = bgsToDelete[index];
+                            if (res.status === 'fulfilled') {
                                 successCount++;
                                 successfullyDeleted.push(bgFile);
-                            } catch (err) {
-                                console.error(`删除背景 "${bgFile}" 失败:`, err);
-                                toastr.error(`删除 "${bgFile}" 失败`);
+                            } else {
+                                console.error(`删除背景 "${bgFile}" 失败:`, res.reason);
                                 errorCount++;
                             }
-                        }
+                        });
 
-                        // 从 DOM 中移除已删除的背景元素
+                        // 批量从 DOM 中移除已删除的背景元素
                         successfullyDeleted.forEach(bgFile => {
                             const elements = document.querySelectorAll(`.bg_example[bgfile="${bgFile}"]`);
                             elements.forEach(el => el.remove());
                             selectedBgs.delete(bgFile);
                         });
 
-                        let message = `删除完成！成功 ${successCount} 个，失败 ${errorCount} 个。`;
-                        if (errorCount > 0 && successCount > 0) toastr.warning(message);
-                        else if (errorCount > 0) toastr.error(message);
-                        else toastr.success(message);
+                        hideLoader();
+
+                        let message = `删除完成！成功 ${successCount} 个`;
+                        if (errorCount > 0) {
+                            message += `，失败 ${errorCount} 个。`;
+                            toastr.warning(message);
+                        } else {
+                            message += '。';
+                            toastr.success(message);
+                        }
 
                         updateCount();
                     });
