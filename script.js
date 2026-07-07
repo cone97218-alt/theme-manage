@@ -161,6 +161,14 @@
                 const BATCH_EDIT_COLLAPSED_KEY = 'themeManager_batchEditCollapsed';
                 const ACTIVE_TAGS_KEY = 'themeManager_activeTagsFilters';
                 const AUTO_THEME_KEY = 'themeManager_autoTheme';
+                const LIST_MODE_KEY = 'themeManager_listMode';
+                const PAGE_SIZE_KEY = 'themeManager_pageSize';
+                const SORT_SELECT_KEY = 'themeManager_sortSelect';
+
+                let listMode = localStorage.getItem(LIST_MODE_KEY) || 'scroll';
+                let pageSize = parseInt(localStorage.getItem(PAGE_SIZE_KEY)) || 50;
+                let sortBy = localStorage.getItem(SORT_SELECT_KEY) || 'name-asc';
+                let currentPage = 1;
 
                 let allParsedThemes = [];
                 let allParsedThemesMap = new Map(); // themeName -> theme object for O(1) lookup
@@ -198,6 +206,47 @@
                     const div = document.createElement('div');
                     div.appendChild(document.createTextNode(str));
                     return div.innerHTML;
+                }
+
+                function getScrollParent(node) {
+                    if (node === null) return window;
+                    if (node.scrollHeight > node.clientHeight) {
+                        const overflowY = window.getComputedStyle(node).overflowY;
+                        if (overflowY === 'auto' || overflowY === 'scroll') {
+                            return node;
+                        }
+                    }
+                    return getScrollParent(node.parentNode);
+                }
+
+                function sortThemes(themes, sortBy) {
+                    const sorted = [...themes];
+                    if (sortBy === 'name-asc') {
+                        sorted.sort((a, b) => a.display.localeCompare(b.display, undefined, { numeric: true, sensitivity: 'base' }));
+                    } else if (sortBy === 'name-desc') {
+                        sorted.sort((a, b) => b.display.localeCompare(a.display, undefined, { numeric: true, sensitivity: 'base' }));
+                    } else if (sortBy === 'favorite-first') {
+                        sorted.sort((a, b) => {
+                            const aFav = favoritesSet.has(a.value);
+                            const bFav = favoritesSet.has(b.value);
+                            if (aFav && !bFav) return -1;
+                            if (!aFav && bFav) return 1;
+                            return a.display.localeCompare(b.display, undefined, { numeric: true, sensitivity: 'base' });
+                        });
+                    } else if (sortBy === 'time-desc') {
+                        sorted.sort((a, b) => {
+                            const diff = (b.mtime || 0) - (a.mtime || 0);
+                            if (diff !== 0) return diff;
+                            return a.display.localeCompare(b.display, undefined, { numeric: true, sensitivity: 'base' });
+                        });
+                    } else if (sortBy === 'time-asc') {
+                        sorted.sort((a, b) => {
+                            const diff = (a.mtime || 0) - (b.mtime || 0);
+                            if (diff !== 0) return diff;
+                            return a.display.localeCompare(b.display, undefined, { numeric: true, sensitivity: 'base' });
+                        });
+                    }
+                    return sorted;
                 }
 
                 function findOptionByValue(selectEl, value) {
@@ -557,6 +606,26 @@
                             </div>
                         </div>
                         <div id="more-actions-container" class="theme-manager-actions collapsed" data-mode="shared">
+                            <div class="tm-button-row" style="margin-bottom: 5px; gap: 8px;">
+                                <select id="tm-list-mode-select" class="text_pole" title="列表显示模式" style="flex: 1; min-width: 0; padding: 2px 5px; height: 28px; font-size: 12px; margin: 0;">
+                                    <option value="scroll">上下滑动看全部</option>
+                                    <option value="page">分页显示模式</option>
+                                </select>
+                                <select id="tm-page-size-select" class="text_pole" title="每页条数" style="flex: 1; min-width: 0; padding: 2px 5px; height: 28px; font-size: 12px; margin: 0; display: none;">
+                                    <option value="30">每页 30 条</option>
+                                    <option value="50">每页 50 条</option>
+                                    <option value="100">每页 100 条</option>
+                                    <option value="200">每页 200 条</option>
+                                    <option value="500">每页 500 条</option>
+                                </select>
+                                <select id="tm-sort-select" class="text_pole" title="排序规则" style="flex: 1; min-width: 0; padding: 2px 5px; height: 28px; font-size: 12px; margin: 0;">
+                                    <option value="name-asc">名称 A-Z</option>
+                                    <option value="name-desc">名称 Z-A</option>
+                                    <option value="favorite-first">收藏优先</option>
+                                    <option value="time-desc">时间倒序</option>
+                                    <option value="time-asc">时间正序</option>
+                                </select>
+                            </div>
                             <div class="tm-button-row">
                                 <button id="batch-edit-btn" class="menu_button" title="进入/退出批量编辑模式"><i class="fa-solid fa-pen-to-square"></i> 批量编辑</button>
                                 <button id="batch-import-btn" class="menu_button" title="从文件批量导入主题"><i class="fa-solid fa-folder-open"></i> 批量导入</button>
@@ -575,6 +644,11 @@
                         </div>
                         <div class="theme-tags-row" id="theme-tags-container"></div>
                         <div class="theme-content"></div>
+                        <div id="tm-pagination-bar" style="display:none; justify-content: center; align-items: center; gap: 10px; margin-top: 8px; margin-bottom: 5px; width: 100%;">
+                            <button id="tm-prev-page-btn" class="menu_button" style="width: auto; padding: 2px 8px; margin: 0;"><i class="fa-solid fa-chevron-left"></i></button>
+                            <span id="tm-page-indicator" style="font-size: 12px; user-select: none;">1 / 1</span>
+                            <button id="tm-next-page-btn" class="menu_button" style="width: auto; padding: 2px 8px; margin: 0;"><i class="fa-solid fa-chevron-right"></i></button>
+                        </div>
                         <div id="auto-theme-modal" class="tm-modal" style="display:none;">
                             <div class="tm-modal-content">
                                 <div class="tm-modal-header">
@@ -634,6 +708,13 @@
                 const randomBtn = managerPanel.querySelector('#random-theme-btn');
                 const batchImportBtn = managerPanel.querySelector('#batch-import-btn');
                 const manageTagsBtn = managerPanel.querySelector('#manage-tags-btn');
+                const listModeSelect = managerPanel.querySelector('#tm-list-mode-select');
+                const pageSizeSelect = managerPanel.querySelector('#tm-page-size-select');
+                const sortSelect = managerPanel.querySelector('#tm-sort-select');
+                const paginationBar = managerPanel.querySelector('#tm-pagination-bar');
+                const prevPageBtn = managerPanel.querySelector('#tm-prev-page-btn');
+                const nextPageBtn = managerPanel.querySelector('#tm-next-page-btn');
+                const pageIndicator = managerPanel.querySelector('#tm-page-indicator');
 
 
 
@@ -766,7 +847,9 @@
                             const themeName = option.value;
                             if (!themeName) return null;
                             const tagIds = getTagsForTheme(themeName, cachedTags);
-                            return { value: themeName, display: themeName, tags: tagIds };
+                            const themeObj = allThemeObjectsMap.get(themeName);
+                            const mtime = themeObj ? themeObj.mtime : 0;
+                            return { value: themeName, display: themeName, tags: tagIds, mtime: mtime || 0 };
                         }).filter(Boolean);
 
                         // 刷新 Map 索引
@@ -820,6 +903,54 @@
 
                     list.appendChild(fragment);
                     renderedCount = nextIndex;
+                }
+
+                function checkScrollLoad() {
+                    if (listMode !== 'scroll') return;
+                    if (renderedCount >= filteredThemes.length) return;
+
+                    const rect = contentWrapper.getBoundingClientRect();
+                    const scrollParent = getScrollParent(contentWrapper);
+                    let isNearBottom = false;
+
+                    if (scrollParent === window) {
+                        isNearBottom = rect.bottom - window.innerHeight < 150;
+                    } else {
+                        const parentRect = scrollParent.getBoundingClientRect();
+                        isNearBottom = rect.bottom - parentRect.bottom < 150;
+                    }
+
+                    if (isNearBottom) {
+                        renderNextChunk();
+                        setTimeout(checkScrollLoad, 100);
+                    }
+                }
+
+                let scrollListenerAttached = false;
+                function initListScrollListener() {
+                    if (scrollListenerAttached) return;
+                    const scrollParent = getScrollParent(contentWrapper);
+                    if (scrollParent) {
+                        scrollParent.addEventListener('scroll', () => {
+                            if (listMode !== 'scroll') return;
+                            
+                            // Check if the bottom of contentWrapper is near the bottom of scrollParent
+                            const rect = contentWrapper.getBoundingClientRect();
+                            let isNearBottom = false;
+                            
+                            if (scrollParent === window) {
+                                isNearBottom = rect.bottom - window.innerHeight < 150;
+                            } else {
+                                const parentRect = scrollParent.getBoundingClientRect();
+                                isNearBottom = rect.bottom - parentRect.bottom < 150;
+                            }
+                            
+                            if (isNearBottom) {
+                                renderNextChunk();
+                            }
+                        }, { passive: true });
+                        scrollListenerAttached = true;
+                    }
                 }
 
                 // 创建可复用的主题项模板（只执行一次 innerHTML 解析）
@@ -914,17 +1045,62 @@
                     // 预计算筛选集合用于首次显示
                     const searchTerm = searchBox.value.toLowerCase();
 
-                    filteredThemes = allParsedThemes.filter(theme => {
+                    const matched = allParsedThemes.filter(theme => {
                         const matchesTag = isThemeMatchingFilters(theme);
                         const matchesSearch = !searchTerm || theme.display.toLowerCase().includes(searchTerm);
                         return matchesTag && matchesSearch;
                     });
 
-                    renderedCount = 0;
-                    renderNextChunk();
+                    // 2. 排序
+                    filteredThemes = sortThemes(matched, sortBy);
 
-                    contentWrapper.scrollTop = savedScroll;
-                    updateActiveState();
+                    if (listMode === 'page') {
+                        // 分页显示模式
+                        paginationBar.style.display = 'flex';
+                        const totalPages = Math.ceil(filteredThemes.length / pageSize) || 1;
+                        if (currentPage > totalPages) currentPage = totalPages;
+                        if (currentPage < 1) currentPage = 1;
+
+                        pageIndicator.textContent = `${currentPage} / ${totalPages}`;
+                        prevPageBtn.disabled = currentPage <= 1;
+                        nextPageBtn.disabled = currentPage >= totalPages;
+
+                        const startIndex = (currentPage - 1) * pageSize;
+                        const endIndex = Math.min(startIndex + pageSize, filteredThemes.length);
+                        const pageThemes = filteredThemes.slice(startIndex, endIndex);
+
+                        const tags = loadThemeTags();
+                        const tagsMap = new Map(tags.map(t => [t.id, t]));
+                        const fragment = document.createDocumentFragment();
+
+                        pageThemes.forEach(theme => {
+                            const item = createThemeItem(theme, tagsMap);
+                            themeItemMap.set(theme.value, item);
+
+                            if (theme.value === originalSelect.value) {
+                                item.classList.add('active');
+                                _activeThemeItem = item;
+                            }
+
+                            fragment.appendChild(item);
+                        });
+
+                        list.appendChild(fragment);
+                        contentWrapper.scrollTop = savedScroll;
+                        updateActiveState();
+                    } else {
+                        // 滚动加载模式
+                        paginationBar.style.display = 'none';
+                        renderedCount = 0;
+                        renderNextChunk();
+
+                        contentWrapper.scrollTop = savedScroll;
+                        updateActiveState();
+
+                        // 延时检测，确保如果首屏没有撑满则继续自动加载下一页
+                        setTimeout(checkScrollLoad, 100);
+                        initListScrollListener();
+                    }
                 }
 
                 // 判断主题是否匹配当前标签筛选
@@ -966,6 +1142,7 @@
                 function handleTagFilterChange() {
                     localStorage.setItem(ACTIVE_TAGS_KEY, JSON.stringify(Array.from(activeTagFilters)));
                     updateTagChipsActiveState();
+                    currentPage = 1;
                     filterThemeList(0); // 筛选切换时滚动回顶部
                 }
 
@@ -1041,6 +1218,7 @@
                     if (themeObj) {
                         themeObj.value = newName;
                         themeObj.display = newName;
+                        themeObj.mtime = Date.now();
                         allParsedThemesMap.set(newName, themeObj);
                         allParsedThemesMap.delete(oldName);
                     }
@@ -1049,6 +1227,7 @@
                     if (objIndex > -1) {
                         const obj = allThemeObjects[objIndex];
                         obj.name = newName;
+                        obj.mtime = Date.now();
                         allThemeObjectsMap.set(newName, obj);
                     }
                     allThemeObjectsMap.delete(oldName);
@@ -1083,7 +1262,7 @@
                     const tags = cachedTags || loadThemeTags();
                     const tagsMap = new Map(tags.map(t => [t.id, t]));
                     const tagIds = getTagsForTheme(themeName, tags);
-                    const newParsed = { value: themeName, display: themeName, tags: tagIds };
+                    const newParsed = { value: themeName, display: themeName, tags: tagIds, mtime: themeObject.mtime || Date.now() };
 
                     // 更新 allParsedThemes（覆盖或追加）- O(1) Map 查找
                     const existingParsed = allParsedThemesMap.get(themeName);
@@ -1546,7 +1725,55 @@
                 let _searchDebounceTimer = null;
                 searchBox.addEventListener('input', (e) => {
                     clearTimeout(_searchDebounceTimer);
-                    _searchDebounceTimer = setTimeout(() => filterThemeList(0), 1000);
+                    _searchDebounceTimer = setTimeout(() => {
+                        currentPage = 1;
+                        filterThemeList(0);
+                    }, 1000);
+                });
+
+                // 初始化配置项控件状态
+                listModeSelect.value = listMode;
+                pageSizeSelect.value = String(pageSize);
+                sortSelect.value = sortBy;
+                pageSizeSelect.style.display = listMode === 'page' ? 'inline-block' : 'none';
+
+                listModeSelect.addEventListener('change', (e) => {
+                    listMode = e.target.value;
+                    localStorage.setItem(LIST_MODE_KEY, listMode);
+                    pageSizeSelect.style.display = listMode === 'page' ? 'inline-block' : 'none';
+                    currentPage = 1;
+                    buildThemeListLazy(0);
+                });
+
+                pageSizeSelect.addEventListener('change', (e) => {
+                    pageSize = parseInt(e.target.value);
+                    localStorage.setItem(PAGE_SIZE_KEY, String(pageSize));
+                    currentPage = 1;
+                    buildThemeListLazy(0);
+                });
+
+                sortSelect.addEventListener('change', (e) => {
+                    sortBy = e.target.value;
+                    localStorage.setItem(SORT_SELECT_KEY, sortBy);
+                    currentPage = 1;
+                    buildThemeListLazy(0);
+                });
+
+                prevPageBtn.addEventListener('click', () => {
+                    if (currentPage > 1) {
+                        currentPage--;
+                        buildThemeListLazy(0);
+                        managerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                });
+
+                nextPageBtn.addEventListener('click', () => {
+                    const totalPages = Math.ceil(filteredThemes.length / pageSize);
+                    if (currentPage < totalPages) {
+                        currentPage++;
+                        buildThemeListLazy(0);
+                        managerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
                 });
 
                 randomBtn.addEventListener('click', async () => {
@@ -2278,6 +2505,7 @@
                 });
 
                 contentWrapper.addEventListener('scroll', () => {
+                    if (listMode !== 'scroll') return;
                     if (contentWrapper.scrollHeight - contentWrapper.scrollTop - contentWrapper.clientHeight < 120) {
                         renderNextChunk();
                     }

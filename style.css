@@ -161,7 +161,7 @@
 /* 更多操作按钮区折叠样式 */
 #more-actions-container {
     overflow: hidden;
-    max-height: 200px;
+    max-height: 400px;
     transition: max-height 0.3s ease-in-out, opacity 0.3s ease-in-out, padding 0.3s ease-in-out;
     opacity: 1;
 }
