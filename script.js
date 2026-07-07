@@ -643,11 +643,24 @@
                             <button id="batch-delete-btn" class="menu_button"><i class="fa-solid fa-trash-can"></i> 删除选中</button>
                         </div>
                         <div class="theme-tags-row" id="theme-tags-container"></div>
+                        <div id="tm-pagination-bar-top" class="tm-pagination-bar" style="display:none; justify-content: center; align-items: center; gap: 8px; margin-top: 5px; margin-bottom: 5px; width: 100%;">
+                            <button class="tm-first-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="回到最前"><i class="fa-solid fa-angles-left"></i></button>
+                            <button class="tm-prev-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="上一页"><i class="fa-solid fa-chevron-left"></i></button>
+                            <span style="font-size: 12px; display: inline-flex; align-items: center; gap: 4px; user-select: none;">
+                                第 <input type="number" class="tm-page-input text_pole" style="width: 45px; text-align: center; height: 24px; padding: 0; margin: 0; font-size: 12px;" min="1" value="1"> 页 / 共 <span class="tm-total-pages-text">1</span> 页
+                            </span>
+                            <button class="tm-next-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="下一页"><i class="fa-solid fa-chevron-right"></i></button>
+                            <button class="tm-last-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="回到最后"><i class="fa-solid fa-angles-right"></i></button>
+                        </div>
                         <div class="theme-content"></div>
-                        <div id="tm-pagination-bar" style="display:none; justify-content: center; align-items: center; gap: 10px; margin-top: 8px; margin-bottom: 5px; width: 100%;">
-                            <button id="tm-prev-page-btn" class="menu_button" style="width: auto; padding: 2px 8px; margin: 0;"><i class="fa-solid fa-chevron-left"></i></button>
-                            <span id="tm-page-indicator" style="font-size: 12px; user-select: none;">1 / 1</span>
-                            <button id="tm-next-page-btn" class="menu_button" style="width: auto; padding: 2px 8px; margin: 0;"><i class="fa-solid fa-chevron-right"></i></button>
+                        <div id="tm-pagination-bar-bottom" class="tm-pagination-bar" style="display:none; justify-content: center; align-items: center; gap: 8px; margin-top: 8px; margin-bottom: 5px; width: 100%;">
+                            <button class="tm-first-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="回到最前"><i class="fa-solid fa-angles-left"></i></button>
+                            <button class="tm-prev-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="上一页"><i class="fa-solid fa-chevron-left"></i></button>
+                            <span style="font-size: 12px; display: inline-flex; align-items: center; gap: 4px; user-select: none;">
+                                第 <input type="number" class="tm-page-input text_pole" style="width: 45px; text-align: center; height: 24px; padding: 0; margin: 0; font-size: 12px;" min="1" value="1"> 页 / 共 <span class="tm-total-pages-text">1</span> 页
+                            </span>
+                            <button class="tm-next-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="下一页"><i class="fa-solid fa-chevron-right"></i></button>
+                            <button class="tm-last-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="回到最后"><i class="fa-solid fa-angles-right"></i></button>
                         </div>
                         <div id="auto-theme-modal" class="tm-modal" style="display:none;">
                             <div class="tm-modal-content">
@@ -711,10 +724,13 @@
                 const listModeSelect = managerPanel.querySelector('#tm-list-mode-select');
                 const pageSizeSelect = managerPanel.querySelector('#tm-page-size-select');
                 const sortSelect = managerPanel.querySelector('#tm-sort-select');
-                const paginationBar = managerPanel.querySelector('#tm-pagination-bar');
-                const prevPageBtn = managerPanel.querySelector('#tm-prev-page-btn');
-                const nextPageBtn = managerPanel.querySelector('#tm-next-page-btn');
-                const pageIndicator = managerPanel.querySelector('#tm-page-indicator');
+                const paginationBars = managerPanel.querySelectorAll('.tm-pagination-bar');
+                const firstPageBtns = managerPanel.querySelectorAll('.tm-first-page-btn');
+                const prevPageBtns = managerPanel.querySelectorAll('.tm-prev-page-btn');
+                const nextPageBtns = managerPanel.querySelectorAll('.tm-next-page-btn');
+                const lastPageBtns = managerPanel.querySelectorAll('.tm-last-page-btn');
+                const pageInputs = managerPanel.querySelectorAll('.tm-page-input');
+                const totalPagesTexts = managerPanel.querySelectorAll('.tm-total-pages-text');
 
 
 
@@ -1054,16 +1070,26 @@
                     // 2. 排序
                     filteredThemes = sortThemes(matched, sortBy);
 
+                    paginationBars.forEach(bar => {
+                        bar.style.display = listMode === 'page' ? 'flex' : 'none';
+                    });
+
                     if (listMode === 'page') {
                         // 分页显示模式
-                        paginationBar.style.display = 'flex';
                         const totalPages = Math.ceil(filteredThemes.length / pageSize) || 1;
                         if (currentPage > totalPages) currentPage = totalPages;
                         if (currentPage < 1) currentPage = 1;
 
-                        pageIndicator.textContent = `${currentPage} / ${totalPages}`;
-                        prevPageBtn.disabled = currentPage <= 1;
-                        nextPageBtn.disabled = currentPage >= totalPages;
+                        totalPagesTexts.forEach(el => el.textContent = String(totalPages));
+                        pageInputs.forEach(el => {
+                            el.value = String(currentPage);
+                            el.max = String(totalPages);
+                        });
+
+                        firstPageBtns.forEach(btn => btn.disabled = currentPage <= 1);
+                        prevPageBtns.forEach(btn => btn.disabled = currentPage <= 1);
+                        nextPageBtns.forEach(btn => btn.disabled = currentPage >= totalPages);
+                        lastPageBtns.forEach(btn => btn.disabled = currentPage >= totalPages);
 
                         const startIndex = (currentPage - 1) * pageSize;
                         const endIndex = Math.min(startIndex + pageSize, filteredThemes.length);
@@ -1090,7 +1116,6 @@
                         updateActiveState();
                     } else {
                         // 滚动加载模式
-                        paginationBar.style.display = 'none';
                         renderedCount = 0;
                         renderNextChunk();
 
@@ -1759,21 +1784,83 @@
                     buildThemeListLazy(0);
                 });
 
-                prevPageBtn.addEventListener('click', () => {
-                    if (currentPage > 1) {
-                        currentPage--;
-                        buildThemeListLazy(0);
-                        managerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }
+                firstPageBtns.forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        if (currentPage > 1) {
+                            currentPage = 1;
+                            buildThemeListLazy(0);
+                            managerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    });
                 });
 
-                nextPageBtn.addEventListener('click', () => {
-                    const totalPages = Math.ceil(filteredThemes.length / pageSize);
-                    if (currentPage < totalPages) {
-                        currentPage++;
-                        buildThemeListLazy(0);
-                        managerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }
+                prevPageBtns.forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        if (currentPage > 1) {
+                            currentPage--;
+                            buildThemeListLazy(0);
+                            managerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    });
+                });
+
+                nextPageBtns.forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const totalPages = Math.ceil(filteredThemes.length / pageSize);
+                        if (currentPage < totalPages) {
+                            currentPage++;
+                            buildThemeListLazy(0);
+                            managerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    });
+                });
+
+                lastPageBtns.forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const totalPages = Math.ceil(filteredThemes.length / pageSize);
+                        if (currentPage < totalPages) {
+                            currentPage = totalPages;
+                            buildThemeListLazy(0);
+                            managerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    });
+                });
+
+                pageInputs.forEach(input => {
+                    input.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') {
+                            let targetPage = parseInt(e.target.value);
+                            const totalPages = Math.ceil(filteredThemes.length / pageSize) || 1;
+                            if (isNaN(targetPage)) {
+                                e.target.value = String(currentPage);
+                                return;
+                            }
+                            if (targetPage < 1) targetPage = 1;
+                            if (targetPage > totalPages) targetPage = totalPages;
+                            if (targetPage !== currentPage) {
+                                currentPage = targetPage;
+                                buildThemeListLazy(0);
+                                managerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                        }
+                    });
+                    input.addEventListener('blur', (e) => {
+                        let targetPage = parseInt(e.target.value);
+                        const totalPages = Math.ceil(filteredThemes.length / pageSize) || 1;
+                        if (isNaN(targetPage)) {
+                            e.target.value = String(currentPage);
+                            return;
+                        }
+                        if (targetPage < 1) targetPage = 1;
+                        if (targetPage > totalPages) targetPage = totalPages;
+                        if (targetPage !== currentPage) {
+                            currentPage = targetPage;
+                            buildThemeListLazy(0);
+                            managerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        } else {
+                            e.target.value = String(currentPage);
+                        }
+                    });
                 });
 
                 randomBtn.addEventListener('click', async () => {
