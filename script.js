@@ -164,10 +164,24 @@
                 const LIST_MODE_KEY = 'themeManager_listMode';
                 const PAGE_SIZE_KEY = 'themeManager_pageSize';
                 const SORT_SELECT_KEY = 'themeManager_sortSelect';
+                const TAG_FILTER_MODE_KEY = 'themeManager_tagFilterMode';
+                const USAGE_COUNT_KEY = 'themeManager_usageCount';
+                const SHOW_USAGE_COUNT_KEY = 'themeManager_showUsageCount';
 
                 let listMode = localStorage.getItem(LIST_MODE_KEY) || 'scroll';
                 let pageSize = parseInt(localStorage.getItem(PAGE_SIZE_KEY)) || 50;
                 let sortBy = localStorage.getItem(SORT_SELECT_KEY) || 'name-asc';
+                let tagFilterMode = localStorage.getItem(TAG_FILTER_MODE_KEY) || 'or'; // 'or' | 'and'
+                let usageCount = {};
+                try {
+                    const parsedUsage = JSON.parse(localStorage.getItem(USAGE_COUNT_KEY));
+                    if (parsedUsage && typeof parsedUsage === 'object' && !Array.isArray(parsedUsage)) {
+                        usageCount = parsedUsage;
+                    }
+                } catch (e) {
+                    console.error('[Theme Manager] Failed to parse usageCount:', e);
+                }
+                let showUsageCount = localStorage.getItem(SHOW_USAGE_COUNT_KEY) === 'true';
                 let currentPage = 1;
 
                 let allParsedThemes = [];
@@ -176,7 +190,21 @@
 
                 let isBindingMode = false;
                 let themeNameToBind = null;
-                let activeTagFilters = new Set(JSON.parse(localStorage.getItem(ACTIVE_TAGS_KEY)) || []);
+
+                let activeTagsData = [];
+                try {
+                    const parsedActiveTags = JSON.parse(localStorage.getItem(ACTIVE_TAGS_KEY));
+                    if (Array.isArray(parsedActiveTags)) {
+                        activeTagsData = parsedActiveTags;
+                    } else if (parsedActiveTags && typeof parsedActiveTags === 'object') {
+                        activeTagsData = Object.keys(parsedActiveTags).filter(k => parsedActiveTags[k]);
+                    } else if (typeof parsedActiveTags === 'string') {
+                        activeTagsData = [parsedActiveTags];
+                    }
+                } catch (e) {
+                    console.error('[Theme Manager] Failed to parse activeTagFilters:', e);
+                }
+                let activeTagFilters = new Set(activeTagsData);
                 let editingThemeForTags = null;
 
                 async function apiRequest(endpoint, method = 'POST', body = {}) {
@@ -242,6 +270,18 @@
                     } else if (sortBy === 'time-asc') {
                         sorted.sort((a, b) => {
                             const diff = (a.mtime || 0) - (b.mtime || 0);
+                            if (diff !== 0) return diff;
+                            return a.display.localeCompare(b.display, undefined, { numeric: true, sensitivity: 'base' });
+                        });
+                    } else if (sortBy === 'usage-desc') {
+                        sorted.sort((a, b) => {
+                            const diff = (usageCount[b.value] || 0) - (usageCount[a.value] || 0);
+                            if (diff !== 0) return diff;
+                            return a.display.localeCompare(b.display, undefined, { numeric: true, sensitivity: 'base' });
+                        });
+                    } else if (sortBy === 'usage-asc') {
+                        sorted.sort((a, b) => {
+                            const diff = (usageCount[a.value] || 0) - (usageCount[b.value] || 0);
                             if (diff !== 0) return diff;
                             return a.display.localeCompare(b.display, undefined, { numeric: true, sensitivity: 'base' });
                         });
@@ -577,7 +617,8 @@
                         document.addEventListener('themeManager:tagsChanged', (event) => {
                             callback(event.detail);
                         });
-                    }
+                    },
+                    applyBoundThemeForCharacter: (avatarName) => applyBoundThemeForCharacter(avatarName)
                 };
 
                 const originalContainer = originalSelect.parentElement;
@@ -624,16 +665,22 @@
                                     <option value="favorite-first">收藏优先</option>
                                     <option value="time-desc">时间倒序</option>
                                     <option value="time-asc">时间正序</option>
+                                    <option value="usage-desc">次数 多→少</option>
+                                    <option value="usage-asc">次数 少→多</option>
                                 </select>
                             </div>
                             <div class="tm-button-row">
                                 <button id="batch-edit-btn" class="menu_button" title="进入/退出批量编辑模式"><i class="fa-solid fa-pen-to-square"></i> 批量编辑</button>
                                 <button id="batch-import-btn" class="menu_button" title="从文件批量导入主题"><i class="fa-solid fa-folder-open"></i> 批量导入</button>
+                                <button id="tm-toggle-usage-count-btn" class="menu_button" title="显示/隐藏使用次数统计"><i class="fa-solid fa-chart-bar"></i> 次数统计</button>
                             </div>
                             <div class="tm-button-row">
                                 <button id="manage-tags-btn" class="menu_button" title="管理标签"><i class="fa-solid fa-tags"></i> 管理标签</button>
                                 <button id="tm-export-settings-btn" class="menu_button" title="导出一个包含所有插件设置的配置文件，用于在不同设备间同步。"><i class="fa-solid fa-file-export"></i> 导出配置</button>
                                 <button id="tm-import-settings-btn" class="menu_button" title="从配置文件中导入插件设置。"><i class="fa-solid fa-file-import"></i> 导入配置</button>
+                            </div>
+                            <div class="tm-button-row" style="margin-top: 5px;">
+                                <button id="tm-reset-all-system-btn" class="menu_button" style="background: rgba(220, 53, 69, 0.12) !important; color: #ff8888 !important; border: 1px solid rgba(220, 53, 69, 0.2) !important; flex: 1; justify-content: center;" title="重置美化插件的所有数据"><i class="fa-solid fa-arrows-rotate"></i> 重置系统</button>
                             </div>
                         </div>
 
@@ -721,6 +768,7 @@
                 const randomBtn = managerPanel.querySelector('#random-theme-btn');
                 const batchImportBtn = managerPanel.querySelector('#batch-import-btn');
                 const manageTagsBtn = managerPanel.querySelector('#manage-tags-btn');
+                const resetAllSystemBtn = managerPanel.querySelector('#tm-reset-all-system-btn');
                 const listModeSelect = managerPanel.querySelector('#tm-list-mode-select');
                 const pageSizeSelect = managerPanel.querySelector('#tm-page-size-select');
                 const sortSelect = managerPanel.querySelector('#tm-sort-select');
@@ -976,7 +1024,7 @@
                     tpl.className = 'theme-item';
                     tpl.innerHTML = `
                         <div class="theme-item-name">
-                            <span class="theme-item-name-text"></span>
+                            <span class="theme-item-name-text"></span><span class="theme-usage-count" style="display:none;"></span>
                         </div>
                         <div class="theme-item-buttons">
                             <button class="set-tag-btn" title="分类标签"><i class="fa-solid fa-tags"></i></button>
@@ -996,7 +1044,8 @@
 
                     const nameDiv = item.children[0];
                     const nameSpan = nameDiv.children[0];
-                    const buttonsDiv = item.children[1];
+                    const usageSpan = nameDiv.children[1]; // .theme-usage-count
+                    const buttonsDiv = item.children[1]; // item level: nameDiv=0, buttonsDiv=1
                     const setTagBtn = buttonsDiv.children[0];
                     const linkBgBtn = buttonsDiv.children[1];
                     const favoriteBtn = buttonsDiv.children[2];
@@ -1005,6 +1054,14 @@
 
                     // 设置主题名
                     nameSpan.textContent = theme.display;
+
+                    // 设置使用次数
+                    if (showUsageCount && usageCount[theme.value]) {
+                        usageSpan.textContent = usageCount[theme.value];
+                        usageSpan.style.display = '';
+                    } else {
+                        usageSpan.style.display = 'none';
+                    }
 
                     // 设置标签药丸
                     if (theme.tags && theme.tags.length > 0) {
@@ -1131,6 +1188,18 @@
                 // 判断主题是否匹配当前标签筛选
                 function isThemeMatchingFilters(theme) {
                     if (activeTagFilters.size === 0) return true;
+                    if (tagFilterMode === 'and') {
+                        // AND 模式：主题必须同时满足所有已选标签
+                        for (const tagId of activeTagFilters) {
+                            let matched = false;
+                            if (tagId === '__FAVORITES__' && favoritesSet.has(theme.value)) matched = true;
+                            if (tagId === '__UNCATEGORIZED__' && (!theme.tags || theme.tags.length === 0)) matched = true;
+                            if (theme.tags && theme.tags.includes(tagId)) matched = true;
+                            if (!matched) return false;
+                        }
+                        return true;
+                    }
+                    // OR 模式（默认）：匹配任意标签即可
                     for (const tagId of activeTagFilters) {
                         if (tagId === '__FAVORITES__' && favoritesSet.has(theme.value)) return true;
                         if (tagId === '__UNCATEGORIZED__' && (!theme.tags || theme.tags.length === 0)) return true;
@@ -1151,16 +1220,24 @@
                     container.querySelectorAll('.theme-tag-chip').forEach(chip => {
                         const tagId = chip.dataset.tagId;
                         if (tagId) {
-                            // 用户自定义标签
                             chip.classList.toggle('active', activeTagFilters.has(tagId));
-                        } else if (chip.textContent.trim().startsWith('收藏')) {
+                        } else if (chip.dataset.special === 'favorites') {
                             chip.classList.toggle('active', activeTagFilters.has('__FAVORITES__'));
-                        } else if (chip.textContent.trim().startsWith('未分类')) {
+                        } else if (chip.dataset.special === 'uncategorized') {
                             chip.classList.toggle('active', activeTagFilters.has('__UNCATEGORIZED__'));
-                        } else if (chip.textContent.trim().startsWith('全部')) {
+                        } else if (chip.dataset.special === 'all') {
                             chip.classList.toggle('active', activeTagFilters.size === 0);
                         }
                     });
+                    // 同步更新筛选模式图标
+                    const modeBtn = container.querySelector('.tm-filter-mode-btn');
+                    if (modeBtn) {
+                        modeBtn.title = tagFilterMode === 'and' ? '当前：AND 交叉筛选（点击切换为 OR 模式）' : '当前：OR 任意筛选（点击切换为 AND 模式）';
+                        modeBtn.innerHTML = tagFilterMode === 'and'
+                            ? '<i class="fa-solid fa-layer-group"></i>'
+                            : '<i class="fa-solid fa-circle-nodes"></i>';
+                        modeBtn.classList.toggle('active', tagFilterMode === 'and');
+                    }
                 }
 
                 // 标签筛选切换的轻量级处理函数
@@ -1205,7 +1282,7 @@
 
                         // 移除旧标签
                         const nameDiv = item.children[0];
-                        const oldTagsDiv = nameDiv.children[1];
+                        const oldTagsDiv = nameDiv.querySelector('.theme-item-tags');
                         if (oldTagsDiv) oldTagsDiv.remove();
 
                         // 添加新标签
@@ -1331,9 +1408,28 @@
                     if (!container) return;
                     container.innerHTML = '';
 
+                    // 筛选模式切换图标（OR / AND），放在最前面
+                    const modeBtn = document.createElement('div');
+                    modeBtn.className = `tm-filter-mode-btn${tagFilterMode === 'and' ? ' active' : ''}`;
+                    modeBtn.title = tagFilterMode === 'and' ? '当前：AND 交叉筛选（点击切换为 OR 模式）' : '当前：OR 任意筛选（点击切换为 AND 模式）';
+                    modeBtn.innerHTML = tagFilterMode === 'and'
+                        ? '<i class="fa-solid fa-layer-group"></i>'
+                        : '<i class="fa-solid fa-circle-nodes"></i>';
+                    modeBtn.addEventListener('click', () => {
+                        tagFilterMode = tagFilterMode === 'or' ? 'and' : 'or';
+                        localStorage.setItem(TAG_FILTER_MODE_KEY, tagFilterMode);
+                        updateTagChipsActiveState();
+                        if (activeTagFilters.size > 0) {
+                            currentPage = 1;
+                            filterThemeList(0);
+                        }
+                    });
+                    container.appendChild(modeBtn);
+
                     // "全部" (All) Tag
                     const allChip = document.createElement('div');
                     allChip.className = `theme-tag-chip ${activeTagFilters.size === 0 ? 'active' : ''}`;
+                    allChip.dataset.special = 'all';
                     allChip.innerHTML = `全部`;
                     allChip.addEventListener('click', () => {
                         activeTagFilters.clear();
@@ -1344,13 +1440,13 @@
                     // "收藏" (Favorites) Tag
                     const favChip = document.createElement('div');
                     favChip.className = `theme-tag-chip ${activeTagFilters.has('__FAVORITES__') ? 'active' : ''}`;
+                    favChip.dataset.special = 'favorites';
                     favChip.innerHTML = `收藏`;
-                    favChip.addEventListener('click', (event) => {
-                        const isMultiSelect = event.ctrlKey || event.metaKey;
+                    favChip.addEventListener('click', () => {
                         if (activeTagFilters.has('__FAVORITES__')) {
                             activeTagFilters.delete('__FAVORITES__');
                         } else {
-                            if (!isMultiSelect) activeTagFilters.clear();
+                            if (tagFilterMode === 'or') activeTagFilters.clear();
                             activeTagFilters.add('__FAVORITES__');
                         }
                         handleTagFilterChange();
@@ -1360,13 +1456,13 @@
                     // "未分类" (Uncategorized) Tag
                     const uncatChip = document.createElement('div');
                     uncatChip.className = `theme-tag-chip ${activeTagFilters.has('__UNCATEGORIZED__') ? 'active' : ''}`;
+                    uncatChip.dataset.special = 'uncategorized';
                     uncatChip.innerHTML = `未分类`;
-                    uncatChip.addEventListener('click', (event) => {
-                        const isMultiSelect = event.ctrlKey || event.metaKey;
+                    uncatChip.addEventListener('click', () => {
                         if (activeTagFilters.has('__UNCATEGORIZED__')) {
                             activeTagFilters.delete('__UNCATEGORIZED__');
                         } else {
-                            if (!isMultiSelect) activeTagFilters.clear();
+                            if (tagFilterMode === 'or') activeTagFilters.clear();
                             activeTagFilters.add('__UNCATEGORIZED__');
                         }
                         handleTagFilterChange();
@@ -1380,12 +1476,11 @@
                             chip.className = `theme-tag-chip ${activeTagFilters.has(tag.id) ? 'active' : ''}`;
                             chip.dataset.tagId = tag.id;
                             chip.innerHTML = `${escapeHtml(tag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${tag.themes ? tag.themes.length : 0})</span>`;
-                            chip.addEventListener('click', (event) => {
-                                const isMultiSelect = event.ctrlKey || event.metaKey;
+                            chip.addEventListener('click', () => {
                                 if (activeTagFilters.has(tag.id)) {
                                     activeTagFilters.delete(tag.id);
                                 } else {
-                                    if (!isMultiSelect) activeTagFilters.clear();
+                                    if (tagFilterMode === 'or') activeTagFilters.clear();
                                     activeTagFilters.add(tag.id);
                                 }
                                 handleTagFilterChange();
@@ -1679,7 +1774,10 @@
                     THEME_TAGS_KEY,
                     THEME_BACKGROUND_BINDINGS_KEY,
                     CHARACTER_THEME_BINDINGS_KEY,
-                    'themeManager_autoTheme'
+                    'themeManager_autoTheme',
+                    TAG_FILTER_MODE_KEY,
+                    USAGE_COUNT_KEY,
+                    SHOW_USAGE_COUNT_KEY
                 ];
 
                 function exportSettings() {
@@ -1783,6 +1881,29 @@
                     currentPage = 1;
                     buildThemeListLazy(0);
                 });
+
+                // 使用次数显示 toggle
+                const toggleUsageCountBtn = managerPanel.querySelector('#tm-toggle-usage-count-btn');
+                if (toggleUsageCountBtn) {
+                    toggleUsageCountBtn.classList.toggle('active', showUsageCount);
+                    toggleUsageCountBtn.addEventListener('click', () => {
+                        showUsageCount = !showUsageCount;
+                        localStorage.setItem(SHOW_USAGE_COUNT_KEY, showUsageCount ? 'true' : 'false');
+                        toggleUsageCountBtn.classList.toggle('active', showUsageCount);
+                        // 更新所有已渲染的主题项
+                        themeItemMap.forEach((item, themeName) => {
+                            const usageSpan = item.children[0].querySelector('.theme-usage-count');
+                            if (usageSpan) {
+                                if (showUsageCount && usageCount[themeName]) {
+                                    usageSpan.textContent = usageCount[themeName];
+                                    usageSpan.style.display = '';
+                                } else {
+                                    usageSpan.style.display = 'none';
+                                }
+                            }
+                        });
+                    });
+                }
 
                 firstPageBtns.forEach(btn => {
                     btn.addEventListener('click', () => {
@@ -2040,6 +2161,11 @@
                         updateActiveState();
                     }
 
+                    // 关键词自动映射：导入时自动为新主题打标签
+                    if (importedThemes.length > 0) {
+                        applyKeywordMappings(importedThemes.map(t => t.name));
+                    }
+
                     event.target.value = '';
                 });
 
@@ -2063,6 +2189,111 @@
                     openManageTagsPopup();
                 });
 
+                if (resetAllSystemBtn) {
+                    resetAllSystemBtn.addEventListener('click', async () => {
+                        const popupContent = document.createElement('div');
+                        popupContent.innerHTML = `
+                            <h4><i class="fa-solid fa-triangle-exclamation" style="color:#ff8888; margin-right:6px;"></i>重置美化插件数据</h4>
+                            <p style="font-size:12px; opacity:0.8; margin-bottom:12px; text-align:left;">请勾选您需要清除的数据模块（此操作不可逆）：</p>
+                            <div style="display:flex; flex-direction:column; gap:8px; margin:10px 0; text-align:left; padding-left:10px;">
+                                <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                    <input type="checkbox" id="reset-opt-tags" checked> 重置美化标签与分类设置
+                                </label>
+                                <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                    <input type="checkbox" id="reset-opt-bindings" checked> 重置角色卡美化自动映射
+                                </label>
+                                <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                    <input type="checkbox" id="reset-opt-avatars" checked> 重置头像高级设置（缩放/偏移/框/图库）
+                                </label>
+                            </div>
+                            <p style="font-size:11px; color:#ff8888; margin-top:10px; text-align:left;">确认重置后，网页将会自动刷新以载入默认状态。</p>
+                        `;
+
+                        await callGenericPopup(popupContent, 'confirm', null, {
+                            okButton: '确认重置',
+                            cancelButton: '取消',
+                            wide: true,
+                            onOpen: (popup) => {
+                                const dlg = popup.dlg;
+                                if (dlg) {
+                                    dlg.style.width = '90%';
+                                    dlg.style.maxWidth = '450px';
+                                }
+                                const okButton = dlg.querySelector('.popup-button-ok');
+                                if (okButton) {
+                                    okButton.style.backgroundColor = 'rgba(220, 53, 69, 0.8)';
+                                    okButton.style.color = '#fff';
+                                    okButton.addEventListener('click', (e) => {
+                                        e.preventDefault();
+                                        const doTags = dlg.querySelector('#reset-opt-tags').checked;
+                                        const doBindings = dlg.querySelector('#reset-opt-bindings').checked;
+                                        const doAvatars = dlg.querySelector('#reset-opt-avatars').checked;
+
+                                        let clearedCount = 0;
+                                        if (doTags) {
+                                            localStorage.removeItem('themeManager_themeTags');
+                                            localStorage.removeItem('themeManager_activeTagsFilters');
+                                            clearedCount++;
+                                        }
+                                        if (doBindings) {
+                                            localStorage.removeItem('themeManager_characterThemeBindings');
+                                            clearedCount++;
+                                        }
+                                        if (doAvatars) {
+                                            localStorage.removeItem('themeManager_avatarAdjustments');
+                                            localStorage.removeItem('themeManager_customFrames');
+                                            localStorage.removeItem('themeManager_avatarPanelGeometry');
+                                            localStorage.removeItem('themeManager_disableAvatarZoom');
+                                            clearedCount++;
+                                        }
+
+                                        if (clearedCount > 0) {
+                                            toastr.success('选定数据已成功重置，正在重新载入页面...');
+                                            setTimeout(() => location.reload(), 1000);
+                                        } else {
+                                            toastr.info('未勾选任何重置选项。');
+                                        }
+                                        popup.close();
+                                    });
+                                }
+                            }
+                        });
+                    });
+                }
+
+
+                // 将定义放在 openManageTagsPopup 之前，以便弹窗内可直接调用
+                function applyKeywordMappings(themeNames) {
+                    const tags = loadThemeTags();
+                    const hasKeywords = tags.some(t => t.keywords && t.keywords.length > 0);
+                    if (!hasKeywords) return false;
+
+                    const themesToCheck = themeNames
+                        ? (Array.isArray(themeNames) ? themeNames : [themeNames])
+                        : allParsedThemes.map(t => t.value);
+                    let changed = false;
+
+                    for (const themeName of themesToCheck) {
+                        const nameLC = themeName.toLowerCase();
+                        for (const tag of tags) {
+                            if (!tag.keywords || tag.keywords.length === 0) continue;
+                            const matches = tag.keywords.some(kw => kw && nameLC.includes(kw.toLowerCase()));
+                            if (matches) {
+                                if (!tag.themes) tag.themes = [];
+                                if (!tag.themes.includes(themeName)) {
+                                    tag.themes.push(themeName);
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if (changed) {
+                        saveThemeTags(tags);
+                        softRefreshUI(themeNames && Array.isArray(themeNames) ? themeNames : null);
+                    }
+                    return changed;
+                }
 
                 async function openManageTagsPopup() {
                     let tags = loadThemeTags();
@@ -2078,10 +2309,12 @@
                     const renderList = () => {
                         let listHtml = '';
                         tags.forEach(t => {
+                            const kwCount = t.keywords ? t.keywords.length : 0;
                             listHtml += `
                                 <li style="display:flex; justify-content:space-between; padding:8px; background:rgba(255,255,255,0.05); margin-bottom:5px; border-radius:4px; align-items:center;">
-                                    <span style="word-break: break-all;">${escapeHtml(t.name)} <small style="opacity:0.6; white-space:nowrap;">(${t.themes ? t.themes.length : 0})</small></span>
+                                    <span style="word-break: break-all;">${escapeHtml(t.name)} <small style="opacity:0.6; white-space:nowrap;">(${t.themes ? t.themes.length : 0})</small>${kwCount > 0 ? `<small style="opacity:0.5; white-space:nowrap; margin-left:4px;">[${kwCount}词]</small>` : ''}</span>
                                     <div style="display:flex; gap:5px; flex-shrink:0;">
+                                        <button class="menu_button keywords-tag-inline" data-id="${t.id}" style="margin:0; padding:4px 8px; font-size:12px; width:auto; flex-basis:auto;" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
                                         <button class="menu_button rename-tag-inline" data-id="${t.id}" style="margin:0; padding:4px 8px; font-size:12px; width:auto; flex-basis:auto;"><i class="fa-solid fa-pen"></i></button>
                                         <button class="menu_button delete-tag-inline" data-id="${t.id}" style="margin:0; padding:4px 8px; font-size:12px; width:auto; flex-basis:auto;"><i class="fa-solid fa-trash"></i></button>
                                     </div>
@@ -2091,7 +2324,11 @@
                         return listHtml;
                     };
 
-                    popupHtml += renderList() + `</ul>`;
+                    popupHtml += renderList() + `</ul>
+                        <div style="margin-top:10px; border-top:1px solid rgba(128,128,128,0.2); padding-top:10px;">
+                            <button id="apply-keyword-mappings-btn" class="menu_button" style="width:100%; justify-content:center;"><i class="fa-solid fa-wand-magic-sparkles"></i> 对所有现有美化重新应用关键词映射</button>
+                        </div>
+                    `;
 
                     await callGenericPopup(popupHtml, 'confirm', null, {
                         title: '管理标签',
@@ -2130,6 +2367,25 @@
                                         }
                                     });
                                 });
+                                // 关键词编辑按钮
+                                dlg.querySelectorAll('.keywords-tag-inline').forEach(btn => {
+                                    btn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        const id = e.currentTarget.dataset.id;
+                                        const tag = tags.find(t => t.id === id);
+                                        const currentKeywords = (tag.keywords || []).join(', ');
+                                        const input = prompt(
+                                            `「${tag.name}」的关键词（逗号分隔）
+导入或重命名的美化名如包含这些词，将自动帰入此标签：`,
+                                            currentKeywords
+                                        );
+                                        if (input !== null) {
+                                            tag.keywords = input.split(',').map(k => k.trim()).filter(k => k.length > 0);
+                                            saveThemeTags(tags);
+                                            RefreshList();
+                                        }
+                                    });
+                                });
                             };
 
                             dlg.querySelector('#add-new-tag-btn').addEventListener('click', () => {
@@ -2140,12 +2396,25 @@
                                     toastr.warning('标签名已存在');
                                     return;
                                 }
-                                tags.push({ id: Date.now().toString(), name: name, themes: [] });
+                                tags.push({ id: Date.now().toString(), name: name, themes: [], keywords: [] });
                                 saveThemeTags(tags);
                                 input.value = '';
                                 RefreshList();
                                 softRefreshUI();
                             });
+
+                            // 重新应用关键词映射按钮
+                            const applyMappingsBtn = dlg.querySelector('#apply-keyword-mappings-btn');
+                            if (applyMappingsBtn) {
+                                applyMappingsBtn.addEventListener('click', () => {
+                                    const applied = applyKeywordMappings();
+                                    if (applied) {
+                                        toastr.success('关键词映射已重新应用！');
+                                    } else {
+                                        toastr.info('没有找到新的匹配，或尚未设置关键词。');
+                                    }
+                                });
+                            }
 
                             BindEvents();
                         }
@@ -2651,6 +2920,22 @@
                 originalSelect.addEventListener('change', (event) => {
                     updateActiveState();
                     const newThemeName = event.target.value;
+                    // 使用次数统计
+                    if (newThemeName) {
+                        usageCount[newThemeName] = (usageCount[newThemeName] || 0) + 1;
+                        localStorage.setItem(USAGE_COUNT_KEY, JSON.stringify(usageCount));
+                        // 实时更新 DOM 中的次数显示
+                        if (showUsageCount) {
+                            const item = themeItemMap.get(newThemeName);
+                            if (item) {
+                                const usageSpan = item.children[0].querySelector('.theme-usage-count');
+                                if (usageSpan) {
+                                    usageSpan.textContent = usageCount[newThemeName];
+                                    usageSpan.style.display = '';
+                                }
+                            }
+                        }
+                    }
                     const boundBg = themeBackgroundBindings[newThemeName];
                     if (boundBg) {
                         applyBackgroundDirectly(boundBg);
@@ -2732,117 +3017,7 @@
                 // ========= 新增功能：角色卡绑定美化 (Character Theme Binding) =========
                 // ==========================================================
 
-                // 绑定主题按钮的点击事件
-                document.body.addEventListener('click', async (event) => {
-                    if (event.target.id !== 'link-theme-btn') return;
-
-                    const chid = document.querySelector('#rm_ch_create_block #avatar_url_pole')?.value;
-                    if (!chid) {
-                        toastr.warning('请先选择一个角色。');
-                        return;
-                    }
-
-                    let bindings = JSON.parse(localStorage.getItem(CHARACTER_THEME_BINDINGS_KEY)) || {};
-                    const currentBinding = bindings[chid] || '';
-                    let selectedValue = currentBinding;
-
-                    const popupContent = document.createElement('div');
-                    popupContent.innerHTML = `<h4>为角色绑定美化</h4><p>选择一个美化主题，在下次加载此角色时将自动应用。</p>`;
-
-                    const select = document.createElement('select');
-                    select.id = 'theme-binding-select';
-                    select.className = 'text_pole';
-
-                    const noBindingOption = document.createElement('option');
-                    noBindingOption.value = '';
-                    noBindingOption.textContent = '— 无绑定 —';
-                    select.appendChild(noBindingOption);
-
-                    // 注入标签分组（用于随机切换）
-                    const tags = loadThemeTags();
-                    if (tags.length > 0) {
-                        const tagGroup = document.createElement('optgroup');
-                        tagGroup.label = '[随机] 从标签中选择';
-                        tags.forEach(t => {
-                            const opt = document.createElement('option');
-                            opt.value = `[Tag] ${t.id}`;
-                            opt.textContent = `随机标签: ${t.name}`;
-                            tagGroup.appendChild(opt);
-                        });
-                        select.appendChild(tagGroup);
-                    }
-
-                    // 注入特定主题分组
-                    const themeGroup = document.createElement('optgroup');
-                    themeGroup.label = '[指定] 特定主题';
-                    document.querySelectorAll('#themes option').forEach(option => {
-                        if (option.value) {
-                            const newOption = option.cloneNode(true);
-                            themeGroup.appendChild(newOption);
-                        }
-                    });
-                    select.appendChild(themeGroup);
-
-                    select.value = currentBinding;
-                    popupContent.appendChild(select);
-
-                    await callGenericPopup(popupContent, 'confirm', null, {
-                        okButton: '保存',
-                        cancelButton: '取消',
-                        wide: true,
-                        onOpen: (popup) => {
-                            const dialogElement = popup.dlg;
-                            const selectElement = dialogElement.querySelector('#theme-binding-select');
-                            const okButton = dialogElement.querySelector('.popup-button-ok');
-                            const cancelButton = dialogElement.querySelector('.popup-button-cancel');
-
-                            // ### 最终核心修复：移除 placeholder ###
-                            setTimeout(() => {
-                                $(selectElement).select2({
-                                    dropdownParent: $(dialogElement),
-                                    width: '100%'
-                                }).on('select2:open', () => {
-                                    // Prevent auto focus
-                                    setTimeout(() => {
-                                        const searchField = document.querySelector('.select2-search__field');
-                                        if (searchField) searchField.blur();
-                                    }, 0);
-                                }).on('change', (e) => {
-                                    selectedValue = $(e.target).val();
-                                });
-                            }, 0);
-
-                            okButton.addEventListener('click', (e) => {
-                                e.preventDefault();
-                                const newBinding = selectedValue;
-                                if (newBinding) {
-                                    bindings[chid] = newBinding;
-                                    
-                                    // 优化提示信息：将 [Tag] ID 转换为人类可读的名称
-                                    let displayValue = newBinding;
-                                    if (newBinding.startsWith('[Tag] ')) {
-                                        const tagId = newBinding.replace('[Tag] ', '');
-                                        const tags = loadThemeTags();
-                                        const tag = tags.find(t => t.id === tagId);
-                                        displayValue = tag ? `标签: ${tag.name} (随机切换)` : newBinding;
-                                    }
-                                    
-                                    toastr.success(`已将角色绑定到美化：<b>${displayValue}</b>`, '', { escapeHtml: false });
-                                } else {
-                                    delete bindings[chid];
-                                    toastr.info('已取消此角色的美化绑定。');
-                                }
-                                // 先保存数据，确保 localStorage 已更新
-                                localStorage.setItem(CHARACTER_THEME_BINDINGS_KEY, JSON.stringify(bindings));
-                                
-                                // 核心优化：保存后立即尝试应用到当前界面
-                                applyBoundThemeForCharacter(chid);
-                                
-                                cancelButton.click();
-                            });
-                        }
-                    });
-                });
+                // 绑定美化 UI 配置已迁移到 avatar-settings.js 高级设置面板中
 
                 // 核心工具：解析目标（主题名或 [Tag] 格式）并返回最终要应用的主题名
                 function getThemeForTarget(target) {
@@ -2864,23 +3039,50 @@
                     return null;
                 }
 
+                // 从 URL 或路径中提取纯文件名（兼容处理以保持与保存端键名一致）
+                function getAvatarFilename(url) {
+                    if (!url) return '';
+                    let cleanUrl = url.split('?')[0].split('#')[0];
+                    const lastSlash = cleanUrl.lastIndexOf('/');
+                    if (lastSlash !== -1) {
+                        cleanUrl = cleanUrl.substring(lastSlash + 1);
+                    }
+                    try {
+                        return decodeURIComponent(cleanUrl);
+                    } catch (e) {
+                        return cleanUrl;
+                    }
+                }
+
                 // 核心功能：为特定头像名应用绑定的值（可能是具体主题，也可能是标签随机）
                 function applyBoundThemeForCharacter(avatarName) {
+                    console.log(`[Theme Manager Debug] applyBoundThemeForCharacter called with:`, avatarName);
                     if (!avatarName) return;
+                    const cleanName = getAvatarFilename(avatarName);
+                    console.log(`[Theme Manager Debug] cleanName:`, cleanName);
+                    if (!cleanName) return;
+
                     const bindings = JSON.parse(localStorage.getItem(CHARACTER_THEME_BINDINGS_KEY)) || {};
-                    const target = bindings[avatarName];
+                    console.log(`[Theme Manager Debug] bindings loaded:`, bindings);
+                    const target = bindings[cleanName];
+                    console.log(`[Theme Manager Debug] target found:`, target);
 
                     if (target) {
                         const themeToApply = getThemeForTarget(target);
+                        console.log(`[Theme Manager Debug] themeToApply:`, themeToApply);
                         if (themeToApply) {
                             const themeSelect = document.querySelector('#themes');
-                            
-                            // 1. 如果解析出的具体主题与当前不同，则切换
-                            if (themeSelect.value !== themeToApply) {
-                                console.log(`[Theme Manager] 角色绑定触发切换: ${themeToApply} (来源: ${target})`);
-                                themeSelect.value = themeToApply;
-                                themeSelect.dispatchEvent(new Event('change'));
-                                toastr.info(`已应用角色绑定的美化：<b>${escapeHtml(themeToApply)}</b>`, '', { timeOut: 2000, escapeHtml: false });
+                            console.log(`[Theme Manager Debug] themeSelect:`, themeSelect ? themeSelect.value : 'not found');
+                            if (themeSelect) {
+                                // 1. 如果解析出的具体主题与当前不同，则切换
+                                if (themeSelect.value !== themeToApply) {
+                                    console.log(`[Theme Manager] 角色绑定触发切换: ${themeToApply} (来源: ${target})`);
+                                    themeSelect.value = themeToApply;
+                                    themeSelect.dispatchEvent(new Event('change'));
+                                    toastr.info(`已应用角色绑定的美化：<b>${escapeHtml(themeToApply)}</b>`, '', { timeOut: 2000, escapeHtml: false });
+                                } else {
+                                    console.log(`[Theme Manager Debug] Theme is already active:`, themeToApply);
+                                }
                             }
 
                             // 2. 强制同步背景图
@@ -2892,33 +3094,39 @@
                     }
                 }
 
-                // 监听角色卡片的点击事件以自动应用美化
-                document.getElementById('right-nav-panel').addEventListener('click', (event) => {
-                    const characterBlock = event.target.closest('.character_select');
-                    if (!characterBlock) return;
+                // 监听角色卡片的点击事件以自动应用美化 (增加容错判断)
+                const rightNavPanel = document.getElementById('right-nav-panel');
+                if (rightNavPanel) {
+                    rightNavPanel.addEventListener('click', (event) => {
+                        const characterBlock = event.target.closest('.character_select');
+                        if (!characterBlock) return;
 
-                    setTimeout(() => {
-                        const characters = SillyTavern.getContext().characters;
-                        const chid = characterBlock.dataset.chid;
-                        const character = characters[chid];
-                        if (character && character.avatar) {
-                            applyBoundThemeForCharacter(character.avatar);
-                        }
-                    }, 50);
-                });
-
-                // 监听欢迎页面“最近的聊天”列表的点击事件，以自动应用美化
-                document.getElementById('chat').addEventListener('click', (event) => {
-                    const recentChatBlock = event.target.closest('.recentChat');
-                    if (!recentChatBlock) return;
-
-                    const characterAvatar = recentChatBlock.dataset.avatar;
-                    if (characterAvatar) {
                         setTimeout(() => {
-                            applyBoundThemeForCharacter(characterAvatar);
+                            const characters = SillyTavern.getContext().characters;
+                            const chid = characterBlock.dataset.chid;
+                            const character = characters[chid];
+                            if (character && character.avatar) {
+                                applyBoundThemeForCharacter(character.avatar);
+                            }
                         }, 50);
-                    }
-                });
+                    });
+                }
+
+                // 监听欢迎页面“最近的聊天”列表的点击事件，以自动应用美化 (增加容错判断)
+                const chatArea = document.getElementById('chat');
+                if (chatArea) {
+                    chatArea.addEventListener('click', (event) => {
+                        const recentChatBlock = event.target.closest('.recentChat');
+                        if (!recentChatBlock) return;
+
+                        const characterAvatar = recentChatBlock.dataset.avatar;
+                        if (characterAvatar) {
+                            setTimeout(() => {
+                                applyBoundThemeForCharacter(characterAvatar);
+                            }, 50);
+                        }
+                    });
+                }
 
                 // ==========================================================
                 // ======================= Auto Theme Switcher =========================
@@ -3288,8 +3496,11 @@
 
                     // 监听聊天切换事件，在 SillyTavern 重置背景后重新应用绑定的背景图
                     // 解决移动端进入角色卡聊天时背景图被 onChatChanged() 覆盖的问题
+                    // 监听聊天与角色切换事件，实现角色绑定的美化自动切换
                     if (eventSource && eventTypes) {
+                        console.log(`[Theme Manager Debug] Event source & event types found. Registering listeners.`);
                         eventSource.on(eventTypes.CHAT_CHANGED, () => {
+                            console.log(`[Theme Manager Debug] CHAT_CHANGED event fired`);
                             const currentTheme = originalSelect.value;
                             const boundBg = themeBackgroundBindings[currentTheme];
                             if (boundBg) {
@@ -3297,31 +3508,45 @@
                                 setTimeout(() => applyBackgroundDirectly(boundBg), 300);
                             }
                         });
+
+                        eventSource.on(eventTypes.CHARACTER_SELECTED, () => {
+                            console.log(`[Theme Manager Debug] CHARACTER_SELECTED event fired`);
+                            const { characters, characterId } = SillyTavern.getContext();
+                            const character = characters[characterId];
+                            if (character && character.avatar) {
+                                console.log(`[Theme Manager Debug] CHARACTER_SELECTED avatar:`, character.avatar);
+                                // 短延时确保上下文就绪
+                                setTimeout(() => applyBoundThemeForCharacter(character.avatar), 100);
+                            } else {
+                                console.log(`[Theme Manager Debug] CHARACTER_SELECTED: no character or avatar. ID:`, characterId);
+                            }
+                        });
+                    } else {
+                        console.warn(`[Theme Manager Debug] eventSource or eventTypes not found!`);
                     }
 
-                    // 动态添加“绑定主题”按钮，并限制最大重试次数以防防死循环
-                    let controlsRetryCount = 0;
-                    const maxControlsRetries = 60; // 最多尝试60次 (约30秒)
-                    const controlsInterval = setInterval(() => {
-                        controlsRetryCount++;
-                        if (controlsRetryCount > maxControlsRetries) {
-                            clearInterval(controlsInterval);
-                            return;
+                    // 首次载入时，自动应用当前选中角色的绑定主题
+                    try {
+                        const { characters, characterId } = SillyTavern.getContext();
+                        const character = characters[characterId];
+                        console.log(`[Theme Manager Debug] Startup character avatar:`, character ? character.avatar : 'none');
+                        if (character && character.avatar) {
+                            applyBoundThemeForCharacter(character.avatar);
                         }
-                        
-                        const controlsContainer = document.querySelector('#avatar_controls .form_create_bottom_buttons_block');
-                        if (controlsContainer && !document.querySelector('#link-theme-btn')) {
-                            clearInterval(controlsInterval);
-                            const linkButton = document.createElement('div');
-                            linkButton.id = 'link-theme-btn';
-                            linkButton.className = 'menu_button fa-solid fa-link';
-                            linkButton.title = '为此角色绑定一个主题';
-                            linkButton.setAttribute('data-i18n', '[title]为此角色绑定一个主题');
-                            controlsContainer.appendChild(linkButton);
-                        }
-                    }, 500);
+                    } catch (e) {
+                        console.warn('[Theme Manager] 首次载入应用绑定美化失败:', e);
+                    }
+
+
                     const isInitiallyCollapsed = localStorage.getItem(COLLAPSE_KEY) !== 'false';
                     setCollapsed(isInitiallyCollapsed, false);
+
+                    // === 加载独立的 avatar-settings.js 头像高级调整脚本 ===
+                    const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
+                    const avatarScript = document.createElement('script');
+                    avatarScript.src = `${baseDir}avatar-settings.js?v=${Date.now()}`;
+                    avatarScript.defer = true;
+                    document.head.appendChild(avatarScript);
 
                     // === 首次安装运行提示 (加载独立的 first-run.js 脚本) ===
                     const firstRunShownKey = 'themeManager_firstRunNotificationShown';

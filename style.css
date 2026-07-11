@@ -288,6 +288,46 @@
     white-space: nowrap;
 }
 
+/* 使用次数统计气泡 */
+.theme-usage-count {
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: rgba(128, 128, 128, 0.15);
+    color: var(--SmartThemeBodyColor);
+    opacity: 0.6;
+    white-space: nowrap;
+    margin-left: 5px;
+    flex-shrink: 0;
+}
+
+/* 标签筛选模式切换图标 */
+.tm-filter-mode-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--SmartThemeBodyColor, #fff);
+    opacity: 0.4;
+    transition: opacity 0.2s, color 0.2s, transform 0.15s;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.tm-filter-mode-btn:hover {
+    opacity: 0.9;
+    transform: scale(1.15);
+}
+
+.tm-filter-mode-btn.active {
+    opacity: 1;
+    color: var(--SmartThemeQuoteColor, #4a4a6a);
+}
+
 
 
 .theme-item.active {
