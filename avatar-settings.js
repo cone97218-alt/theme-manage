@@ -215,8 +215,8 @@
 
             /* 2. 兼容与优化：强制使实际的头像图片捕获点击事件 */
             #chat .mesAvatarWrapper img,
-            #chat .avatar img,
-            #chat .user_avatar img,
+            #chat .mesAvatarWrapper .avatar img,
+            #chat .mesAvatarWrapper .user_avatar img,
             #right-nav-panel .character_select img {
                 pointer-events: auto !important;
                 cursor: pointer !important;
@@ -224,8 +224,8 @@
 
             /* 头像缩放高清渲染优化（可选项，基于 tm-avatar-hd-rendering 类触发） */
             body.tm-avatar-hd-rendering #chat .mesAvatarWrapper img,
-            body.tm-avatar-hd-rendering #chat .avatar img,
-            body.tm-avatar-hd-rendering #chat .user_avatar img,
+            body.tm-avatar-hd-rendering #chat .mesAvatarWrapper .avatar img,
+            body.tm-avatar-hd-rendering #chat .mesAvatarWrapper .user_avatar img,
             body.tm-avatar-hd-rendering #right-nav-panel .character_select img {
                 image-rendering: -webkit-optimize-contrast !important;
                 image-rendering: crisp-edges !important;
@@ -581,9 +581,9 @@
         
         let css = '';
 
-        // 默认限制在聊天区与侧边栏内，强制 .avatar, .avatarimg, .user_avatar 保持裁剪溢出，防止图片位移重叠，且不污染角色详情页
+        // 默认限制在聊天区与侧边栏内，强制 .avatar, .avatarimg, .user_avatar 保持裁剪溢出，防止图片位移重叠，且不污染角色详情页与首页
         css += `
-            #chat .avatar, #chat .avatarimg, #chat .user_avatar,
+            #chat .mesAvatarWrapper .avatar, #chat .mesAvatarWrapper .avatarimg, #chat .mesAvatarWrapper .user_avatar,
             #right-nav-panel .character_select .avatar, #right-nav-panel .character_select .avatarimg {
                 overflow: hidden !important;
             }
