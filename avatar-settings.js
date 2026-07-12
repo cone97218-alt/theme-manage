@@ -490,15 +490,16 @@
                 display: inline-flex;
             }
             
-            /* 拖拽手柄 */
+            /* 拖拽手柄 - 增大手机端的可点击区域 */
             .avatar-adv-resizer {
                 position: absolute;
                 bottom: 0;
                 right: 0;
-                width: 14px;
-                height: 14px;
+                width: 35px;
+                height: 35px;
                 cursor: se-resize;
-                background: linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.3) 100%);
+                background: linear-gradient(135deg, transparent 21px, rgba(255,255,255,0.3) 21px);
+                z-index: 10002;
             }
 
             .avatar-adv-form-row {
@@ -2403,21 +2404,22 @@
         }
     }
 
-    // 拖拽逻辑 (相对于 fixed 视口进行绝对像素控制，内置边界保护以防 header 移出屏幕)
+    // 拖拽逻辑 (相对于 fixed 视口进行绝对像素控制，内置边界保护以防 header 移出屏幕，支持 PC 鼠标和手机触摸)
     function bindDrag(panel) {
         const header = panel.querySelector('#avatar-adv-header');
         let isDragging = false;
         let startX, startY;
         let panelX, panelY;
+        let rafId = null;
+        let latestClientX = 0;
+        let latestClientY = 0;
 
-        header.addEventListener('mousedown', (e) => {
-            if (e.target.closest('.avatar-adv-close-btn')) return;
+        const startDrag = (clientX, clientY) => {
             isDragging = true;
-            startX = e.clientX;
-            startY = e.clientY;
+            startX = clientX;
+            startY = clientY;
 
             const rect = panel.getBoundingClientRect();
-
             panel.style.transform = 'none';
             panel.style.left = `${rect.left}px`;
             panel.style.top = `${rect.top}px`;
@@ -2425,14 +2427,14 @@
             panelX = rect.left;
             panelY = rect.top;
 
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
-        });
+            latestClientX = clientX;
+            latestClientY = clientY;
+        };
 
-        function onMouseMove(e) {
+        const updatePosition = () => {
             if (!isDragging) return;
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
+            const dx = latestClientX - startX;
+            const dy = latestClientY - startY;
 
             // 限制弹窗不能拖出视口上方，防止 header 丢失无法关闭
             let nextLeft = panelX + dx;
@@ -2440,29 +2442,82 @@
 
             panel.style.left = `${nextLeft}px`;
             panel.style.top = `${nextTop}px`;
+            
+            rafId = null;
+        };
+
+        const moveDrag = (clientX, clientY) => {
+            if (!isDragging) return;
+            latestClientX = clientX;
+            latestClientY = clientY;
+            if (!rafId) {
+                rafId = requestAnimationFrame(updatePosition);
+            }
+        };
+
+        const endDrag = () => {
+            if (isDragging) {
+                isDragging = false;
+                if (rafId) {
+                    cancelAnimationFrame(rafId);
+                    rafId = null;
+                }
+                savePanelGeometry(panel);
+            }
+        };
+
+        // PC 鼠标事件监听
+        header.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.avatar-adv-close-btn') || e.target.closest('.avatar-adv-toggle-preview-btn')) return;
+            startDrag(e.clientX, e.clientY);
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+
+        function onMouseMove(e) {
+            moveDrag(e.clientX, e.clientY);
         }
 
         function onMouseUp() {
-            if (isDragging) {
-                isDragging = false;
-                savePanelGeometry(panel);
-                document.removeEventListener('mousemove', onMouseMove);
-                document.removeEventListener('mouseup', onMouseUp);
-            }
+            endDrag();
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
         }
+
+        // 移动端触摸事件监听
+        header.addEventListener('touchstart', (e) => {
+            if (e.target.closest('.avatar-adv-close-btn') || e.target.closest('.avatar-adv-toggle-preview-btn')) return;
+            const touch = e.touches[0];
+            startDrag(touch.clientX, touch.clientY);
+            // 阻止默认行为以防拖动时触发整个页面背景滚动
+            e.preventDefault();
+        }, { passive: false });
+
+        header.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            const touch = e.touches[0];
+            moveDrag(touch.clientX, touch.clientY);
+            e.preventDefault();
+        }, { passive: false });
+
+        header.addEventListener('touchend', endDrag, { passive: true });
+        header.addEventListener('touchcancel', endDrag, { passive: true });
     }
 
-    // 缩放大小
+    // 缩放大小 (支持 PC 鼠标和手机触摸)
     function bindResize(panel) {
         const resizer = panel.querySelector('.avatar-adv-resizer');
         let isResizing = false;
         let startWidth, startHeight;
         let startX, startY;
+        let rafId = null;
+        let latestClientX = 0;
+        let latestClientY = 0;
 
-        resizer.addEventListener('mousedown', (e) => {
+        const startResize = (clientX, clientY) => {
             isResizing = true;
-            startX = e.clientX;
-            startY = e.clientY;
+            startX = clientX;
+            startY = clientY;
             startWidth = panel.offsetWidth;
             startHeight = panel.offsetHeight;
 
@@ -2471,32 +2526,85 @@
             panel.style.left = `${rect.left}px`;
             panel.style.top = `${rect.top}px`;
 
+            latestClientX = clientX;
+            latestClientY = clientY;
+        };
+
+        const updateSize = () => {
+            if (!isResizing) return;
+            const dw = latestClientX - startX;
+            const dh = latestClientY - startY;
+            
+            // 动态计算最小与最大边界，防范移动端窄屏死锁
+            const minW = Math.min(320, window.innerWidth - 20);
+            const minH = Math.min(350, window.innerHeight - 20);
+            const maxW = window.innerWidth - panel.offsetLeft - 10;
+            const maxH = window.innerHeight - panel.offsetTop - 10;
+            
+            // 保证 maxW 不小于 minW，防止 Math.min / Math.max 交叉冲突
+            const finalMaxW = Math.max(minW, maxW);
+            const finalMaxH = Math.max(minH, maxH);
+            
+            panel.style.width = `${Math.max(minW, Math.min(finalMaxW, startWidth + dw))}px`;
+            panel.style.height = `${Math.max(minH, Math.min(finalMaxH, startHeight + dh))}px`;
+            
+            rafId = null;
+        };
+
+        const moveResize = (clientX, clientY) => {
+            if (!isResizing) return;
+            latestClientX = clientX;
+            latestClientY = clientY;
+            if (!rafId) {
+                rafId = requestAnimationFrame(updateSize);
+            }
+        };
+
+        const endResize = () => {
+            if (isResizing) {
+                isResizing = false;
+                if (rafId) {
+                    cancelAnimationFrame(rafId);
+                    rafId = null;
+                }
+                savePanelGeometry(panel);
+            }
+        };
+
+        // PC 鼠标事件监听
+        resizer.addEventListener('mousedown', (e) => {
+            startResize(e.clientX, e.clientY);
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mouseup', onMouseUp);
             e.preventDefault();
         });
 
         function onMouseMove(e) {
-            if (!isResizing) return;
-            const dw = e.clientX - startX;
-            const dh = e.clientY - startY;
-            
-            // 限制最小尺寸，且不能超出视口尺寸
-            const maxW = window.innerWidth - panel.offsetLeft - 10;
-            const maxH = window.innerHeight - panel.offsetTop - 10;
-            
-            panel.style.width = `${Math.max(380, Math.min(maxW, startWidth + dw))}px`;
-            panel.style.height = `${Math.max(400, Math.min(maxH, startHeight + dh))}px`;
+            moveResize(e.clientX, e.clientY);
         }
 
         function onMouseUp() {
-            if (isResizing) {
-                isResizing = false;
-                savePanelGeometry(panel);
-                document.removeEventListener('mousemove', onMouseMove);
-                document.removeEventListener('mouseup', onMouseUp);
-            }
+            endResize();
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
         }
+
+        // 移动端触摸事件监听
+        resizer.addEventListener('touchstart', (e) => {
+            const touch = e.touches[0];
+            startResize(touch.clientX, touch.clientY);
+            e.preventDefault();
+        }, { passive: false });
+
+        resizer.addEventListener('touchmove', (e) => {
+            if (!isResizing) return;
+            const touch = e.touches[0];
+            moveResize(touch.clientX, touch.clientY);
+            e.preventDefault();
+        }, { passive: false });
+
+        resizer.addEventListener('touchend', endResize, { passive: true });
+        resizer.addEventListener('touchcancel', endResize, { passive: true });
     }
 
     // 选项卡切换
