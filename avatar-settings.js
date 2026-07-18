@@ -40,6 +40,30 @@
         return 'rgb(30, 30, 30)';
     }
 
+    // 莫兰迪色系配色方案：应用到弹窗面板的背景、文字、边框颜色
+    function applyPanelColorScheme(panel, scheme) {
+        if (!panel) return;
+
+        // 先重置所有自定义配色属性
+        panel.style.removeProperty('background-color');
+        panel.style.removeProperty('color');
+        panel.style.removeProperty('border-color');
+        panel.classList.remove('tm-scheme-morandi-beige', 'tm-scheme-morandi-dark');
+
+        if (scheme === 'morandi-beige') {
+            panel.style.backgroundColor = '#ece4d8';
+            panel.style.color = '#4a3f35';
+            panel.classList.add('tm-scheme-morandi-beige');
+        } else if (scheme === 'morandi-dark') {
+            panel.style.backgroundColor = '#3a3d42';
+            panel.style.color = '#c8cdd4';
+            panel.classList.add('tm-scheme-morandi-dark');
+        } else {
+            // default：跟随酒馆主题
+            panel.style.backgroundColor = getSolidTavernColor();
+        }
+    }
+
     // 保存面板位置和尺寸几何属性
     function savePanelGeometry(panel) {
         const geom = {
@@ -555,22 +579,23 @@
                 font-weight: 600;
             }
 
-            /* 大选项卡 (角色/用户) */
+            /* 大选项卡 (角色/用户/设置) — 纯图标紧凑方形 */
             .avatar-adv-major-tab-btn {
                 flex: none;
-                padding: 6px 12px;
+                width: 32px;
+                height: 30px;
+                padding: 0;
                 background: none;
-                border: none;
+                border: 1px solid transparent;
                 color: inherit;
-                font-size: 13px;
+                font-size: 14px;
                 cursor: pointer;
-                opacity: 0.6;
-                transition: all 0.2s;
+                opacity: 0.55;
+                transition: all 0.18s;
                 border-radius: 6px;
                 display: inline-flex;
                 justify-content: center;
                 align-items: center;
-                gap: 6px;
             }
             .avatar-adv-major-tab-btn:hover {
                 opacity: 0.9;
@@ -581,6 +606,163 @@
                 background: var(--SmartThemeBlurTintColor, rgba(255,255,255,0.1)) !important;
                 border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.1)) !important;
                 font-weight: 600;
+            }
+
+            /* ===== 莫兰迪日间米色配色 ===== */
+            #avatar-adv-panel.tm-scheme-morandi-beige .avatar-adv-major-tabs-bar {
+                background: rgba(0,0,0,0.05) !important;
+                border-bottom-color: rgba(100,80,60,0.15) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige .avatar-adv-tabs-bar {
+                background: rgba(0,0,0,0.04) !important;
+                border-bottom-color: rgba(100,80,60,0.12) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige .avatar-adv-tab-btn {
+                color: #5a4d42 !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige .avatar-adv-tab-btn.active {
+                background: rgba(100,80,60,0.12) !important;
+                border-color: rgba(100,80,60,0.2) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige .avatar-adv-major-tab-btn {
+                color: #5a4d42 !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige .avatar-adv-major-tab-btn.active {
+                background: rgba(100,80,60,0.15) !important;
+                border-color: rgba(100,80,60,0.25) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige .menu_button {
+                background: rgba(100,80,60,0.12) !important;
+                color: #5a4d42 !important;
+                border-color: rgba(100,80,60,0.18) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige .menu_button:hover {
+                background: rgba(100,80,60,0.22) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige input[type="range"] {
+                accent-color: #a08060;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige .text_pole {
+                background: rgba(255,255,255,0.45) !important;
+                border-color: rgba(100,80,60,0.2) !important;
+                color: #4a3f35 !important;
+            }
+            /* 绑定界面元素（美化主题列表）— 日间米色 */
+            #avatar-adv-panel.tm-scheme-morandi-beige .theme-group-header {
+                background: rgba(100,80,60,0.07) !important;
+                color: #4a3f35 !important;
+                border-radius: 5px;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige .theme-group-header:hover {
+                background: rgba(100,80,60,0.14) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige .theme-row-item {
+                color: #4a3f35 !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige .theme-row-item:hover {
+                background: rgba(100,80,60,0.1) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige .theme-row-item.active {
+                background: rgba(100,80,60,0.18) !important;
+                border-left-color: #a08060 !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige #bind-themes-list {
+                border-color: rgba(100,80,60,0.18) !important;
+                background: rgba(255,255,255,0.25) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige label {
+                color: #4a3f35;
+            }
+
+            /* ===== 莫兰迪夜间深灰配色 ===== */
+            #avatar-adv-panel.tm-scheme-morandi-dark .avatar-adv-major-tabs-bar {
+                background: rgba(0,0,0,0.18) !important;
+                border-bottom-color: rgba(255,255,255,0.06) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark .avatar-adv-tabs-bar {
+                background: rgba(0,0,0,0.12) !important;
+                border-bottom-color: rgba(255,255,255,0.05) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark .avatar-adv-tab-btn {
+                color: #b8bdc4 !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark .avatar-adv-tab-btn.active {
+                background: rgba(255,255,255,0.08) !important;
+                border-color: rgba(255,255,255,0.1) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark .avatar-adv-major-tab-btn {
+                color: #b8bdc4 !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark .avatar-adv-major-tab-btn.active {
+                background: rgba(255,255,255,0.1) !important;
+                border-color: rgba(255,255,255,0.12) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark .menu_button {
+                background: rgba(255,255,255,0.07) !important;
+                color: #c8cdd4 !important;
+                border-color: rgba(255,255,255,0.08) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark .menu_button:hover {
+                background: rgba(255,255,255,0.13) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark input[type="range"] {
+                accent-color: #7a8a96;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark .text_pole {
+                background: rgba(0,0,0,0.2) !important;
+                border-color: rgba(255,255,255,0.08) !important;
+                color: #c8cdd4 !important;
+            }
+            /* 绑定界面元素（美化主题列表）— 夜间深灰 */
+            #avatar-adv-panel.tm-scheme-morandi-dark .theme-group-header {
+                background: rgba(255,255,255,0.05) !important;
+                color: #c8cdd4 !important;
+                border-radius: 5px;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark .theme-group-header:hover {
+                background: rgba(255,255,255,0.1) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark .theme-row-item {
+                color: #c8cdd4 !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark .theme-row-item:hover {
+                background: rgba(255,255,255,0.07) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark .theme-row-item.active {
+                background: rgba(255,255,255,0.12) !important;
+                border-left-color: #7a8a96 !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark #bind-themes-list {
+                border-color: rgba(255,255,255,0.08) !important;
+                background: rgba(0,0,0,0.15) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark label {
+                color: #c8cdd4;
+            }
+
+            /* 窄拖拽条 */
+            .avatar-adv-drag-strip {
+                width: 100%;
+                height: 8px;
+                cursor: move;
+                flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                opacity: 0.35;
+                transition: opacity 0.2s;
+                margin: 4px 0 0 0;
+            }
+            .avatar-adv-drag-strip::after {
+                content: '';
+                display: block;
+                width: 36px;
+                height: 3px;
+                border-radius: 3px;
+                background: currentColor;
+            }
+            .avatar-adv-drag-strip:hover {
+                opacity: 0.7;
             }
         `;
         document.head.appendChild(style);
@@ -1116,25 +1298,32 @@
         }
 
         panel.innerHTML = `
-            <div class="avatar-adv-major-tabs-bar" style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.08)); background: rgba(0,0,0,0.12); padding: 4px 12px; gap: 10px; flex-shrink: 0; cursor: move;" id="avatar-adv-header">
-                <!-- 左侧大选项卡 -->
-                <div style="display: flex; gap: 4px; flex: 1;">
-                    <button class="avatar-adv-major-tab-btn ${type === 'char' ? 'active' : ''}" data-major-tab="char">
-                        <i class="fa-solid fa-user-astronaut"></i> 角色头像
+            <!-- 窄拖拽条：最顶部，方便随处拖动弹窗 -->
+            <div class="avatar-adv-drag-strip" id="avatar-adv-drag-strip" title="拖动弹窗"></div>
+
+            <!-- 大选项卡栏：图标精简版 + 右侧功能按钮 -->
+            <div class="avatar-adv-major-tabs-bar" id="avatar-adv-header" style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.08)); background: rgba(0,0,0,0.12); padding: 2px 10px; gap: 6px; flex-shrink: 0;">
+                <!-- 左侧大选项卡（纯图标） -->
+                <div style="display: flex; gap: 2px;">
+                    <button class="avatar-adv-major-tab-btn ${type === 'char' ? 'active' : ''}" data-major-tab="char" title="角色头像">
+                        <i class="fa-solid fa-robot"></i>
                     </button>
-                    <button class="avatar-adv-major-tab-btn ${type === 'user' ? 'active' : ''}" data-major-tab="user">
-                        <i class="fa-solid fa-user"></i> 用户头像
+                    <button class="avatar-adv-major-tab-btn ${type === 'user' ? 'active' : ''}" data-major-tab="user" title="用户头像">
+                        <i class="fa-solid fa-user"></i>
+                    </button>
+                    <button class="avatar-adv-major-tab-btn" data-major-tab="settings" title="弹窗设置">
+                        <i class="fa-solid fa-gear"></i>
                     </button>
                 </div>
                 <!-- 右侧功能按钮 -->
-                <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
-                    <button class="avatar-adv-toggle-preview-btn" style="background: none; border: none; color: inherit; font-size: 16px; cursor: pointer; opacity: 0.7; transition: opacity 0.2s; display: inline-flex; align-items: center;" title="显示/隐藏预览"><i class="fa-solid fa-eye"></i></button>
-                    <button class="avatar-adv-close-btn" style="background: none; border: none; color: inherit; font-size: 18px; cursor: pointer; opacity: 0.7; transition: opacity 0.2s; display: inline-flex; align-items: center;" title="关闭"><i class="fa-solid fa-xmark"></i></button>
+                <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
+                    <button class="avatar-adv-toggle-preview-btn" style="background: none; border: none; color: inherit; font-size: 15px; cursor: pointer; opacity: 0.7; transition: opacity 0.2s; display: inline-flex; align-items: center;" title="显示/隐藏预览"><i class="fa-solid fa-eye"></i></button>
+                    <button class="avatar-adv-close-btn" style="background: none; border: none; color: inherit; font-size: 16px; cursor: pointer; opacity: 0.7; transition: opacity 0.2s; display: inline-flex; align-items: center;" title="关闭"><i class="fa-solid fa-xmark"></i></button>
                 </div>
             </div>
-            
-            <!-- 共享预览区域 (常驻顶部，实时反馈所有 Tap 页面的任何调整修改，可根据激活选项卡动态隐藏) -->
-            <div class="avatar-adv-preview-container" style="margin: 12px 16px 0 16px;">
+
+            <!-- 共享预览区域 -->
+            <div class="avatar-adv-preview-container" style="margin: 10px 14px 0 14px;">
                 <div class="avatar-adv-preview-wrapper" id="shared-preview-wrapper">
                     <img class="avatar-adv-preview-img" id="shared-preview-img" src="${src}">
                     <div id="shared-frame-preview"></div>
@@ -1285,11 +1474,56 @@
                     </div>
                 </div>
             </div>
+
+                <!-- 弹窗设置选项卡 -->
+                <div class="avatar-adv-tab-content avatar-adv-settings-panel" id="major-tab-settings" style="display:none; flex-direction:column; gap:16px; padding:16px; overflow-y:auto; flex:1;">
+                    <div style="font-size:12px; opacity:0.6; margin-bottom:4px;">弹窗配色方案</div>
+                    <div style="display:flex; flex-direction:column; gap:8px;">
+                        <label class="avatar-scheme-option" data-scheme="default" style="display:flex; align-items:center; gap:10px; cursor:pointer; padding:10px 14px; border-radius:8px; border:2px solid transparent; transition:all 0.2s;">
+                            <input type="radio" name="avatar-color-scheme" value="default" style="margin:0;">
+                            <span style="display:flex; flex-direction:column; gap:2px;">
+                                <span style="font-size:13px; font-weight:500;">跟随酒馆主题</span>
+                                <span style="font-size:11px; opacity:0.55;">使用酒馆全局背景色，保持默认外观</span>
+                            </span>
+                            <span style="margin-left:auto; display:flex; gap:5px;">
+                                <span style="width:16px; height:16px; border-radius:50%; background:var(--SmartThemeBlurTintColor, #2a2a2a); border:1px solid rgba(255,255,255,0.15); display:inline-block;"></span>
+                            </span>
+                        </label>
+                        <label class="avatar-scheme-option" data-scheme="morandi-beige" style="display:flex; align-items:center; gap:10px; cursor:pointer; padding:10px 14px; border-radius:8px; border:2px solid transparent; transition:all 0.2s;">
+                            <input type="radio" name="avatar-color-scheme" value="morandi-beige" style="margin:0;">
+                            <span style="display:flex; flex-direction:column; gap:2px;">
+                                <span style="font-size:13px; font-weight:500;">莫兰迪日间米色</span>
+                                <span style="font-size:11px; opacity:0.55;">低饱和暖米色调，柔和淡雅的日间风格</span>
+                            </span>
+                            <span style="margin-left:auto; display:flex; gap:5px;">
+                                <span style="width:16px; height:16px; border-radius:50%; background:#c8baa8; border:1px solid rgba(0,0,0,0.1); display:inline-block;"></span>
+                                <span style="width:16px; height:16px; border-radius:50%; background:#e8e0d4; border:1px solid rgba(0,0,0,0.1); display:inline-block;"></span>
+                            </span>
+                        </label>
+                        <label class="avatar-scheme-option" data-scheme="morandi-dark" style="display:flex; align-items:center; gap:10px; cursor:pointer; padding:10px 14px; border-radius:8px; border:2px solid transparent; transition:all 0.2s;">
+                            <input type="radio" name="avatar-color-scheme" value="morandi-dark" style="margin:0;">
+                            <span style="display:flex; flex-direction:column; gap:2px;">
+                                <span style="font-size:13px; font-weight:500;">莫兰迪夜间深灰</span>
+                                <span style="font-size:11px; opacity:0.55;">低饱和深灰蓝调，沉稳内敛的夜间风格</span>
+                            </span>
+                            <span style="margin-left:auto; display:flex; gap:5px;">
+                                <span style="width:16px; height:16px; border-radius:50%; background:#3d4147; border:1px solid rgba(255,255,255,0.08); display:inline-block;"></span>
+                                <span style="width:16px; height:16px; border-radius:50%; background:#52565c; border:1px solid rgba(255,255,255,0.08); display:inline-block;"></span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+            </div>
             <div class="avatar-adv-resizer"></div>
         `;
 
         // 统一作为 fixed 层挂载到最顶层 document.body
         document.body.appendChild(panel);
+
+        // 应用已保存的配色方案
+        const savedScheme = localStorage.getItem('themeManager_avatarPanelScheme') || 'default';
+        applyPanelColorScheme(panel, savedScheme);
 
         // 统一应用图库视觉替换保存
         function applyOverride(url) {
@@ -1746,14 +1980,81 @@
             btn.addEventListener('click', function(e) {
                 e.preventDefault();
                 const targetType = this.dataset.majorTab;
-                if (targetType === currentTargetType) return;
-                
+
+                // 设置 Tab 特殊处理：不重新打开面板，只显示设置区域
+                if (targetType === 'settings') {
+                    // 高亮 settings tab，取消其他 major tab 高亮
+                    panel.querySelectorAll('.avatar-adv-major-tab-btn').forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+
+                    // 隐藏主内容区，显示设置面板
+                    const mainContent = panel.querySelector('.avatar-adv-content');
+                    const previewContainer = panel.querySelector('.avatar-adv-preview-container');
+                    const tabsBar = panel.querySelector('.avatar-adv-tabs-bar');
+                    const settingsPanel = panel.querySelector('#major-tab-settings');
+
+                    if (mainContent) mainContent.style.display = 'none';
+                    if (previewContainer) previewContainer.style.display = 'none';
+                    if (tabsBar) tabsBar.style.display = 'none';
+                    if (settingsPanel) settingsPanel.style.display = 'flex';
+
+                    // 初始化配色方案单选按钮状态
+                    const currentScheme = localStorage.getItem('themeManager_avatarPanelScheme') || 'default';
+                    const radio = settingsPanel.querySelector(`input[value="${currentScheme}"]`);
+                    if (radio) radio.checked = true;
+
+                    // 更新选项高亮
+                    settingsPanel.querySelectorAll('.avatar-scheme-option').forEach(opt => {
+                        const isSelected = opt.dataset.scheme === currentScheme;
+                        opt.style.border = isSelected ? '2px solid var(--SmartThemeQuoteColor, rgba(90,140,180,0.7))' : '2px solid transparent';
+                        opt.style.background = isSelected ? 'rgba(255,255,255,0.06)' : '';
+                    });
+
+                    // 绑定配色方案切换事件（仅绑定一次）
+                    if (!settingsPanel.dataset.bound) {
+                        settingsPanel.dataset.bound = '1';
+                        settingsPanel.querySelectorAll('input[name="avatar-color-scheme"]').forEach(radio => {
+                            radio.addEventListener('change', () => {
+                                const scheme = radio.value;
+                                localStorage.setItem('themeManager_avatarPanelScheme', scheme);
+                                applyPanelColorScheme(panel, scheme);
+
+                                // 更新选项高亮
+                                settingsPanel.querySelectorAll('.avatar-scheme-option').forEach(opt => {
+                                    const isSelected = opt.dataset.scheme === scheme;
+                                    opt.style.border = isSelected ? '2px solid var(--SmartThemeQuoteColor, rgba(90,140,180,0.7))' : '2px solid transparent';
+                                    opt.style.background = isSelected ? 'rgba(255,255,255,0.06)' : '';
+                                });
+                            });
+                        });
+                    }
+                    return;
+                }
+
+                // char / user Tab：若当前已显示同类型则不操作，否则重新打开面板
+                if (targetType === currentTargetType) {
+                    // 若当前处于 settings tab 状态，则切回主内容
+                    const mainContent = panel.querySelector('.avatar-adv-content');
+                    const previewContainer = panel.querySelector('.avatar-adv-preview-container');
+                    const tabsBar = panel.querySelector('.avatar-adv-tabs-bar');
+                    const settingsPanel = panel.querySelector('#major-tab-settings');
+                    if (settingsPanel && settingsPanel.style.display !== 'none') {
+                        if (mainContent) mainContent.style.display = '';
+                        if (previewContainer) previewContainer.style.display = '';
+                        if (tabsBar) tabsBar.style.display = '';
+                        settingsPanel.style.display = 'none';
+                        panel.querySelectorAll('.avatar-adv-major-tab-btn').forEach(b => b.classList.remove('active'));
+                        this.classList.add('active');
+                    }
+                    return;
+                }
+
                 // 销毁裁剪器实例，防止内存泄漏或渲染残留
                 if (cropperInstance) {
                     try { cropperInstance.destroy(); } catch(e) {}
                     cropperInstance = null;
                 }
-                
+
                 // 获取目标类型的头像信息并重新打开面板（无缝复用 openPanel）
                 const info = getActiveAvatarInfo(targetType);
                 openPanel(targetType, info.file, info.src);
@@ -2576,7 +2877,7 @@
 
         // PC 鼠标事件监听
         header.addEventListener('mousedown', (e) => {
-            if (e.target.closest('.avatar-adv-close-btn') || e.target.closest('.avatar-adv-toggle-preview-btn')) return;
+            if (e.target.closest('.avatar-adv-close-btn') || e.target.closest('.avatar-adv-toggle-preview-btn') || e.target.closest('.avatar-adv-major-tab-btn')) return;
             startDrag(e.clientX, e.clientY);
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('mouseup', onMouseUp);
@@ -2594,7 +2895,7 @@
 
         // 移动端触摸事件监听
         header.addEventListener('touchstart', (e) => {
-            if (e.target.closest('.avatar-adv-close-btn') || e.target.closest('.avatar-adv-toggle-preview-btn')) return;
+            if (e.target.closest('.avatar-adv-close-btn') || e.target.closest('.avatar-adv-toggle-preview-btn') || e.target.closest('.avatar-adv-major-tab-btn')) return;
             const touch = e.touches[0];
             startDrag(touch.clientX, touch.clientY);
             // 阻止默认行为以防拖动时触发整个页面背景滚动
@@ -2610,6 +2911,32 @@
 
         header.addEventListener('touchend', endDrag, { passive: true });
         header.addEventListener('touchcancel', endDrag, { passive: true });
+
+        // 窄拖拽条：绑定与 header 相同的拖拽事件
+        const dragStrip = panel.querySelector('#avatar-adv-drag-strip');
+        if (dragStrip) {
+            dragStrip.addEventListener('mousedown', (e) => {
+                startDrag(e.clientX, e.clientY);
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            });
+
+            dragStrip.addEventListener('touchstart', (e) => {
+                const touch = e.touches[0];
+                startDrag(touch.clientX, touch.clientY);
+                e.preventDefault();
+            }, { passive: false });
+
+            dragStrip.addEventListener('touchmove', (e) => {
+                if (!isDragging) return;
+                const touch = e.touches[0];
+                moveDrag(touch.clientX, touch.clientY);
+                e.preventDefault();
+            }, { passive: false });
+
+            dragStrip.addEventListener('touchend', endDrag, { passive: true });
+            dragStrip.addEventListener('touchcancel', endDrag, { passive: true });
+        }
     }
 
     // 缩放大小 (支持 PC 鼠标和手机触摸)

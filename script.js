@@ -672,25 +672,21 @@
                                 </select>
                             </div>
                             <div class="tm-button-row">
-                                <button id="batch-edit-btn" class="menu_button" title="进入/退出批量编辑模式"><i class="fa-solid fa-pen-to-square"></i> 批量编辑</button>
-                                <button id="batch-import-btn" class="menu_button" title="从文件批量导入主题"><i class="fa-solid fa-folder-open"></i> 批量导入</button>
-                                <button id="tm-toggle-usage-count-btn" class="menu_button" title="显示/隐藏使用次数统计"><i class="fa-solid fa-chart-bar"></i> 次数统计</button>
-                                <button id="tm-toggle-avatar-helper-btn" class="menu_button" title="开启/完全禁用头像高级助手功能"><i class="fa-solid fa-user-gear"></i> 头像助手</button>
-                            </div>
-                            <div class="tm-button-row">
-                                <button id="manage-tags-btn" class="menu_button" title="管理标签"><i class="fa-solid fa-tags"></i> 管理标签</button>
-                                <button id="tm-export-settings-btn" class="menu_button" title="导出一个包含所有插件设置的配置文件，用于在不同设备间同步。"><i class="fa-solid fa-file-export"></i> 导出配置</button>
-                                <button id="tm-import-settings-btn" class="menu_button" title="从配置文件中导入插件设置。"><i class="fa-solid fa-file-import"></i> 导入配置</button>
-                            </div>
-                            <div class="tm-button-row" style="margin-top: 5px;">
-                                <button id="tm-reset-all-system-btn" class="menu_button" style="background: rgba(220, 53, 69, 0.12) !important; color: #ff8888 !important; border: 1px solid rgba(220, 53, 69, 0.2) !important; flex: 1; justify-content: center;" title="重置美化插件的所有数据"><i class="fa-solid fa-arrows-rotate"></i> 重置系统</button>
+                                <button id="batch-edit-btn" class="menu_button" title="进入/退出批量编辑模式"><i class="fa-solid fa-pen-to-square"></i> 编辑</button>
+                                <button id="batch-import-btn" class="menu_button" title="从文件批量导入主题"><i class="fa-solid fa-folder-open"></i> 导入</button>
+                                <button id="tm-toggle-usage-count-btn" class="menu_button" title="显示/隐藏使用次数统计"><i class="fa-solid fa-chart-bar"></i> 统计</button>
+                                <button id="tm-toggle-avatar-helper-btn" class="menu_button" title="开启/完全禁用头像管理功能"><i class="fa-solid fa-check"></i> 头像</button>
+                                <button id="manage-tags-btn" class="menu_button" title="管理标签"><i class="fa-solid fa-tags"></i> 标签</button>
+                                <button id="tm-export-settings-btn" class="menu_button" title="导出配置文件"><i class="fa-solid fa-file-export"></i> 导出</button>
+                                <button id="tm-import-settings-btn" class="menu_button" title="从配置文件中导入插件设置"><i class="fa-solid fa-file-import"></i> 导入</button>
+                                <button id="tm-reset-all-system-btn" class="menu_button" style="background: rgba(220, 53, 69, 0.12) !important; color: #ff8888 !important; border: 1px solid rgba(220, 53, 69, 0.2) !important;" title="重置美化插件的所有数据"><i class="fa-solid fa-arrows-rotate"></i> 重置</button>
                             </div>
                         </div>
 
                         <div id="batch-actions-bar" style="display:none;" data-mode="theme">
-                            <button id="batch-add-tag-btn" class="menu_button"><i class="fa-solid fa-tags"></i> 设置标签</button>
-                            <button id="batch-remove-tag-btn" class="menu_button"><i class="fa-solid fa-tag"></i> 移除标签</button>
-                            <button id="batch-delete-btn" class="menu_button"><i class="fa-solid fa-trash-can"></i> 删除选中</button>
+                            <button id="batch-add-tag-btn" class="menu_button"><i class="fa-solid fa-tags"></i> 加标签</button>
+                            <button id="batch-remove-tag-btn" class="menu_button"><i class="fa-solid fa-tag"></i> 删标签</button>
+                            <button id="batch-delete-btn" class="menu_button"><i class="fa-solid fa-trash-can"></i> 删选中</button>
                         </div>
                         <div class="theme-tags-row" id="theme-tags-container"></div>
                         <div id="tm-pagination-bar-top" class="tm-pagination-bar" style="display:none; justify-content: center; align-items: center; gap: 8px; margin-top: 5px; margin-bottom: 5px; width: 100%;">
@@ -1909,14 +1905,22 @@
                     });
                 }
 
-                // 头像助手开启/禁用 toggle
+                // 头像管理开启/禁用 toggle
                 const toggleAvatarHelperBtn = managerPanel.querySelector('#tm-toggle-avatar-helper-btn');
                 if (toggleAvatarHelperBtn) {
-                    toggleAvatarHelperBtn.classList.toggle('active', enableAvatarHelper);
+                    // 根据当前状态设置初始图标
+                    const updateAvatarHelperBtnIcon = (enabled) => {
+                        const icon = toggleAvatarHelperBtn.querySelector('i');
+                        if (icon) {
+                            icon.className = enabled ? 'fa-solid fa-check' : 'fa-solid fa-xmark';
+                        }
+                        toggleAvatarHelperBtn.classList.toggle('active', enabled);
+                    };
+                    updateAvatarHelperBtnIcon(enableAvatarHelper);
                     toggleAvatarHelperBtn.addEventListener('click', () => {
                         enableAvatarHelper = !enableAvatarHelper;
                         localStorage.setItem(ENABLE_AVATAR_HELPER_KEY, String(enableAvatarHelper));
-                        toggleAvatarHelperBtn.classList.toggle('active', enableAvatarHelper);
+                        updateAvatarHelperBtnIcon(enableAvatarHelper);
                         // 派发自定义事件以支持无刷新热更新
                         document.dispatchEvent(new CustomEvent('themeManager:enableAvatarHelperChanged', { detail: enableAvatarHelper }));
                     });

@@ -417,24 +417,39 @@
 .tm-button-row {
     display: flex;
     width: 100%;
-    gap: 8px;
+    gap: 5px;
+    flex-wrap: wrap; /* 操作按钮行允许弹性折行 */
+    box-sizing: border-box;
 }
 
-/* 第一行：搜索框自适应，按钮固定宽度 */
+/* 第一行（搜索框行）：绝不换行，搜索框自动收缩 */
+.tm-button-row:first-child {
+    flex-wrap: nowrap;
+}
+
+/* 搜索框自适应，可压缩但有最小宽度 */
 .tm-button-row #theme-search-box {
-    flex-grow: 1;
-    justify-content: center;
+    flex: 1 1 60px;
+    min-width: 60px;
 }
 
-.tm-button-row #random-theme-btn {
-    flex-grow: 0;
+/* 随机、自动、展开按钮固定宽度，不参与折行 */
+.tm-button-row #random-theme-btn,
+.tm-button-row #auto-theme-settings-btn,
+.tm-button-row #toggle-more-actions-btn {
+    flex: 0 0 auto;
 }
 
-/* 其他行：按钮平均分配宽度 */
+/* 其他行：按钮平均分配宽度，精简内边距 */
 .tm-button-row button {
     flex-grow: 1;
-    flex-basis: 0;
-    /* 让flex-grow生效的关键 */
+    flex-basis: 72px;  /* 两个字+图标的最小宽度，约4个一行 */
+    min-width: 60px;
+    padding: 4px 6px !important; /* 去除多余空白 */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    justify-content: center;
 }
 
 
