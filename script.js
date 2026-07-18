@@ -166,7 +166,8 @@
                 const SORT_SELECT_KEY = 'themeManager_sortSelect';
                 const TAG_FILTER_MODE_KEY = 'themeManager_tagFilterMode';
                 const USAGE_COUNT_KEY = 'themeManager_usageCount';
-                const SHOW_USAGE_COUNT_KEY = 'themeManager_showUsageCount';
+                                const SHOW_USAGE_COUNT_KEY = 'themeManager_showUsageCount';
+                const ENABLE_AVATAR_HELPER_KEY = 'themeManager_enableAvatarHelper';
 
                 let listMode = localStorage.getItem(LIST_MODE_KEY) || 'scroll';
                 let pageSize = parseInt(localStorage.getItem(PAGE_SIZE_KEY)) || 50;
@@ -182,6 +183,7 @@
                     console.error('[Theme Manager] Failed to parse usageCount:', e);
                 }
                 let showUsageCount = localStorage.getItem(SHOW_USAGE_COUNT_KEY) === 'true';
+                let enableAvatarHelper = localStorage.getItem(ENABLE_AVATAR_HELPER_KEY) !== 'false';
                 let currentPage = 1;
 
                 let allParsedThemes = [];
@@ -673,6 +675,7 @@
                                 <button id="batch-edit-btn" class="menu_button" title="进入/退出批量编辑模式"><i class="fa-solid fa-pen-to-square"></i> 批量编辑</button>
                                 <button id="batch-import-btn" class="menu_button" title="从文件批量导入主题"><i class="fa-solid fa-folder-open"></i> 批量导入</button>
                                 <button id="tm-toggle-usage-count-btn" class="menu_button" title="显示/隐藏使用次数统计"><i class="fa-solid fa-chart-bar"></i> 次数统计</button>
+                                <button id="tm-toggle-avatar-helper-btn" class="menu_button" title="开启/完全禁用头像高级助手功能"><i class="fa-solid fa-user-gear"></i> 头像助手</button>
                             </div>
                             <div class="tm-button-row">
                                 <button id="manage-tags-btn" class="menu_button" title="管理标签"><i class="fa-solid fa-tags"></i> 管理标签</button>
@@ -1777,7 +1780,8 @@
                     'themeManager_autoTheme',
                     TAG_FILTER_MODE_KEY,
                     USAGE_COUNT_KEY,
-                    SHOW_USAGE_COUNT_KEY
+                    SHOW_USAGE_COUNT_KEY,
+                    ENABLE_AVATAR_HELPER_KEY
                 ];
 
                 function exportSettings() {
@@ -1902,6 +1906,19 @@
                                 }
                             }
                         });
+                    });
+                }
+
+                // 头像助手开启/禁用 toggle
+                const toggleAvatarHelperBtn = managerPanel.querySelector('#tm-toggle-avatar-helper-btn');
+                if (toggleAvatarHelperBtn) {
+                    toggleAvatarHelperBtn.classList.toggle('active', enableAvatarHelper);
+                    toggleAvatarHelperBtn.addEventListener('click', () => {
+                        enableAvatarHelper = !enableAvatarHelper;
+                        localStorage.setItem(ENABLE_AVATAR_HELPER_KEY, String(enableAvatarHelper));
+                        toggleAvatarHelperBtn.classList.toggle('active', enableAvatarHelper);
+                        // 派发自定义事件以支持无刷新热更新
+                        document.dispatchEvent(new CustomEvent('themeManager:enableAvatarHelperChanged', { detail: enableAvatarHelper }));
                     });
                 }
 

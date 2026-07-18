@@ -554,6 +554,34 @@
                 border-left: 3px solid var(--SmartThemeQuoteColor, #007bff);
                 font-weight: 600;
             }
+
+            /* 大选项卡 (角色/用户) */
+            .avatar-adv-major-tab-btn {
+                flex: none;
+                padding: 6px 12px;
+                background: none;
+                border: none;
+                color: inherit;
+                font-size: 13px;
+                cursor: pointer;
+                opacity: 0.6;
+                transition: all 0.2s;
+                border-radius: 6px;
+                display: inline-flex;
+                justify-content: center;
+                align-items: center;
+                gap: 6px;
+            }
+            .avatar-adv-major-tab-btn:hover {
+                opacity: 0.9;
+                background: rgba(255,255,255,0.05);
+            }
+            .avatar-adv-major-tab-btn.active {
+                opacity: 1;
+                background: var(--SmartThemeBlurTintColor, rgba(255,255,255,0.1)) !important;
+                border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.1)) !important;
+                font-weight: 600;
+            }
         `;
         document.head.appendChild(style);
     }
@@ -579,15 +607,8 @@
             customFrames = JSON.parse(localStorage.getItem(FRAMES_KEY)) || [];
         } catch (e) {}
         
+        const isFrameEnabled = localStorage.getItem('themeManager_enableAvatarFrame') === 'true';
         let css = '';
-
-        // 默认限制在聊天区与侧边栏内，强制 .avatar, .avatarimg, .user_avatar 保持裁剪溢出，防止图片位移重叠，且不污染角色详情页与首页
-        css += `
-            #chat .mesAvatarWrapper .avatar, #chat .mesAvatarWrapper .avatarimg, #chat .mesAvatarWrapper .user_avatar,
-            #right-nav-panel .character_select .avatar, #right-nav-panel .character_select .avatarimg {
-                overflow: hidden !important;
-            }
-        `;
 
         Object.keys(adjustments).forEach(key => {
             const adj = adjustments[key];
@@ -655,8 +676,15 @@
                 }
             `;
 
+            // 仅为进行了微调或替换的头像容器子元素应用裁剪，防止图片位移重叠溢出，完美避免全局污染其他未微调头像的 CSS 样式
+            css += `
+                ${parentSelector} .avatar, ${parentSelector} .avatarimg, ${parentSelector} .user_avatar {
+                    overflow: hidden !important;
+                }
+            `;
+
             // 3. 头像框渲染
-            if (adj.frame && adj.frame !== 'none') {
+            if (isFrameEnabled && adj.frame && adj.frame !== 'none') {
                 let frameStyle = '';
                 const frameObj = customFrames.find(f => f.id === adj.frame);
                 if (frameObj) {
@@ -976,8 +1004,38 @@
         return { type, file, src };
     }
 
+    // 动态获取当前活动的角色头像/用户头像文件及 URL 信息
+    function getActiveAvatarInfo(type) {
+        let file = '';
+        let src = '';
+        if (type === 'char') {
+            const context = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
+            if (context && context.characters && context.characterId !== undefined) {
+                const charObj = context.characters[context.characterId];
+                if (charObj && charObj.avatar) {
+                    file = charObj.avatar;
+                }
+            }
+            const charImg = document.querySelector('#avatar_div img, #right-nav-panel .character_select.selected img, .avatar img');
+            src = charImg ? charImg.src : (file ? `/characters/${file}` : '');
+            if (!file && src) file = getAvatarFilename(src);
+        } else {
+            const userImg = document.querySelector('#user_avatar_block img, .user_avatar img');
+            src = userImg ? userImg.src : '';
+            file = getAvatarFilename(src);
+        }
+        return { file, src };
+    }
+
     // 弹窗创建
     function openPanel(type, file, src) {
+        // 如果未传入 file/src，则动态获取
+        if (!file || !src) {
+            const info = getActiveAvatarInfo(type);
+            file = info.file;
+            src = info.src;
+        }
+
         // 在打开任何新弹窗前，绝对优先关闭并清除已有的弹窗资源，防止多个弹窗 DOM 并存导致冲突卡死
         closePanel();
 
@@ -1053,11 +1111,20 @@
         }
 
         panel.innerHTML = `
-            <div id="avatar-adv-header">
-                <h3><i class="fa-solid fa-user-gear"></i> ${type === 'char' ? '角色' : '用户'}头像助手</h3>
-                <div style="display: flex; align-items: center; gap: 10px;">
+            <div class="avatar-adv-major-tabs-bar" style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.08)); background: rgba(0,0,0,0.12); padding: 4px 12px; gap: 10px; flex-shrink: 0; cursor: move;" id="avatar-adv-header">
+                <!-- 左侧大选项卡 -->
+                <div style="display: flex; gap: 4px; flex: 1;">
+                    <button class="avatar-adv-major-tab-btn ${type === 'char' ? 'active' : ''}" data-major-tab="char">
+                        <i class="fa-solid fa-user-astronaut"></i> 角色头像
+                    </button>
+                    <button class="avatar-adv-major-tab-btn ${type === 'user' ? 'active' : ''}" data-major-tab="user">
+                        <i class="fa-solid fa-user"></i> 用户头像
+                    </button>
+                </div>
+                <!-- 右侧功能按钮 -->
+                <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
                     <button class="avatar-adv-toggle-preview-btn" style="background: none; border: none; color: inherit; font-size: 16px; cursor: pointer; opacity: 0.7; transition: opacity 0.2s; display: inline-flex; align-items: center;" title="显示/隐藏预览"><i class="fa-solid fa-eye"></i></button>
-                    <button class="avatar-adv-close-btn" title="关闭"><i class="fa-solid fa-xmark"></i></button>
+                    <button class="avatar-adv-close-btn" style="background: none; border: none; color: inherit; font-size: 18px; cursor: pointer; opacity: 0.7; transition: opacity 0.2s; display: inline-flex; align-items: center;" title="关闭"><i class="fa-solid fa-xmark"></i></button>
                 </div>
             </div>
             
@@ -1130,9 +1197,14 @@
 
                 <!-- 头像框选项卡 -->
                 <div class="avatar-adv-tab-content" id="tab-frame">
-                    <div style="display:flex; flex-direction:row; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:5px;">
-                        <button class="avatar-adv-tab-btn active" style="padding:4px;" id="btn-subtab-apply" title="应用调整"><i class="fa-solid fa-sliders"></i></button>
-                        <button class="avatar-adv-tab-btn" style="padding:4px;" id="btn-subtab-store" title="储存与批量导入"><i class="fa-solid fa-folder-plus"></i></button>
+                    <div style="display:flex; flex-direction:row; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:5px;">
+                        <div style="display:flex; flex-direction:row; gap:4px;">
+                            <button class="avatar-adv-tab-btn active" style="padding:4px;" id="btn-subtab-apply" title="应用调整"><i class="fa-solid fa-sliders"></i></button>
+                            <button class="avatar-adv-tab-btn" style="padding:4px;" id="btn-subtab-store" title="储存与批量导入"><i class="fa-solid fa-folder-plus"></i></button>
+                        </div>
+                        <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; margin:0 5px 0 0;">
+                            <input type="checkbox" id="chk-enable-avatar-frame" style="margin:0; width:14px; height:14px; cursor:pointer;"> 启用头像框
+                        </label>
                     </div>
                     
                     <!-- 头像框应用子页 -->
@@ -1243,7 +1315,8 @@
             img.src = resolveImageUrl(currentAdj.overrideUrl) || originalAvatarUrl;
 
             // 3. 渲染头像框
-            if (currentAdj.frame && currentAdj.frame !== 'none') {
+            const isFrameEnabled = localStorage.getItem('themeManager_enableAvatarFrame') === 'true';
+            if (isFrameEnabled && currentAdj.frame && currentAdj.frame !== 'none') {
                 let customFrames = [];
                 try {
                     customFrames = JSON.parse(localStorage.getItem(FRAMES_KEY)) || [];
@@ -1663,6 +1736,25 @@
             console.error('[Theme Manager Avatar] Error binding tab switcher events:', e);
         }
 
+        // 绑定大选项卡切换事件
+        panel.querySelectorAll('.avatar-adv-major-tab-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                const targetType = this.dataset.majorTab;
+                if (targetType === currentTargetType) return;
+                
+                // 销毁裁剪器实例，防止内存泄漏或渲染残留
+                if (cropperInstance) {
+                    try { cropperInstance.destroy(); } catch(e) {}
+                    cropperInstance = null;
+                }
+                
+                // 获取目标类型的头像信息并重新打开面板（无缝复用 openPanel）
+                const info = getActiveAvatarInfo(targetType);
+                openPanel(targetType, info.file, info.src);
+            });
+        });
+
         // 根据当前打开的状态动态设置常驻预览区域显示或隐藏
         adjustPreviewVisibility(panel);
 
@@ -1924,6 +2016,17 @@
 
             const toggleBatchBtn = tabPanel.querySelector('#btn-toggle-batch-import');
             const batchImportPanel = tabPanel.querySelector('#batch-import-collapsible');
+
+            const chkEnableFrame = tabPanel.querySelector('#chk-enable-avatar-frame');
+            if (chkEnableFrame) {
+                chkEnableFrame.checked = localStorage.getItem('themeManager_enableAvatarFrame') === 'true';
+                chkEnableFrame.addEventListener('change', () => {
+                    localStorage.setItem('themeManager_enableAvatarFrame', chkEnableFrame.checked ? 'true' : 'false');
+                    applyAvatarStyles();
+                    const current = getAdjustment(targetType, targetFile);
+                    updatePanelLivePreview(current);
+                });
+            }
 
             toggleBatchBtn.addEventListener('click', () => {
                 const isCollapsed = batchImportPanel.style.display === 'none';
@@ -2644,6 +2747,72 @@
         return div.innerHTML;
     }
 
+    // 注册魔法棒菜单（Wand Menu）按钮
+    function registerWandButtons() {
+        if (localStorage.getItem('themeManager_enableAvatarHelper') === 'false') return;
+        // 1. 角色魔法棒按钮
+        const charWandMenu = document.getElementById('extensionsMenu');
+        if (charWandMenu) {
+            if (!document.getElementById('theme-manager-char-avatar-wand-btn')) {
+                const btn = document.createElement('div');
+                btn.id = 'theme-manager-char-avatar-wand-btn';
+                btn.className = 'list-group-item flex-container flexGap5 clickable';
+                btn.title = '头像管理';
+                btn.innerHTML = `
+                    <div class="fa-solid fa-user-gear extensionsMenuExtensionButton"></div>
+                    <span>头像管理</span>
+                `;
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    $('#extensionsMenu').hide();
+
+                    const context = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
+                    if (context && context.characters && context.characterId !== undefined) {
+                        const charObj = context.characters[context.characterId];
+                        if (charObj && charObj.avatar) {
+                            const file = charObj.avatar;
+                            const charImg = document.querySelector('#avatar_div img, #right-nav-panel .character_select.selected img, .avatar img');
+                            const src = charImg ? charImg.src : `/characters/${file}`;
+                            openPanel('char', file, src);
+                            return;
+                        }
+                    }
+                    toastr.warning('未找到当前活动的聊天角色。');
+                });
+                charWandMenu.appendChild(btn);
+            }
+        }
+
+        // 2. 用户魔法棒按钮
+        const userWandMenu = document.getElementById('userExtensionsMenu');
+        if (userWandMenu) {
+            if (!document.getElementById('theme-manager-user-avatar-wand-btn')) {
+                const btn = document.createElement('div');
+                btn.id = 'theme-manager-user-avatar-wand-btn';
+                btn.className = 'list-group-item flex-container flexGap5 clickable';
+                btn.title = '头像管理';
+                btn.innerHTML = `
+                    <div class="fa-solid fa-user-gear extensionsMenuExtensionButton"></div>
+                    <span>头像管理</span>
+                `;
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    $('#userExtensionsMenu').hide();
+
+                    const userImg = document.querySelector('#user_avatar_block img, .user_avatar img');
+                    const src = userImg ? userImg.src : '';
+                    const file = getAvatarFilename(src);
+                    if (file) {
+                        openPanel('user', file, src);
+                    } else {
+                        toastr.warning('未找到用户头像，请先在用户面板上传头像。');
+                    }
+                });
+                userWandMenu.appendChild(btn);
+            }
+        }
+    }
+
     // 设置双击/长按监听逻辑
     function setupInteractionListeners() {
         let pressTimer = null;
@@ -2675,6 +2844,7 @@
 
         // 1. Mousedown (鼠标点击和长按)
         document.body.addEventListener('mousedown', (e) => {
+            if (localStorage.getItem('themeManager_enableAvatarHelper') === 'false') return;
             const target = e.target.closest('.avatar, .avatarimg, #avatar_div, .user_avatar, .character_select img');
             if (!target) return;
 
@@ -2708,6 +2878,7 @@
         }, true);
 
         document.body.addEventListener('mousemove', (e) => {
+            if (localStorage.getItem('themeManager_enableAvatarHelper') === 'false') return;
             if (!clickedElement) return;
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
@@ -2724,6 +2895,7 @@
         let lastTouchElement = null;
 
         document.body.addEventListener('touchstart', (e) => {
+            if (localStorage.getItem('themeManager_enableAvatarHelper') === 'false') return;
             const target = e.target.closest('.avatar, .avatarimg, #avatar_div, .user_avatar, .character_select img');
             if (!target) return;
 
@@ -2758,6 +2930,7 @@
         }, { capture: true, passive: false });
 
         document.body.addEventListener('touchmove', (e) => {
+            if (localStorage.getItem('themeManager_enableAvatarHelper') === 'false') return;
             if (!clickedElement) return;
             const touch = e.touches[0];
             const dx = touch.clientX - startX;
@@ -2772,6 +2945,7 @@
 
         // 3. 点击头像放大阻止器 (仅在 #chat 区域内拦截)
         document.body.addEventListener('click', (e) => {
+            if (localStorage.getItem('themeManager_enableAvatarHelper') === 'false') return;
             if (!isZoomDisabled) return;
 
             const target = e.target.closest('.avatar, .avatarimg, #avatar_div, .user_avatar');
@@ -2783,8 +2957,12 @@
     }
 
     // 运行初始化
-    document.body.classList.toggle('tm-avatar-hd-rendering', isHdEnabled);
-    initStyles();
+    const isHelperEnabled = localStorage.getItem('themeManager_enableAvatarHelper') !== 'false';
+    if (isHelperEnabled) {
+        document.body.classList.toggle('tm-avatar-hd-rendering', isHdEnabled);
+        initStyles();
+        registerWandButtons();
+    }
     setupInteractionListeners();
     updateActiveCharacterAttr();
     tagAllMessages();
@@ -2817,13 +2995,17 @@
         .then(() => migrateBase64Gallery())
         .then(() => loadGalleryBlobsToCache())
         .then(() => {
-            applyAvatarStyles();
+            if (localStorage.getItem('themeManager_enableAvatarHelper') !== 'false') {
+                applyAvatarStyles();
+            }
             console.log('[Theme Manager Avatar] Database initialization and asset loading completed successfully.');
         })
         .catch(err => {
             console.error('[Theme Manager Avatar] Database initialization failed:', err);
             // 降级使用同步样式渲染
-            applyAvatarStyles();
+            if (localStorage.getItem('themeManager_enableAvatarHelper') !== 'false') {
+                applyAvatarStyles();
+            }
         });
 
     // 监听酒馆底层事件，实时改变 data-active-char 属性以驱动前端 CSS 隔离替换
@@ -2843,10 +3025,12 @@
         eventSource.on(eventTypes.CHARACTER_SELECTED, () => {
             updateActiveCharacterAttr();
             setTimeout(tagAllMessages, 100);
+            registerWandButtons();
         });
         eventSource.on(eventTypes.CHAT_CHANGED, () => {
             updateActiveCharacterAttr();
             setTimeout(tagAllMessages, 100);
+            registerWandButtons();
         });
         
         // 兼容右侧角色切换
@@ -2854,11 +3038,41 @@
             setTimeout(() => {
                 updateActiveCharacterAttr();
                 tagAllMessages();
+                registerWandButtons();
             }, 100);
         });
     } catch (e) {
         console.warn('[Theme Manager Avatar] Failed to register event listeners:', e);
     }
+
+    // 监听设置更改，以实现无刷新热更新
+    document.addEventListener('themeManager:enableAvatarHelperChanged', (e) => {
+        const enabled = e.detail;
+        if (enabled) {
+            initStyles();
+            applyAvatarStyles();
+            registerWandButtons();
+            document.body.classList.toggle('tm-avatar-hd-rendering', isHdEnabled);
+        } else {
+            // 1. 清空动态头像微调 CSS 样式
+            const styleEl = document.getElementById('avatar-adv-dynamic-style');
+            if (styleEl) styleEl.textContent = '';
+            
+            // 2. 移除基础 CSS 样式
+            const baseStyleEl = document.getElementById('avatar-adv-base-css');
+            if (baseStyleEl) baseStyleEl.remove();
+
+            // 3. 移除魔法棒按钮
+            document.getElementById('theme-manager-char-avatar-wand-btn')?.remove();
+            document.getElementById('theme-manager-user-avatar-wand-btn')?.remove();
+            
+            // 4. 关闭高级调整面板
+            closePanel();
+            
+            // 5. 移除 HD 渲染 class
+            document.body.classList.remove('tm-avatar-hd-rendering');
+        }
+    });
 
     // 暴露全局接口
     window.ThemeManagerAvatarAdjuster = {
