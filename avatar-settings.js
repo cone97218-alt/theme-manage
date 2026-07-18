@@ -676,9 +676,14 @@
                 }
             `;
 
-            // 仅为进行了微调或替换的头像容器子元素应用裁剪，防止图片位移重叠溢出，完美避免全局污染其他未微调头像的 CSS 样式
+            // 仅为进行了微调或替换的头像容器子元素应用尺寸撑满与裁剪，防止图片位移重叠溢出，同时确保兼容自定义头像大小的主题，避免全局污染
             css += `
-                ${parentSelector} .avatar, ${parentSelector} .avatarimg, ${parentSelector} .user_avatar {
+                ${parentSelector} .avatar, ${parentSelector} .user_avatar {
+                    width: 100% !important;
+                    height: 100% !important;
+                    overflow: hidden !important;
+                }
+                ${parentSelector} .avatarimg {
                     overflow: hidden !important;
                 }
             `;
