@@ -658,6 +658,7 @@
             }
             #avatar-adv-panel.tm-scheme-morandi-beige .theme-row-item {
                 color: #4a3f35 !important;
+                background: rgba(100,80,60,0.04) !important;
             }
             #avatar-adv-panel.tm-scheme-morandi-beige .theme-row-item:hover {
                 background: rgba(100,80,60,0.1) !important;
@@ -672,6 +673,17 @@
             }
             #avatar-adv-panel.tm-scheme-morandi-beige label {
                 color: #4a3f35;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige #btn-save-theme-binding {
+                background-color: #a08060 !important;
+                color: #ffffff !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige #btn-save-theme-binding:hover {
+                background-color: #8c7053 !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige input[type="checkbox"] {
+                background: rgba(100,80,60,0.15) !important;
+                border-color: rgba(100,80,60,0.3) !important;
             }
 
             /* ===== 莫兰迪夜间深灰配色 ===== */
@@ -724,6 +736,7 @@
             }
             #avatar-adv-panel.tm-scheme-morandi-dark .theme-row-item {
                 color: #c8cdd4 !important;
+                background: rgba(255,255,255,0.03) !important;
             }
             #avatar-adv-panel.tm-scheme-morandi-dark .theme-row-item:hover {
                 background: rgba(255,255,255,0.07) !important;
@@ -738,6 +751,17 @@
             }
             #avatar-adv-panel.tm-scheme-morandi-dark label {
                 color: #c8cdd4;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark #btn-save-theme-binding {
+                background-color: #7a8a96 !important;
+                color: #ffffff !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark #btn-save-theme-binding:hover {
+                background-color: #657480 !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark input[type="checkbox"] {
+                background: rgba(0,0,0,0.2) !important;
+                border-color: rgba(255,255,255,0.15) !important;
             }
 
             /* 窄拖拽条 */
@@ -861,8 +885,8 @@
             // 仅为进行了微调或替换的头像容器子元素应用尺寸撑满与裁剪，防止图片位移重叠溢出，同时确保兼容自定义头像大小的主题，避免全局污染
             css += `
                 ${parentSelector} .avatar, ${parentSelector} .user_avatar {
-                    width: 100% !important;
-                    height: 100% !important;
+                    width: 100%;
+                    height: 100%;
                     overflow: hidden !important;
                 }
                 ${parentSelector} .avatarimg {
