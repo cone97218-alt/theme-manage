@@ -19,7 +19,7 @@
     let isZoomDisabled = localStorage.getItem(DISABLE_ZOOM_KEY) === 'true';
     let avatarTriggerMethod = localStorage.getItem('themeManager_avatarTriggerMethod') || 'all';
     const PREVIEW_VISIBLE_KEY = 'themeManager_avatarPreviewVisible';
-    let isPreviewVisible = localStorage.getItem(PREVIEW_VISIBLE_KEY) !== 'false';
+    let isPreviewVisible = localStorage.getItem(PREVIEW_VISIBLE_KEY) === 'true';
     let isHdEnabled = localStorage.getItem('themeManager_enableAvatarHD') !== 'false';
 
     // 获取酒馆背景色的 RGB 部分以实现 100% 不透明跟随
@@ -175,69 +175,7 @@
         const style = document.createElement('style');
         style.id = 'avatar-adv-base-css';
         style.textContent = `
-            /* 1. 精准对齐与适配酒馆的外观设置 (方形/圆角/圆形/矩形头像) */
-            /* 方形头像 (Square) */
-            body.square-avatars .avatar-adv-preview-wrapper,
-            body.square-avatars .avatar-adv-preview-wrapper img,
-            body.square-avatars #shared-frame-preview,
-            body.square-avatars .frame-item-card-preview,
-            body.square-avatars .frame-card-preview-layer,
-            body.square-avatars .frame-item-card-preview div,
-            body.square-avatars #active-frame-adjust-panel div[style*="width:30px"],
-            body.square-avatars #chat .mesAvatarWrapper::after {
-                border-radius: var(--avatar-base-border-radius, 2px) !important;
-            }
-            /* 圆角矩形头像 (Rounded) */
-            body.rounded-avatars .avatar-adv-preview-wrapper,
-            body.rounded-avatars .avatar-adv-preview-wrapper img,
-            body.rounded-avatars #shared-frame-preview,
-            body.rounded-avatars .frame-item-card-preview,
-            body.rounded-avatars .frame-card-preview-layer,
-            body.rounded-avatars .frame-item-card-preview div,
-            body.rounded-avatars #active-frame-adjust-panel div[style*="width:30px"],
-            body.rounded-avatars #chat .mesAvatarWrapper::after {
-                border-radius: var(--avatar-base-border-radius-rounded, 10px) !important;
-            }
-            /* 矩形长头像 (Rectangular / Big Avatars) */
-            body.big-avatars .avatar-adv-preview-container {
-                height: 220px !important;
-            }
-            body.big-avatars .avatar-adv-preview-wrapper {
-                width: calc(110px * var(--big-avatar-width-factor, 1.2)) !important;
-                height: calc(110px * var(--big-avatar-height-factor, 1.8)) !important;
-                border-radius: calc(var(--avatar-base-border-radius, 2px) * var(--big-avatar-border-factor, 5)) !important;
-            }
-            body.big-avatars .avatar-adv-preview-wrapper img {
-                border-radius: calc(var(--avatar-base-border-radius, 2px) * var(--big-avatar-border-factor, 5)) !important;
-            }
-            body.big-avatars #shared-frame-preview {
-                width: calc(100% + 4px) !important;
-                height: calc(100% + 4px) !important;
-                border-radius: calc(var(--avatar-base-border-radius, 2px) * var(--big-avatar-border-factor, 5)) !important;
-            }
-            body.big-avatars .frame-item-card-preview {
-                width: calc(50px * var(--big-avatar-width-factor, 1.2)) !important;
-                height: calc(50px * var(--big-avatar-height-factor, 1.8)) !important;
-                border-radius: calc(var(--avatar-base-border-radius, 2px) * var(--big-avatar-border-factor, 5)) !important;
-            }
-            body.big-avatars .frame-card-preview-layer {
-                border-radius: calc(var(--avatar-base-border-radius, 2px) * var(--big-avatar-border-factor, 5)) !important;
-            }
-            body.big-avatars .frame-item-card-preview div {
-                border-radius: calc(var(--avatar-base-border-radius, 2px) * var(--big-avatar-border-factor, 5)) !important;
-            }
-            body.big-avatars #active-frame-adjust-panel div[style*="width:30px"] {
-                width: calc(30px * var(--big-avatar-width-factor, 1.2)) !important;
-                height: calc(30px * var(--big-avatar-height-factor, 1.8)) !important;
-                border-radius: calc(var(--avatar-base-border-radius, 2px) * var(--big-avatar-border-factor, 5)) !important;
-            }
-            body.big-avatars #chat .mesAvatarWrapper::after {
-                width: calc(var(--avatar-base-width) * var(--big-avatar-width-factor, 1.2)) !important;
-                height: calc(var(--avatar-base-height) * var(--big-avatar-height-factor, 1.8)) !important;
-                border-radius: calc(var(--avatar-base-border-radius, 2px) * var(--big-avatar-border-factor, 5)) !important;
-            }
-
-            /* 2. 兼容与优化：强制使实际的头像图片捕获点击事件 */
+            /* 1. 高清渲染优化与交互判定 (基础设置) */
             #chat .mesAvatarWrapper img,
             #chat .mesAvatarWrapper .avatar img,
             #chat .mesAvatarWrapper .user_avatar img,
@@ -424,6 +362,17 @@
                 border-radius: 8px;
                 overflow: hidden;
             }
+            .crop-option-bar {
+                display: flex;
+                flex-direction: row;
+                align-items: center;
+                justify-content: space-between;
+                padding: 4px 8px;
+                background: rgba(0, 0, 0, 0.15);
+                border: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.08));
+                border-radius: 6px;
+                color: inherit;
+            }
             
             /* 头像框网格预览 */
             .frame-list-grid {
@@ -512,6 +461,30 @@
             }
             .gallery-item:hover .gallery-item-delete {
                 display: inline-flex;
+            }
+            .gallery-item-batch-chk {
+                position: absolute;
+                top: 3px;
+                right: 3px;
+                width: 18px;
+                height: 18px;
+                border-radius: 4px;
+                background: rgba(0,0,0,0.55);
+                border: 1px solid rgba(255,255,255,0.6);
+                color: #fff;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 10px;
+                z-index: 5;
+            }
+            .gallery-item.batch-selected {
+                border-color: #dc3545 !important;
+                box-shadow: 0 0 6px rgba(220,53,69,0.5);
+            }
+            .gallery-item.batch-selected .gallery-item-batch-chk {
+                background: #dc3545 !important;
+                border-color: #dc3545 !important;
             }
             
             /* 拖拽手柄 - 增大手机端的可点击区域 */
@@ -685,6 +658,15 @@
                 background: rgba(100,80,60,0.15) !important;
                 border-color: rgba(100,80,60,0.3) !important;
             }
+            #avatar-adv-panel.tm-scheme-morandi-beige .crop-option-bar {
+                background: rgba(100,80,60,0.07) !important;
+                border-color: rgba(100,80,60,0.18) !important;
+                color: #4a3f35 !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-beige .crop-option-bar label,
+            #avatar-adv-panel.tm-scheme-morandi-beige .crop-option-bar span {
+                color: #4a3f35 !important;
+            }
 
             /* ===== 莫兰迪夜间深灰配色 ===== */
             #avatar-adv-panel.tm-scheme-morandi-dark .avatar-adv-major-tabs-bar {
@@ -762,6 +744,15 @@
             #avatar-adv-panel.tm-scheme-morandi-dark input[type="checkbox"] {
                 background: rgba(0,0,0,0.2) !important;
                 border-color: rgba(255,255,255,0.15) !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark .crop-option-bar {
+                background: rgba(255,255,255,0.05) !important;
+                border-color: rgba(255,255,255,0.08) !important;
+                color: #c8cdd4 !important;
+            }
+            #avatar-adv-panel.tm-scheme-morandi-dark .crop-option-bar label,
+            #avatar-adv-panel.tm-scheme-morandi-dark .crop-option-bar span {
+                color: #c8cdd4 !important;
             }
 
             /* 窄拖拽条 */
@@ -870,29 +861,21 @@
                 `;
             }
 
-            // 2. 图像属性微调 (缩放与位移)
-            const zoom = adj.zoom || 1;
-            const x = adj.x || 0;
-            const y = adj.y || 0;
+            // 2. 图像属性微调 (惰性注入：仅在产生真正的缩放/位移微调时注入 CSS，未微调时保留美化样式原貌)
+            const zoom = adj.zoom !== undefined ? Number(adj.zoom) : 1;
+            const x = adj.x !== undefined ? Number(adj.x) : 0;
+            const y = adj.y !== undefined ? Number(adj.y) : 0;
 
-            css += `
-                ${imgSelector} {
-                    transform: scale(${zoom}) translate(${x}%, ${y}%) !important;
-                    transform-origin: center center !important;
-                }
-            `;
+            const isTransformed = zoom !== 1 || x !== 0 || y !== 0;
 
-            // 仅为进行了微调或替换的头像容器子元素应用尺寸撑满与裁剪，防止图片位移重叠溢出，同时确保兼容自定义头像大小的主题，避免全局污染
-            css += `
-                ${parentSelector} .avatar, ${parentSelector} .user_avatar {
-                    width: 100%;
-                    height: 100%;
-                    overflow: hidden !important;
-                }
-                ${parentSelector} .avatarimg {
-                    overflow: hidden !important;
-                }
-            `;
+            if (isTransformed) {
+                css += `
+                    ${imgSelector} {
+                        transform: scale(${zoom}) translate(${x}%, ${y}%) !important;
+                        transform-origin: center center !important;
+                    }
+                `;
+            }
 
             // 3. 头像框渲染
             if (isFrameEnabled && adj.frame && adj.frame !== 'none') {
@@ -1262,6 +1245,8 @@
 
         // 图库子选项卡类型记录，默认为全局（仅 user 才有全局/角色分流，char 只有唯一的角色图库）
         let gallerySubtab = (type === 'user') ? 'global' : 'char';
+        let isGalleryBatchMode = false;
+        let selectedGalleryIds = new Set();
 
         const panel = document.createElement('div');
         panel.id = 'avatar-adv-panel';
@@ -1401,13 +1386,19 @@
                         <button class="menu_button" id="btn-start-crop" style="flex:1; justify-content:center;" title="自由裁剪"><i class="fa-solid fa-crop-simple"></i></button>
                         <button class="menu_button" id="btn-reset-adj" style="width:50px; justify-content:center;" title="重置"><i class="fa-solid fa-rotate-left"></i></button>
                     </div>
-                    <div id="crop-section" style="display:none; flex-direction:column; gap:10px; margin-top:5px;">
+                    <div id="crop-section" style="display:none; flex-direction:column; gap:8px; margin-top:5px;">
                         <div class="cropper-container-wrapper">
                             <img id="cropper-img" src="${src}" style="max-width:100%; display:block;">
                         </div>
+                        <div class="crop-option-bar">
+                            <label style="display:inline-flex; align-items:center; gap:6px; font-size:11px; cursor:pointer; opacity:0.85; white-space:nowrap; margin:0;">
+                                <input type="checkbox" id="chk-add-crop-to-gallery" checked style="margin:0; width:13px; height:13px; cursor:pointer;"> 保存切片至图库
+                            </label>
+                            <span style="font-size:10px; opacity:0.55;">(取消勾选可防止图库膨胀)</span>
+                        </div>
                         <div style="display:flex; flex-direction:row; gap:6px; flex-wrap:nowrap;">
                             <button class="menu_button" id="btn-save-crop" style="flex:1; justify-content:center; background-color:var(--SmartThemeQuoteColor); font-size:11px; padding:6px 0;" title="裁剪物理文件，直接修改和保存头像文件"><i class="fa-solid fa-file-image"></i> 覆盖原图</button>
-                            <button class="menu_button" id="btn-save-visual-crop" style="flex:1; justify-content:center; background-color:var(--SmartThemeBlurTintColor, rgba(30,30,30,0.8)); font-size:11px; padding:6px 0;" title="仅保存为视觉偏移，不修改原图文件，对图库图片也有效"><i class="fa-solid fa-eye"></i> 视觉裁剪</button>
+                            <button class="menu_button" id="btn-save-visual-crop" style="flex:1; justify-content:center; background-color:var(--SmartThemeBlurTintColor, rgba(30,30,30,0.8)); font-size:11px; padding:6px 0;" title="生成切片图片作为视觉覆盖，不修改原图文件"><i class="fa-solid fa-scissors"></i> 保存切片</button>
                             <button class="menu_button" id="btn-cancel-crop" style="width:40px; justify-content:center;" title="取消"><i class="fa-solid fa-xmark"></i></button>
                         </div>
                     </div>
@@ -1462,13 +1453,23 @@
                 <div class="avatar-adv-tab-content" id="tab-gallery">
                     ${galleryHeaderHtml}
                     <div style="display:flex; flex-direction:column; gap:6px; border:1px solid var(--SmartThemeBorderColor, rgba(0,0,0,0.08)); padding:10px; border-radius:8px; flex-shrink:0;">
-                        <!-- 三个功能图标强制一行排列，不折行 -->
+                        <!-- 工具栏控制按钮行 -->
                         <div style="display:flex; flex-direction:row; gap:5px; flex-wrap:nowrap; width:100%; align-items:center;">
-                            <input type="text" id="input-gallery-url" class="text_pole" placeholder="输入外部替换图片 URL" style="flex:1; min-width:0; margin:0; height:32px; font-size:12px;">
-                            <button class="menu_button" id="btn-apply-gallery-url" style="margin:0; width:36px; height:32px; flex-shrink:0; justify-content:center;" title="使用 URL"><i class="fa-solid fa-link"></i></button>
-                            <input type="file" id="input-gallery-file" accept="image/*" style="display:none;">
-                            <button class="menu_button" id="btn-upload-gallery-file" style="margin:0; width:36px; height:32px; flex-shrink:0; justify-content:center;" title="上传本地图片"><i class="fa-solid fa-upload"></i></button>
+                            <input type="text" id="input-gallery-url" class="text_pole" placeholder="输入/粘贴图片 URL (支持多行批量导入)" style="flex:1; min-width:0; margin:0; height:32px; font-size:12px;">
+                            <button class="menu_button" id="btn-apply-gallery-url" style="margin:0; width:36px; height:32px; flex-shrink:0; justify-content:center;" title="导入图片 URL (可批量)"><i class="fa-solid fa-link"></i></button>
+                            <input type="file" id="input-gallery-file" accept="image/*" multiple style="display:none;">
+                            <button class="menu_button" id="btn-upload-gallery-file" style="margin:0; width:36px; height:32px; flex-shrink:0; justify-content:center;" title="上传本地图片 (支持多选)"><i class="fa-solid fa-upload"></i></button>
+                            <button class="menu_button" id="btn-toggle-gallery-batch-delete" style="margin:0; background:rgba(220,53,69,0.2); width:36px; height:32px; flex-shrink:0; justify-content:center;" title="批量删除模式"><i class="fa-solid fa-list-check"></i></button>
                             <button class="menu_button" id="btn-clear-gallery-override" style="margin:0; background:rgba(220,53,69,0.25); width:36px; height:32px; flex-shrink:0; justify-content:center;" title="清除覆盖/恢复原貌"><i class="fa-solid fa-trash-can"></i></button>
+                        </div>
+                        <!-- 批量删除操作工具栏 (默认隐藏) -->
+                        <div id="gallery-batch-toolbar" style="display:none; flex-direction:row; justify-content:space-between; align-items:center; background:rgba(220,53,69,0.12); padding:4px 8px; border-radius:6px; margin-top:4px; font-size:12px; flex-wrap:nowrap;">
+                            <span style="opacity:0.9; white-space:nowrap;">已选 <strong id="lbl-gallery-batch-count">0</strong> 项</span>
+                            <div style="display:flex; flex-direction:row; gap:5px; flex-wrap:nowrap; align-items:center;">
+                                <button class="menu_button" id="btn-gallery-batch-select-all" style="margin:0; width:30px; height:26px; padding:0; flex-shrink:0; justify-content:center;" title="全选 / 反选"><i class="fa-solid fa-square-check"></i></button>
+                                <button class="menu_button" id="btn-gallery-batch-confirm-delete" style="margin:0; width:30px; height:26px; padding:0; flex-shrink:0; justify-content:center; background:#dc3545; color:#fff;" title="确认删除选中项"><i class="fa-solid fa-trash"></i></button>
+                                <button class="menu_button" id="btn-gallery-batch-cancel" style="margin:0; width:30px; height:26px; padding:0; flex-shrink:0; justify-content:center;" title="退出批量模式"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
                         </div>
                     </div>
                     <div class="gallery-grid" id="gallery-list" style="flex:1;">
@@ -1829,10 +1830,15 @@
             const origItem = document.createElement('div');
             origItem.className = `gallery-item${!current.overrideUrl || current.overrideUrl === '' ? ' active' : ''}`;
             origItem.innerHTML = `<img src="${originalAvatarUrl}" alt="原始头像" title="原始头像">`;
-            origItem.addEventListener('click', () => {
-                applyOverride('');
-                panel.querySelector('#input-gallery-url').value = '';
-            });
+            if (!isGalleryBatchMode) {
+                origItem.addEventListener('click', () => {
+                    applyOverride('');
+                    panel.querySelector('#input-gallery-url').value = '';
+                });
+            } else {
+                origItem.style.opacity = '0.4';
+                origItem.style.cursor = 'not-allowed';
+            }
             galleryGrid.appendChild(origItem);
 
             // 获取数据源列表
@@ -1855,72 +1861,94 @@
 
             dataSourceList.forEach(itemData => {
                 const item = document.createElement('div');
-                item.className = `gallery-item${current.overrideUrl === itemData.url ? ' active' : ''}`;
-                item.innerHTML = `
-                    <img src="${resolveImageUrl(itemData.url)}" alt="${itemData.name}" title="${itemData.name}">
-                    <button class="gallery-item-delete" title="从图库中移除"><i class="fa-solid fa-trash"></i></button>
-                `;
+                const isSelected = selectedGalleryIds.has(itemData.id);
+                item.className = `gallery-item${current.overrideUrl === itemData.url ? ' active' : ''}${isGalleryBatchMode && isSelected ? ' batch-selected' : ''}`;
 
-                // 切换选择
-                item.addEventListener('click', (e) => {
-                    if (e.target.closest('.gallery-item-delete')) return;
-                    applyOverride(itemData.url);
-                    panel.querySelector('#input-gallery-url').value = (itemData.url.startsWith('data:') || itemData.url.startsWith('db://')) ? '' : itemData.url;
-                });
-
-                // 从图库删除项
-                item.querySelector('.gallery-item-delete').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    if (confirm(`确定要将图片从当前图库中移除吗？`)) {
-                        // 清除 IndexedDB 存储资源
-                        if (itemData.url && itemData.url.startsWith('db://')) {
-                            const id = itemData.url.substring(5);
-                            deleteImageBlob(id).catch(err => console.error('[Theme Manager DB] Delete blob failed:', err));
-                            if (galleryBlobUrlCache[id]) {
-                                URL.revokeObjectURL(galleryBlobUrlCache[id]);
-                                delete galleryBlobUrlCache[id];
-                            }
-                        }
-
-                        if (type === 'char') {
-                            const currentVal = getAdjustment(type, file);
-                            currentVal.gallery = (currentVal.gallery || []).filter(img => img.id !== itemData.id);
-                            if (currentVal.overrideUrl === itemData.url) {
-                                currentVal.overrideUrl = '';
-                                panel.querySelector('#input-gallery-url').value = '';
-                            }
-                            saveAdjustment(type, file, currentVal);
+                if (isGalleryBatchMode) {
+                    item.innerHTML = `
+                        <img src="${resolveImageUrl(itemData.url)}" alt="${escapeHtml(itemData.name)}" title="${escapeHtml(itemData.name)}">
+                        <div class="gallery-item-batch-chk${isSelected ? ' checked' : ''}"><i class="fa-solid fa-check"></i></div>
+                    `;
+                    item.addEventListener('click', () => {
+                        if (selectedGalleryIds.has(itemData.id)) {
+                            selectedGalleryIds.delete(itemData.id);
                         } else {
-                            if (gallerySubtab === 'global') {
-                                let globalGallery = [];
-                                try {
-                                    globalGallery = JSON.parse(localStorage.getItem('themeManager_globalUserGallery')) || [];
-                                } catch (e) {}
-                                globalGallery = globalGallery.filter(img => img.id !== itemData.id);
-                                localStorage.setItem('themeManager_globalUserGallery', JSON.stringify(globalGallery));
-                            } else {
-                                const currentVal = getAdjustment(type, file);
-                                currentVal.gallery = (currentVal.gallery || []).filter(img => img.id !== itemData.id);
-                                saveAdjustment(type, file, currentVal);
-                            }
-                            
-                            // 如果当前选中的就是被删除的图片，清除激活态并清空 overrideUrl
-                            const currentVal = getAdjustment(type, file);
-                            if (currentVal.overrideUrl === itemData.url) {
-                                currentVal.overrideUrl = '';
-                                panel.querySelector('#input-gallery-url').value = '';
-                                saveAdjustment(type, file, currentVal);
-                            }
+                            selectedGalleryIds.add(itemData.id);
                         }
-
-                        updatePanelLivePreview(getAdjustment(type, file));
+                        const lblCount = panel.querySelector('#lbl-gallery-batch-count');
+                        if (lblCount) lblCount.textContent = String(selectedGalleryIds.size);
                         renderGalleryGrid();
-                        toastr.info('已从图库中移除');
-                    }
-                });
+                    });
+                } else {
+                    item.innerHTML = `
+                        <img src="${resolveImageUrl(itemData.url)}" alt="${escapeHtml(itemData.name)}" title="${escapeHtml(itemData.name)}">
+                        <button class="gallery-item-delete" title="从图库中移除"><i class="fa-solid fa-trash"></i></button>
+                    `;
+
+                    // 切换选择
+                    item.addEventListener('click', (e) => {
+                        if (e.target.closest('.gallery-item-delete')) return;
+                        applyOverride(itemData.url);
+                        panel.querySelector('#input-gallery-url').value = (itemData.url.startsWith('data:') || itemData.url.startsWith('db://')) ? '' : itemData.url;
+                    });
+
+                    // 从图库单项删除
+                    item.querySelector('.gallery-item-delete').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if (confirm(`确定要将图片 "${itemData.name}" 从当前图库中移除吗？`)) {
+                            deleteSingleGalleryItem(itemData);
+                        }
+                    });
+                }
 
                 galleryGrid.appendChild(item);
             });
+        }
+
+        // 单项图片删除辅助方法
+        function deleteSingleGalleryItem(itemData) {
+            if (itemData.url && itemData.url.startsWith('db://')) {
+                const id = itemData.url.substring(5);
+                deleteImageBlob(id).catch(err => console.error('[Theme Manager DB] Delete blob failed:', err));
+                if (galleryBlobUrlCache[id]) {
+                    URL.revokeObjectURL(galleryBlobUrlCache[id]);
+                    delete galleryBlobUrlCache[id];
+                }
+            }
+
+            if (type === 'char') {
+                const currentVal = getAdjustment(type, file);
+                currentVal.gallery = (currentVal.gallery || []).filter(img => img.id !== itemData.id);
+                if (currentVal.overrideUrl === itemData.url) {
+                    currentVal.overrideUrl = '';
+                    panel.querySelector('#input-gallery-url').value = '';
+                }
+                saveAdjustment(type, file, currentVal);
+            } else {
+                if (gallerySubtab === 'global') {
+                    let globalGallery = [];
+                    try {
+                        globalGallery = JSON.parse(localStorage.getItem('themeManager_globalUserGallery')) || [];
+                    } catch (e) {}
+                    globalGallery = globalGallery.filter(img => img.id !== itemData.id);
+                    localStorage.setItem('themeManager_globalUserGallery', JSON.stringify(globalGallery));
+                } else {
+                    const currentVal = getAdjustment(type, file);
+                    currentVal.gallery = (currentVal.gallery || []).filter(img => img.id !== itemData.id);
+                    saveAdjustment(type, file, currentVal);
+                }
+                
+                const currentVal = getAdjustment(type, file);
+                if (currentVal.overrideUrl === itemData.url) {
+                    currentVal.overrideUrl = '';
+                    panel.querySelector('#input-gallery-url').value = '';
+                    saveAdjustment(type, file, currentVal);
+                }
+            }
+
+            updatePanelLivePreview(getAdjustment(type, file));
+            renderGalleryGrid();
+            toastr.info('已从图库中移除');
         }
 
         // 绑定各 Tab 页面逻辑与基础控制事件 (关闭/拖拽/缩放/选项卡)
@@ -2189,7 +2217,8 @@
                 cropSection.style.display = 'flex';
 
                 const currentVal = getAdjustment(targetType, targetFile);
-                const activeSrc = resolveImageUrl(currentVal.overrideUrl) || originalAvatarUrl;
+                // 优先采用完整无损的原始头像原图作为裁剪源，确保原图永远不丢失且可重复重新裁剪
+                const activeSrc = originalAvatarUrl || resolveImageUrl(currentVal.overrideUrl);
                 const cropperImg = tabPanel.querySelector('#cropper-img');
                 cropperImg.src = activeSrc;
 
@@ -2285,54 +2314,72 @@
                 }, 'image/png');
             });
 
+            const chkAddCropToGallery = tabPanel.querySelector('#chk-add-crop-to-gallery');
+            if (chkAddCropToGallery) {
+                const isSaveToGallery = localStorage.getItem('themeManager_addCropToGallery') !== 'false';
+                chkAddCropToGallery.checked = isSaveToGallery;
+                chkAddCropToGallery.addEventListener('change', (e) => {
+                    localStorage.setItem('themeManager_addCropToGallery', e.target.checked ? 'true' : 'false');
+                });
+            }
+
             const saveVisualCropBtn = tabPanel.querySelector('#btn-save-visual-crop');
             if (saveVisualCropBtn) {
                 saveVisualCropBtn.addEventListener('click', () => {
                     if (!cropperInstance) return;
 
-                    const data = cropperInstance.getData(true);
-                    const imageData = cropperInstance.getImageData();
-
-                    const w_c = data.width;
-                    const h_c = data.height;
-                    const w_i = imageData.naturalWidth;
-                    const h_i = imageData.naturalHeight;
-
-                    if (w_c <= 0 || h_c <= 0) {
-                        toastr.error('无效的裁剪尺寸。');
+                    const canvas = cropperInstance.getCroppedCanvas();
+                    if (!canvas) {
+                        toastr.error('获取裁剪画布失败。');
                         return;
                     }
 
-                    // 1. 计算缩放倍率 (zoom)
-                    const zoom = Math.max(w_i / w_c, h_i / h_c);
+                    canvas.toBlob(async (blob) => {
+                        if (!blob) {
+                            toastr.error('生成裁剪图片数据失败。');
+                            return;
+                        }
 
-                    // 2. 计算偏移量百分比 (x, y)
-                    const shiftX = (w_i / 2) - (data.x + w_c / 2);
-                    const shiftY = (h_i / 2) - (data.y + h_c / 2);
+                        const id = `crop_${Date.now()}`;
+                        const name = `裁剪切片-${Date.now().toString().slice(-4)}`;
 
-                    const pctX = (shiftX / w_i) * 100;
-                    const pctY = (shiftY / h_i) * 100;
+                        try {
+                            await saveImageBlob(id, name, blob);
+                            galleryBlobUrlCache[id] = URL.createObjectURL(blob);
+                            const url = `db://${id}`;
 
-                    // 3. 应用并保存属性
-                    const currentVal = getAdjustment(targetType, targetFile);
-                    currentVal.zoom = parseFloat(zoom.toFixed(4));
-                    currentVal.x = parseFloat(pctX.toFixed(2));
-                    currentVal.y = parseFloat(pctY.toFixed(2));
+                            const shouldAddToGallery = chkAddCropToGallery ? chkAddCropToGallery.checked : true;
+                            const currentVal = getAdjustment(targetType, targetFile);
+                            
+                            if (shouldAddToGallery) {
+                                if (!currentVal.gallery) currentVal.gallery = [];
+                                currentVal.gallery.push({ id, name, url });
+                            }
 
-                    saveAdjustment(targetType, targetFile, currentVal);
-                    updatePanelLivePreview(currentVal);
+                            // 设置切片为当前覆盖头像，并重置放缩位移偏移参数为 1 / 0 / 0，彻底根除 CSS 变形爆框
+                            currentVal.overrideUrl = url;
+                            currentVal.zoom = 1;
+                            currentVal.x = 0;
+                            currentVal.y = 0;
 
-                    // 同步更新滑动条输入控件
-                    zoomInput.value = currentVal.zoom;
-                    xInput.value = currentVal.x;
-                    yInput.value = currentVal.y;
+                            saveAdjustment(targetType, targetFile, currentVal);
+                            updatePanelLivePreview(currentVal);
 
-                    zoomLbl.textContent = `${currentVal.zoom.toFixed(2)}x`;
-                    xLbl.textContent = `${currentVal.x.toFixed(0)}%`;
-                    yLbl.textContent = `${currentVal.y.toFixed(0)}%`;
+                            // 同步重置界面滑动条控件
+                            zoomInput.value = 1;
+                            xInput.value = 0;
+                            yInput.value = 0;
+                            zoomLbl.textContent = '1.00x';
+                            xLbl.textContent = '0%';
+                            yLbl.textContent = '0%';
 
-                    cancelCropBtn.click();
-                    toastr.success('视觉裁剪应用成功！已转换为缩放与偏移参数。');
+                            cancelCropBtn.click();
+                            toastr.success(shouldAddToGallery ? '头像裁剪成功！已保存切片至图库并应用。' : '头像裁剪成功！已直接应用切片覆盖（未加入图库）。');
+                        } catch (err) {
+                            console.error('[Theme Manager Avatar] Failed to save visual cropped image:', err);
+                            toastr.error('保存裁剪图片到本地数据库失败。');
+                        }
+                    }, 'image/png');
                 });
             }
         }
@@ -2509,20 +2556,39 @@
                 });
             }
 
-            // 1. URL 绑定
+            // 1. URL 绑定 (支持单张及多行/多地址批量导入)
             tabPanel.querySelector('#btn-apply-gallery-url').addEventListener('click', () => {
-                const url = urlInput.value.trim();
-                if (!url) {
+                const rawInput = urlInput.value.trim();
+                if (!rawInput) {
                     toastr.warning('请输入图片地址');
                     return;
                 }
                 
+                // 按换行、逗号或空格拆分为多个 URL 列表
+                const urls = rawInput.split(/[\n,\s]+/).map(u => u.trim()).filter(u => u.length > 0 && (u.startsWith('http://') || u.startsWith('https://') || u.startsWith('data:') || u.startsWith('db://')));
+
+                if (urls.length === 0) {
+                    toastr.warning('未检测到有效的图片 URL (须以 http://, https:// 或 data: 开头)');
+                    return;
+                }
+
+                let lastAddedUrl = '';
+                let addedCount = 0;
+
                 if (targetType === 'char') {
                     const currentVal = getAdjustment(targetType, targetFile);
                     if (!currentVal.gallery) currentVal.gallery = [];
-                    if (!currentVal.gallery.some(img => img.url === url)) {
-                        currentVal.gallery.push({ id: `img_${Date.now()}`, name: `外链-${Date.now().toString().slice(-4)}`, url });
-                    }
+                    urls.forEach((url, idx) => {
+                        if (!currentVal.gallery.some(img => img.url === url)) {
+                            currentVal.gallery.push({
+                                id: `img_${Date.now()}_${idx}`,
+                                name: `外链-${Date.now().toString().slice(-4)}-${idx + 1}`,
+                                url
+                            });
+                            addedCount++;
+                        }
+                        lastAddedUrl = url;
+                    });
                     saveAdjustment(targetType, targetFile, currentVal);
                 } else {
                     if (gallerySubtab === 'global') {
@@ -2531,69 +2597,243 @@
                             globalGallery = JSON.parse(localStorage.getItem('themeManager_globalUserGallery')) || [];
                         } catch (e) {}
                         
-                        if (!globalGallery.some(img => img.url === url)) {
-                            globalGallery.push({ id: `img_${Date.now()}`, name: `全局外链-${Date.now().toString().slice(-4)}`, url });
-                            localStorage.setItem('themeManager_globalUserGallery', JSON.stringify(globalGallery));
-                        }
+                        urls.forEach((url, idx) => {
+                            if (!globalGallery.some(img => img.url === url)) {
+                                globalGallery.push({
+                                    id: `img_${Date.now()}_${idx}`,
+                                    name: `全局外链-${Date.now().toString().slice(-4)}-${idx + 1}`,
+                                    url
+                                });
+                                addedCount++;
+                            }
+                            lastAddedUrl = url;
+                        });
+                        localStorage.setItem('themeManager_globalUserGallery', JSON.stringify(globalGallery));
                     } else {
                         const currentVal = getAdjustment(targetType, targetFile);
                         if (!currentVal.gallery) currentVal.gallery = [];
-                        if (!currentVal.gallery.some(img => img.url === url)) {
-                            currentVal.gallery.push({ id: `img_${Date.now()}`, name: `角色外链-${Date.now().toString().slice(-4)}`, url });
-                        }
+                        urls.forEach((url, idx) => {
+                            if (!currentVal.gallery.some(img => img.url === url)) {
+                                currentVal.gallery.push({
+                                    id: `img_${Date.now()}_${idx}`,
+                                    name: `角色外链-${Date.now().toString().slice(-4)}-${idx + 1}`,
+                                    url
+                                });
+                                addedCount++;
+                            }
+                            lastAddedUrl = url;
+                        });
                         saveAdjustment(targetType, targetFile, currentVal);
                     }
                 }
 
-                applyOverride(url);
+                if (lastAddedUrl) {
+                    applyOverride(lastAddedUrl);
+                }
+                urlInput.value = '';
+
+                if (urls.length > 1) {
+                    toastr.success(`成功批量导入 ${urls.length} 个图片外链！`);
+                }
             });
 
-            // 2. 本地上传
+            // 2. 本地批量/单张图片上传
             uploadBtn.addEventListener('click', () => fileInput.click());
-            fileInput.addEventListener('change', (e) => {
-                const f = e.target.files[0];
-                if (!f) return;
+            fileInput.addEventListener('change', async (e) => {
+                const files = Array.from(e.target.files);
+                if (files.length === 0) return;
 
-                const id = `img_${Date.now()}`;
-                const name = f.name.substring(0, f.name.lastIndexOf('.')) || f.name;
+                const { showLoader, hideLoader } = SillyTavern.getContext ? SillyTavern.getContext() : { showLoader: () => {}, hideLoader: () => {} };
+                showLoader();
 
-                saveImageBlob(id, name, f).then(() => {
-                    // 缓存 Blob 的 Object URL
-                    galleryBlobUrlCache[id] = URL.createObjectURL(f);
-                    const url = `db://${id}`;
+                let loadedCount = 0;
+                const newItems = [];
 
+                for (const f of files) {
+                    const id = `img_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+                    const name = f.name.substring(0, f.name.lastIndexOf('.')) || f.name;
+
+                    try {
+                        await saveImageBlob(id, name, f);
+                        galleryBlobUrlCache[id] = URL.createObjectURL(f);
+                        const url = `db://${id}`;
+                        newItems.push({ id, name, url });
+                        loadedCount++;
+                    } catch (err) {
+                        console.error('[Theme Manager DB] Failed to save uploaded image:', f.name, err);
+                    }
+                }
+
+                hideLoader();
+
+                if (newItems.length > 0) {
                     if (targetType === 'char') {
                         const currentVal = getAdjustment(targetType, targetFile);
                         if (!currentVal.gallery) currentVal.gallery = [];
-                        currentVal.gallery.push({ id, name, url });
+                        currentVal.gallery.push(...newItems);
                         saveAdjustment(targetType, targetFile, currentVal);
                     } else {
                         if (gallerySubtab === 'global') {
                             let globalGallery = [];
                             try {
                                 globalGallery = JSON.parse(localStorage.getItem('themeManager_globalUserGallery')) || [];
-                            } catch (e) {}
-                            
-                            globalGallery.push({ id, name, url });
+                            } catch (err) {}
+                            globalGallery.push(...newItems);
                             localStorage.setItem('themeManager_globalUserGallery', JSON.stringify(globalGallery));
                         } else {
                             const currentVal = getAdjustment(targetType, targetFile);
                             if (!currentVal.gallery) currentVal.gallery = [];
-                            currentVal.gallery.push({ id, name, url });
+                            currentVal.gallery.push(...newItems);
                             saveAdjustment(targetType, targetFile, currentVal);
                         }
                     }
 
-                    applyOverride(url);
+                    const lastItem = newItems[newItems.length - 1];
+                    applyOverride(lastItem.url);
                     urlInput.value = '';
                     fileInput.value = '';
-                }).catch(err => {
-                    console.error('[Theme Manager DB] Failed to save uploaded image:', err);
+                    toastr.success(`成功导入 ${loadedCount} 张图片到图库！`);
+                } else {
                     toastr.error('本地数据库保存图片失败。');
-                });
+                }
             });
 
-            // 3. 清除
+            // 3. 批量删除工具栏事件绑定
+            const btnToggleBatchDelete = tabPanel.querySelector('#btn-toggle-gallery-batch-delete');
+            const batchToolbar = tabPanel.querySelector('#gallery-batch-toolbar');
+            const lblBatchCount = tabPanel.querySelector('#lbl-gallery-batch-count');
+            const btnBatchSelectAll = tabPanel.querySelector('#btn-gallery-batch-select-all');
+            const btnBatchConfirmDelete = tabPanel.querySelector('#btn-gallery-batch-confirm-delete');
+            const btnBatchCancel = tabPanel.querySelector('#btn-gallery-batch-cancel');
+
+            const updateBatchCount = () => {
+                if (lblBatchCount) lblBatchCount.textContent = String(selectedGalleryIds.size);
+            };
+
+            if (btnToggleBatchDelete) {
+                btnToggleBatchDelete.addEventListener('click', () => {
+                    isGalleryBatchMode = !isGalleryBatchMode;
+                    selectedGalleryIds.clear();
+                    if (batchToolbar) batchToolbar.style.display = isGalleryBatchMode ? 'flex' : 'none';
+                    btnToggleBatchDelete.style.background = isGalleryBatchMode ? 'rgba(220,53,69,0.5)' : 'rgba(220,53,69,0.2)';
+                    updateBatchCount();
+                    renderGalleryGrid();
+                });
+            }
+
+            if (btnBatchSelectAll) {
+                btnBatchSelectAll.addEventListener('click', () => {
+                    let dataSourceList = [];
+                    if (targetType === 'char') {
+                        dataSourceList = (getAdjustment(targetType, targetFile).gallery) || [];
+                    } else {
+                        if (gallerySubtab === 'global') {
+                            try { dataSourceList = JSON.parse(localStorage.getItem('themeManager_globalUserGallery')) || []; } catch(e){}
+                        } else {
+                            dataSourceList = (getAdjustment(targetType, targetFile).gallery) || [];
+                        }
+                    }
+                    if (selectedGalleryIds.size === dataSourceList.length) {
+                        selectedGalleryIds.clear();
+                    } else {
+                        dataSourceList.forEach(img => selectedGalleryIds.add(img.id));
+                    }
+                    updateBatchCount();
+                    renderGalleryGrid();
+                });
+            }
+
+            if (btnBatchCancel) {
+                btnBatchCancel.addEventListener('click', () => {
+                    isGalleryBatchMode = false;
+                    selectedGalleryIds.clear();
+                    if (batchToolbar) batchToolbar.style.display = 'none';
+                    if (btnToggleBatchDelete) btnToggleBatchDelete.style.background = 'rgba(220,53,69,0.2)';
+                    renderGalleryGrid();
+                });
+            }
+
+            if (btnBatchConfirmDelete) {
+                btnBatchConfirmDelete.addEventListener('click', async () => {
+                    if (selectedGalleryIds.size === 0) {
+                        toastr.warning('请先点击勾选要删除的图库图片。');
+                        return;
+                    }
+                    if (!confirm(`确定要批量删除选中的 ${selectedGalleryIds.size} 张图片吗？`)) return;
+
+                    const idsToDelete = Array.from(selectedGalleryIds);
+                    let dataSourceList = [];
+                    if (targetType === 'char') {
+                        dataSourceList = (getAdjustment(targetType, targetFile).gallery) || [];
+                    } else {
+                        if (gallerySubtab === 'global') {
+                            try { dataSourceList = JSON.parse(localStorage.getItem('themeManager_globalUserGallery')) || []; } catch(e){}
+                        } else {
+                            dataSourceList = (getAdjustment(targetType, targetFile).gallery) || [];
+                        }
+                    }
+
+                    const itemsToDelete = dataSourceList.filter(img => idsToDelete.includes(img.id));
+
+                    for (const itemData of itemsToDelete) {
+                        if (itemData.url && itemData.url.startsWith('db://')) {
+                            const id = itemData.url.substring(5);
+                            try { await deleteImageBlob(id); } catch(err){}
+                            if (galleryBlobUrlCache[id]) {
+                                URL.revokeObjectURL(galleryBlobUrlCache[id]);
+                                delete galleryBlobUrlCache[id];
+                            }
+                        }
+                    }
+
+                    const remainingList = dataSourceList.filter(img => !idsToDelete.includes(img.id));
+                    let activeWasDeleted = false;
+
+                    if (targetType === 'char') {
+                        const currentVal = getAdjustment(targetType, targetFile);
+                        currentVal.gallery = remainingList;
+                        if (itemsToDelete.some(img => img.url === currentVal.overrideUrl)) {
+                            currentVal.overrideUrl = '';
+                            activeWasDeleted = true;
+                        }
+                        saveAdjustment(targetType, targetFile, currentVal);
+                    } else {
+                        if (gallerySubtab === 'global') {
+                            localStorage.setItem('themeManager_globalUserGallery', JSON.stringify(remainingList));
+                            const currentVal = getAdjustment(targetType, targetFile);
+                            if (itemsToDelete.some(img => img.url === currentVal.overrideUrl)) {
+                                currentVal.overrideUrl = '';
+                                saveAdjustment(targetType, targetFile, currentVal);
+                                activeWasDeleted = true;
+                            }
+                        } else {
+                            const currentVal = getAdjustment(targetType, targetFile);
+                            currentVal.gallery = remainingList;
+                            if (itemsToDelete.some(img => img.url === currentVal.overrideUrl)) {
+                                currentVal.overrideUrl = '';
+                                activeWasDeleted = true;
+                            }
+                            saveAdjustment(targetType, targetFile, currentVal);
+                        }
+                    }
+
+                    const deleteCount = selectedGalleryIds.size;
+                    isGalleryBatchMode = false;
+                    selectedGalleryIds.clear();
+                    if (batchToolbar) batchToolbar.style.display = 'none';
+                    if (btnToggleBatchDelete) btnToggleBatchDelete.style.background = 'rgba(220,53,69,0.2)';
+
+                    if (activeWasDeleted) {
+                        urlInput.value = '';
+                        updatePanelLivePreview(getAdjustment(targetType, targetFile));
+                    }
+
+                    renderGalleryGrid();
+                    toastr.success(`已成功批量删除 ${deleteCount} 张图片！`);
+                });
+            }
+
+            // 4. 清除覆盖恢复原貌
             clearBtn.addEventListener('click', () => {
                 applyOverride('');
                 urlInput.value = '';

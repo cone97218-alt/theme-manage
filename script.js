@@ -323,22 +323,58 @@
                     _themesCacheTime = 0;
                 }
 
+                // 双重触发展示与 jQuery 原生 change 事件，保证 ST 原生 $('#themes').on('change') 监听函数必被激活
+                function triggerSelectChange(selectEl) {
+                    if (!selectEl) return;
+                    console.log(`[Theme Manager] 触发展示与原生 change 事件, 当前选中值: ${selectEl.value}`);
+                    selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+                    if (window.jQuery) {
+                        try {
+                            $(selectEl).trigger('change');
+                            console.log('[Theme Manager] jQuery $(#themes).trigger("change") 执行成功');
+                        } catch (e) {
+                            console.error('[Theme Manager Error] jQuery trigger("change") 失败:', e);
+                        }
+                    }
+                }
 
-
-
+                // 剔除 #themes select 中的重复 option，从根源杜绝 DOM 节点与全量 UI 渲染产生同名重复卡片
+                function deduplicateSelectOptions(selectEl) {
+                    if (!selectEl || !selectEl.options) return;
+                    const seen = new Set();
+                    const options = Array.from(selectEl.options);
+                    let removedCount = 0;
+                    options.forEach(opt => {
+                        if (!opt.value || seen.has(opt.value)) {
+                            opt.remove();
+                            removedCount++;
+                        } else {
+                            seen.add(opt.value);
+                        }
+                    });
+                    if (removedCount > 0) {
+                        console.log(`[Theme Manager] deduplicateSelectOptions 清理了 ${removedCount} 个重复 option 节点`);
+                    }
+                }
 
                 function manualUpdateOriginalSelect(action, oldName, newName) {
                     const originalSelect = document.querySelector('#themes');
                     if (!originalSelect) return;
+                    console.log(`[Theme Manager] manualUpdateOriginalSelect: action=${action}, oldName=${oldName}, newName=${newName}`);
                     _suspendObserver = true;
                     try {
                         if (action === 'add') {
-                            const option = document.createElement('option');
-                            option.value = newName; option.textContent = newName;
-                            originalSelect.appendChild(option);
+                            const existingOption = findOptionByValue(originalSelect, newName);
+                            if (!existingOption) {
+                                const option = document.createElement('option');
+                                option.value = newName; option.textContent = newName;
+                                originalSelect.appendChild(option);
+                            }
+                            stKnownThemes.add(newName);
                         } else if (action === 'delete') {
                             const optionToDelete = findOptionByValue(originalSelect, oldName);
                             if (optionToDelete) optionToDelete.remove();
+                            stKnownThemes.delete(oldName);
                         } else if (action === 'rename') {
                             const optionToRename = findOptionByValue(originalSelect, oldName);
                             if (optionToRename) {
@@ -349,7 +385,10 @@
                             if (originalSelect.value === oldName) {
                                 originalSelect.value = newName;
                             }
+                            stKnownThemes.delete(oldName);
+                            stKnownThemes.add(newName);
                         }
+                        deduplicateSelectOptions(originalSelect);
                     } finally {
                         // rename 会触发 characterData mutation，需要更长的暂停窗口
                         // 避免 MutationObserver 重建整个 UI（即"出现两个"的根本原因）
@@ -358,39 +397,116 @@
                     }
                 }
 
+                // === 动态同步 stKnownThemes 集合，防范导入/重命名新主题后识别为未知主题导致原生切换失效 ===
+                function syncStKnownThemes() {
+                    const originalSelect = document.querySelector('#themes');
+                    if (originalSelect && originalSelect.options) {
+                        Array.from(originalSelect.options).forEach(opt => {
+                            if (opt.value) stKnownThemes.add(opt.value);
+                        });
+                    }
+                }
+
+                // === ST 原生 Custom CSS 编辑器与 CodeMirror 深度内存/DOM 双向同步助手 ===
+                function syncCustomCssToST(customCss) {
+                    const cssVal = customCss !== undefined ? customCss : '';
+                    console.log(`[Theme Manager] syncCustomCssToST 触发, 目标 CSS 字节数: ${cssVal.length}`);
+
+                    // 1. 同步 ST 全局与 power_user 数据结构
+                    try {
+                        if (typeof power_user !== 'undefined') {
+                            power_user.custom_css = cssVal;
+                        }
+                        if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                            const ctx = SillyTavern.getContext();
+                            if (ctx && ctx.power_user) {
+                                ctx.power_user.custom_css = cssVal;
+                            }
+                        }
+                    } catch (e) {
+                        console.error('[Theme Manager Error] 同步 power_user.custom_css 失败:', e);
+                    }
+
+                    // 2. 同步酒馆原生 Custom CSS 文本框元素 DOM
+                    const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style') || document.querySelector('#style_custom');
+                    if (editorEl) {
+                        console.log('[Theme Manager] 找到 Custom CSS 编辑器 DOM 节点:', editorEl.id || editorEl.tagName);
+                        editorEl.value = cssVal;
+                        editorEl.dispatchEvent(new Event('input', { bubbles: true }));
+                        editorEl.dispatchEvent(new Event('change', { bubbles: true }));
+
+                        // 3. 同步 CodeMirror 编辑器实例 (若 ST 或插件挂载了 CodeMirror)
+                        if (editorEl.CodeMirror) {
+                            console.log('[Theme Manager] 找到 editorEl.CodeMirror 实例, 执行 setValue');
+                            editorEl.CodeMirror.setValue(cssVal);
+                        } else if (window.jQuery && $(editorEl).data('codemirror')) {
+                            console.log('[Theme Manager] 找到 $(editorEl).data("codemirror") 实例, 执行 setValue');
+                            $(editorEl).data('codemirror').setValue(cssVal);
+                        }
+                    } else {
+                        console.warn('[Theme Manager] 未在当前页面找到 Custom CSS 文本框 DOM 节点 (#style_custom_content)');
+                    }
+
+                    // 4. 全局 CodeMirror DOM 实例兜底同步
+                    try {
+                        const cmDoms = document.querySelectorAll('.CodeMirror');
+                        if (cmDoms.length > 0) {
+                            console.log(`[Theme Manager] 找到 ${cmDoms.length} 个 CodeMirror DOM 实例进行兜底同步`);
+                            cmDoms.forEach(cmDom => {
+                                if (cmDom && cmDom.CodeMirror && cmDom.CodeMirror.getValue() !== cssVal) {
+                                    cmDom.CodeMirror.setValue(cssVal);
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        console.error('[Theme Manager Error] 全局 CodeMirror 实例同步失败:', e);
+                    }
+
+                    // 5. 确保原生 <style id="custom-style"> 标签节点同步刷新
+                    let style = document.getElementById('custom-style');
+                    if (!style) {
+                        style = document.createElement('style');
+                        style.id = 'custom-style';
+                        document.head.appendChild(style);
+                    }
+                    style.innerHTML = cssVal;
+                }
+
                 // === ST 内部内存同步助手（实现真正的热更新） ===
                 function updateSTThemeMemory(themeObject, action = 'add', oldName = null) {
+                    const tName = themeObject ? themeObject.name : oldName;
+                    console.log(`[Theme Manager] updateSTThemeMemory 执行: action=${action}, name=${tName}`);
                     try {
                         const contexts = [];
                         if (typeof power_user !== 'undefined') contexts.push(power_user);
                         if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
-                            contexts.push(SillyTavern.getContext());
-                        }
-                        
-                        contexts.forEach(ctx => {
+                            const ctx = SillyTavern.getContext();
+                            contexts.push(ctx);
                             if (ctx && Array.isArray(ctx.themes)) {
                                 if (action === 'delete') {
-                                    const idx = ctx.themes.findIndex(t => t.name === themeObject.name);
+                                    const idx = ctx.themes.findIndex(t => t.name === tName);
                                     if (idx !== -1) ctx.themes.splice(idx, 1);
                                 } else if (action === 'rename' && oldName) {
                                     const idx = ctx.themes.findIndex(t => t.name === oldName);
                                     if (idx !== -1) ctx.themes[idx] = themeObject;
+                                    else ctx.themes.push(themeObject);
                                 } else if (action === 'add' || action === 'save') {
                                     const idx = ctx.themes.findIndex(t => t.name === themeObject.name);
                                     if (idx !== -1) ctx.themes[idx] = themeObject;
                                     else ctx.themes.push(themeObject);
                                 }
                             }
-                        });
+                        }
                         
                         // 显式更新全局 themes (针对某些版本的 ST 和手机端)
                         if (typeof themes !== 'undefined' && Array.isArray(themes)) {
                             if (action === 'delete') {
-                                const idx = themes.findIndex(t => t.name === themeObject.name);
+                                const idx = themes.findIndex(t => t.name === tName);
                                 if (idx !== -1) themes.splice(idx, 1);
                             } else if (action === 'rename' && oldName) {
                                 const idx = themes.findIndex(t => t.name === oldName);
                                 if (idx !== -1) themes[idx] = themeObject;
+                                else themes.push(themeObject);
                             } else if (action === 'add' || action === 'save') {
                                 const idx = themes.findIndex(t => t.name === themeObject.name);
                                 if (idx !== -1) themes[idx] = themeObject;
@@ -398,7 +514,7 @@
                             }
                         }
                     } catch (e) {
-                        console.warn('[Theme Manager] 同步 ST 内部主题内存失败:', e);
+                        console.error('[Theme Manager Error] 同步 ST 内部主题内存失败:', e);
                     }
                 }
 
@@ -425,23 +541,124 @@
                     return _uiControlsCache;
                 }
 
+                // === 彻底消除上一个美化颜色残留的全量主题颜色/控件应用函数 ===
+                function applyThemeColors(themeObj) {
+                    if (!themeObj) return;
+
+                    console.log(`[Theme Manager] 执行 applyThemeColors 颜色重置与映射, 主题: "${themeObj.name}"`);
+                    const root = document.documentElement;
+
+                    const colorMap = [
+                        { prop: 'main_text_color', var: '--SmartThemeBodyColor', picker: '#main-text-color-picker', default: 'rgba(255, 255, 255, 1)' },
+                        { prop: 'italics_text_color', var: '--SmartThemeEmColor', picker: '#italics-color-picker', default: 'rgba(255, 255, 255, 1)' },
+                        { prop: 'underline_text_color', var: '--SmartThemeUnderlineColor', picker: '#underline-color-picker', default: 'rgba(255, 255, 255, 1)' },
+                        { prop: 'quote_text_color', var: '--SmartThemeQuoteColor', picker: '#quote-color-picker', default: 'rgba(255, 255, 255, 1)' },
+                        { prop: 'blur_tint_color', var: '--SmartThemeBlurTintColor', picker: '#blur-tint-color-picker', default: 'rgba(0, 0, 0, 0.6)' },
+                        { prop: 'chat_tint_color', var: '--SmartThemeChatTintColor', picker: '#chat-tint-color-picker', default: 'rgba(0, 0, 0, 0.4)' },
+                        { prop: 'user_mes_blur_tint_color', var: '--SmartThemeUserMesBlurTintColor', picker: '#user-mes-blur-tint-color-picker', default: 'rgba(0, 0, 0, 0.4)' },
+                        { prop: 'bot_mes_blur_tint_color', var: '--SmartThemeBotMesBlurTintColor', picker: '#bot-mes-blur-tint-color-picker', default: 'rgba(0, 0, 0, 0.4)' },
+                        { prop: 'shadow_color', var: '--SmartThemeShadowColor', picker: '#shadow-color-picker', default: 'rgba(0, 0, 0, 0.8)' },
+                        { prop: 'border_color', var: '--SmartThemeBorderColor', picker: '#border-color-picker', default: 'rgba(255, 255, 255, 0.1)' },
+                    ];
+
+                    colorMap.forEach(item => {
+                        const val = themeObj[item.prop] !== undefined ? themeObj[item.prop] : item.default;
+                        
+                        // 1. 设置 CSS 变量
+                        root.style.setProperty(item.var, val);
+
+                        // 2. 主文本色 RGB 拆分
+                        if (item.prop === 'main_text_color' && val) {
+                            try {
+                                const parts = val.split('(')[1].split(')')[0].split(',');
+                                root.style.setProperty('--SmartThemeCheckboxBgColorR', parts[0].trim());
+                                root.style.setProperty('--SmartThemeCheckboxBgColorG', parts[1].trim());
+                                root.style.setProperty('--SmartThemeCheckboxBgColorB', parts[2].trim());
+                                root.style.setProperty('--SmartThemeCheckboxBgColorA', parts[3] ? parts[3].trim() : '1');
+                            } catch(e){}
+                        }
+
+                        // 3. 更新酒馆 UI 界面中的 Color Picker 控件
+                        const pickerEl = document.querySelector(item.picker);
+                        if (pickerEl) {
+                            pickerEl.setAttribute('color', val);
+                            pickerEl.value = val;
+                            if (window.jQuery) {
+                                try {
+                                    $(pickerEl).attr('color', val).val(val).trigger('input').trigger('change');
+                                } catch(e){}
+                            }
+                        }
+
+                        // 4. 同步更新 power_user 内存中对应的值
+                        if (typeof power_user !== 'undefined') {
+                            power_user[item.prop] = val;
+                        }
+                        if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                            const ctx = SillyTavern.getContext();
+                            if (ctx && ctx.power_user) {
+                                ctx.power_user[item.prop] = val;
+                            }
+                        }
+                    });
+
+                    // 5. 应用数值与开关系列参数（带有默认兜底）
+                    const numMap = [
+                        { prop: 'blur_strength', var: '--blurStrength', picker: '#blur_strength', counter: '#blur_strength_counter', default: 10 },
+                        { prop: 'shadow_width', var: '--shadowWidth', picker: '#shadow_width', counter: '#shadow_width_counter', default: 2 },
+                        { prop: 'font_scale', var: '--fontScale', picker: '#font_scale', counter: '#font_scale_counter', default: 1 },
+                    ];
+                    numMap.forEach(item => {
+                        const val = themeObj[item.prop] !== undefined ? themeObj[item.prop] : item.default;
+                        root.style.setProperty(item.var, String(val));
+                        const pEl = document.querySelector(item.picker);
+                        const cEl = document.querySelector(item.counter);
+                        if (pEl) pEl.value = val;
+                        if (cEl) cEl.value = val;
+                        if (typeof power_user !== 'undefined') power_user[item.prop] = val;
+                    });
+
+                    if (themeObj.chat_width !== undefined) {
+                        root.style.setProperty('--sheldWidth', `${themeObj.chat_width}vw`);
+                        const cw = document.querySelector('#chat_width_slider');
+                        const cwc = document.querySelector('#chat_width_slider_counter');
+                        if (cw) cw.value = themeObj.chat_width;
+                        if (cwc) cwc.value = themeObj.chat_width;
+                        if (typeof power_user !== 'undefined') power_user.chat_width = themeObj.chat_width;
+                    }
+                }
+
                 // === 直接应用主题（热更新核心） ===
                 // 绕过 ST 内部模块作用域 of themes 引用失效问题
                 // 在重命名/导入后无需刷新即可切换主题
                 function applyThemeDirect(themeName) {
+                    console.log(`[Theme Manager] applyThemeDirect 触发切换至主题: "${themeName}"`);
+                    deduplicateSelectOptions(originalSelect);
+                    syncStKnownThemes();
+
+                    const themeObj = allThemeObjectsMap.get(themeName);
+
+                    if (themeObj) {
+                        updateSTThemeMemory(themeObj, 'add');
+                        syncCustomCssToST(themeObj.custom_css);
+                        applyThemeColors(themeObj);
+                    }
+
                     // 核心优化 1: 如果 ST 内部 themes 包含此主题，则使用 ST 原生逻辑处理，完美规避重复执行与组件刷新冲突
                     if (stKnownThemes.has(themeName)) {
                         originalSelect.value = themeName;
-                        originalSelect.dispatchEvent(new Event('change'));
+                        triggerSelectChange(originalSelect);
+                        if (themeObj) {
+                            syncCustomCssToST(themeObj.custom_css);
+                            applyThemeColors(themeObj);
+                        }
                         return;
                     }
 
                     // 核心优化 2: 如果 ST 内部不包含该主题 (当前会话重命名或导入)，我们再手动按需执行 applyThemeDirect
-                    // 使用 Map O(1) 代替 find 循环检索主题对象
-                    const themeObj = allThemeObjectsMap.get(themeName);
                     if (!themeObj) {
                         originalSelect.value = themeName;
-                        originalSelect.dispatchEvent(new Event('change'));
+                        triggerSelectChange(originalSelect);
                         return;
                     }
 
@@ -458,49 +675,10 @@
 
                     // 核心优化 3: 使用 requestAnimationFrame 批处理所有 DOM 写入，确保仅触发一次重绘与回流
                     requestAnimationFrame(() => {
-                        // 1. 手动应用颜色映射 (完美复刻 ST applyThemeColor)
-                        if (themeObj.main_text_color) {
-                            root.style.setProperty('--SmartThemeBodyColor', themeObj.main_text_color);
-                            try {
-                                const color = themeObj.main_text_color.split('(')[1].split(')')[0].split(',');
-                                root.style.setProperty('--SmartThemeCheckboxBgColorR', color[0].trim());
-                                root.style.setProperty('--SmartThemeCheckboxBgColorG', color[1].trim());
-                                root.style.setProperty('--SmartThemeCheckboxBgColorB', color[2].trim());
-                                root.style.setProperty('--SmartThemeCheckboxBgColorA', color[3] ? color[3].trim() : '1');
-                            } catch(e){}
-                        }
-                        if (themeObj.italics_text_color) root.style.setProperty('--SmartThemeEmColor', themeObj.italics_text_color);
-                        if (themeObj.underline_text_color) root.style.setProperty('--SmartThemeUnderlineColor', themeObj.underline_text_color);
-                        if (themeObj.quote_text_color) root.style.setProperty('--SmartThemeQuoteColor', themeObj.quote_text_color);
-                        if (themeObj.blur_tint_color) {
-                            root.style.setProperty('--SmartThemeBlurTintColor', themeObj.blur_tint_color);
-                            const controls = getUIControls();
-                            const meta = controls['meta[name=theme-color]'];
-                            if (meta) meta.setAttribute('content', themeObj.blur_tint_color);
-                        }
-                        if (themeObj.chat_tint_color) root.style.setProperty('--SmartThemeChatTintColor', themeObj.chat_tint_color);
-                        if (themeObj.user_mes_blur_tint_color) root.style.setProperty('--SmartThemeUserMesBlurTintColor', themeObj.user_mes_blur_tint_color);
-                        if (themeObj.bot_mes_blur_tint_color) root.style.setProperty('--SmartThemeBotMesBlurTintColor', themeObj.bot_mes_blur_tint_color);
-                        if (themeObj.shadow_color) root.style.setProperty('--SmartThemeShadowColor', themeObj.shadow_color);
-                        if (themeObj.border_color) root.style.setProperty('--SmartThemeBorderColor', themeObj.border_color);
+                        applyThemeColors(themeObj);
+                        syncCustomCssToST(themeObj.custom_css);
 
-                        // 2. 手动应用其他样式参数
-                        if (themeObj.blur_strength !== undefined) root.style.setProperty('--blurStrength', String(themeObj.blur_strength));
-                        if (themeObj.shadow_width !== undefined) root.style.setProperty('--shadowWidth', String(themeObj.shadow_width));
-                        if (themeObj.font_scale !== undefined) root.style.setProperty('--fontScale', String(themeObj.font_scale));
-                        if (themeObj.chat_width !== undefined) root.style.setProperty('--sheldWidth', `${themeObj.chat_width}vw`);
-                        
-                        if (themeObj.custom_css !== undefined) {
-                            let style = document.getElementById('custom-style');
-                            if (!style) {
-                                style = document.createElement('style');
-                                style.id = 'custom-style';
-                                document.head.appendChild(style);
-                            }
-                            style.innerHTML = themeObj.custom_css;
-                        }
-
-                        // 3. 开关类样式
+                        // 3. 开关类样式与控件
                         const controls = getUIControls();
                         if (themeObj.fast_ui_mode !== undefined) {
                             document.body.classList.toggle('no-blur', themeObj.fast_ui_mode);
@@ -525,51 +703,28 @@
                             if (themeObj.chat_display === 2) document.body.classList.add('documentstyle');
                         }
 
-                        // 核心优化 4: 缓存 UI 控件引用，更新 UI 控件值
-                        const inputs = {
-                            '#main-text-color-picker': themeObj.main_text_color,
-                            '#italics-color-picker': themeObj.italics_text_color,
-                            '#underline-color-picker': themeObj.underline_text_color,
-                            '#quote-color-picker': themeObj.quote_text_color,
-                            '#blur-tint-color-picker': themeObj.blur_tint_color,
-                            '#chat-tint-color-picker': themeObj.chat_tint_color,
-                            '#user-mes-blur-tint-color-picker': themeObj.user_mes_blur_tint_color,
-                            '#bot-mes-blur-tint-color-picker': themeObj.bot_mes_blur_tint_color,
-                            '#shadow-color-picker': themeObj.shadow_color,
-                            '#border-color-picker': themeObj.border_color,
-                            '#blur_strength_counter': themeObj.blur_strength,
-                            '#blur_strength': themeObj.blur_strength,
-                            '#shadow_width_counter': themeObj.shadow_width,
-                            '#shadow_width': themeObj.shadow_width,
-                            '#font_scale_counter': themeObj.font_scale,
-                            '#font_scale': themeObj.font_scale,
-                            '#chat_width_slider_counter': themeObj.chat_width,
-                            '#chat_width_slider': themeObj.chat_width,
+                        // 复选框和下拉菜单控制（保留非颜色/非数字属性）
+                        const otherInputs = {
                             '#fast_ui_mode': themeObj.fast_ui_mode,
                             '#waifuMode': themeObj.waifuMode,
                             '#noShadowsmode': themeObj.noShadows,
                             '#avatar_style': themeObj.avatar_style,
                             '#chat_display': themeObj.chat_display,
                         };
-                        for (const [sel, val] of Object.entries(inputs)) {
+                        for (const [sel, val] of Object.entries(otherInputs)) {
                             if (val !== undefined) {
                                 const el = controls[sel];
                                 if (el) {
                                     if (el.type === 'checkbox') el.checked = val;
                                     else if (el.tagName === 'SELECT') el.value = val;
-                                    else {
-                                        el.value = val;
-                                        if (sel.includes('picker')) el.setAttribute('color', val);
-                                    }
                                 }
                             }
                         }
                     });
 
-                    // 4. 设置 select 值并触发 ST 原生 change
-                    // 即使 ST 的 applyTheme 找不到主题而跳过，我们的设置也已生效
+                    // 4. 设置 select 值并双重触发 ST 原生 change
                     originalSelect.value = themeName;
-                    originalSelect.dispatchEvent(new Event('change'));
+                    triggerSelectChange(originalSelect);
                 }
 
                 // 标签数据缓存（避免每次调用都 JSON.parse）
@@ -757,6 +912,31 @@
                 nativeButtonsContainer.appendChild(updateButton);
                 nativeButtonsContainer.appendChild(saveAsButton);
 
+                // 原生保存/另存为按钮点击后的内存与已知主题防爆同步
+                if (updateButton) {
+                    updateButton.addEventListener('click', () => {
+                        setTimeout(() => {
+                            syncStKnownThemes();
+                            invalidateThemesCache();
+                            const currentThemeName = originalSelect.value;
+                            const themeObj = allThemeObjectsMap.get(currentThemeName);
+                            const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style') || document.querySelector('#style_custom');
+                            if (themeObj && editorEl) {
+                                themeObj.custom_css = editorEl.value;
+                            }
+                        }, 300);
+                    });
+                }
+                if (saveAsButton) {
+                    saveAsButton.addEventListener('click', () => {
+                        setTimeout(() => {
+                            syncStKnownThemes();
+                            invalidateThemesCache();
+                            debouncedBuildThemeUI(300);
+                        }, 500);
+                    });
+                }
+
                 const header = managerPanel.querySelector('#theme-manager-header');
                 const content = managerPanel.querySelector('#theme-manager-content');
                 const toggleIcon = managerPanel.querySelector('#theme-manager-toggle-icon');
@@ -886,6 +1066,7 @@
                 }
 
                 async function buildThemeUI() {
+                    deduplicateSelectOptions(originalSelect);
                     const scrollTop = contentWrapper.scrollTop;
 
                     // 如果主题列表未发生变化，直接更新 active 状态即可，避免重建 DOM
@@ -2074,9 +2255,17 @@
                         }
                     });
 
+                    console.log(`[Theme Manager] 开始处理批量导入文件, 选择的文件数: ${files.length}`);
+
                     const parsedFiles = await Promise.all(fileReadPromises);
                     const validFiles = parsedFiles.filter(f => f.valid);
                     const invalidFiles = parsedFiles.filter(f => !f.valid);
+
+                    if (invalidFiles.length > 0) {
+                        invalidFiles.forEach(f => {
+                            console.error(`[Theme Manager Error] 无效的主题文件 "${f.file.name}":`, f.error);
+                        });
+                    }
 
                     let successCount = 0;
                     let errorCount = invalidFiles.length;
@@ -2085,6 +2274,7 @@
 
                     // 2. 并行发送 API 保存请求 (限制并发为 5)
                     if (validFiles.length > 0) {
+                        console.log(`[Theme Manager] 开始并发保存 ${validFiles.length} 个有效主题...`);
                         const saveResults = await limitConcurrency(5, validFiles, async ({ themeObject }) => {
                             try {
                                 await saveTheme(themeObject);
@@ -2101,9 +2291,10 @@
                                 successCount++;
                                 const themeObject = res.value.themeObject;
                                 importedThemes.push(themeObject);
+                                console.log(`[Theme Manager] 成功保存主题到服务器: "${themeObject.name}"`);
                             } else {
                                 errorCount++;
-                                console.error(`保存主题 "${orig.themeObject.name}" 失败:`, res.status === 'fulfilled' ? res.value.error : res.reason);
+                                console.error(`[Theme Manager Error] 保存主题 "${orig.themeObject.name}" 失败:`, res.status === 'fulfilled' ? res.value.error : res.reason);
                             }
                         });
                     }
@@ -2124,7 +2315,9 @@
                                     option.textContent = themeObject.name;
                                     originalSelect.appendChild(option);
                                 }
+                                stKnownThemes.add(themeObject.name);
                             });
+                            syncStKnownThemes();
                         } finally {
                             setTimeout(() => { _suspendObserver = false; }, 0);
                         }
