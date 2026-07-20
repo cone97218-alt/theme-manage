@@ -168,6 +168,7 @@
                 const USAGE_COUNT_KEY = 'themeManager_usageCount';
                                 const SHOW_USAGE_COUNT_KEY = 'themeManager_showUsageCount';
                 const ENABLE_AVATAR_HELPER_KEY = 'themeManager_enableAvatarHelper';
+                const ENABLE_COLOR_TRANSFER_KEY = 'themeManager_enableColorTransfer';
 
                 let listMode = localStorage.getItem(LIST_MODE_KEY) || 'scroll';
                 let pageSize = parseInt(localStorage.getItem(PAGE_SIZE_KEY)) || 50;
@@ -184,6 +185,7 @@
                 }
                 let showUsageCount = localStorage.getItem(SHOW_USAGE_COUNT_KEY) === 'true';
                 let enableAvatarHelper = localStorage.getItem(ENABLE_AVATAR_HELPER_KEY) !== 'false';
+                let enableColorTransfer = localStorage.getItem(ENABLE_COLOR_TRANSFER_KEY) === 'true'; // 默认关闭 (false)
                 let currentPage = 1;
 
                 let allParsedThemes = [];
@@ -831,6 +833,7 @@
                                 <button id="batch-import-btn" class="menu_button" title="从文件批量导入主题"><i class="fa-solid fa-folder-open"></i> 导入</button>
                                 <button id="tm-toggle-usage-count-btn" class="menu_button" title="显示/隐藏使用次数统计"><i class="fa-solid fa-chart-bar"></i> 统计</button>
                                 <button id="tm-toggle-avatar-helper-btn" class="menu_button" title="开启/完全禁用头像管理功能"><i class="fa-solid fa-check"></i> 头像</button>
+                                <button id="tm-toggle-color-transfer-btn" class="menu_button" title="开启/禁用提取配色功能"><i class="fa-solid fa-palette"></i> 配色</button>
                                 <button id="manage-tags-btn" class="menu_button" title="管理标签"><i class="fa-solid fa-tags"></i> 标签</button>
                                 <button id="tm-export-settings-btn" class="menu_button" title="导出配置文件"><i class="fa-solid fa-file-export"></i> 导出</button>
                                 <button id="tm-import-settings-btn" class="menu_button" title="从配置文件中导入插件设置"><i class="fa-solid fa-file-import"></i> 导入</button>
@@ -1210,6 +1213,7 @@
                             <button class="set-tag-btn" title="分类标签"><i class="fa-solid fa-tags"></i></button>
                             <button class="link-bg-btn" title="关联背景图"><i class="fa-solid fa-link"></i></button>
                             <button class="favorite-btn" title="收藏"><i class="fa-regular fa-star"></i></button>
+                            <button class="color-transfer-btn" title="提取配色" style="display:none;"><i class="fa-solid fa-palette"></i></button>
                             <button class="rename-btn" title="重命名"><i class="fa-solid fa-pen"></i></button>
                             <button class="delete-btn" title="删除"><i class="fa-solid fa-trash-can"></i></button>
                         </div>`;
@@ -1229,8 +1233,13 @@
                     const setTagBtn = buttonsDiv.children[0];
                     const linkBgBtn = buttonsDiv.children[1];
                     const favoriteBtn = buttonsDiv.children[2];
-                    const renameBtn = buttonsDiv.children[3];
-                    const deleteBtn = buttonsDiv.children[4];
+                    const colorTransferBtn = buttonsDiv.children[3];
+                    const renameBtn = buttonsDiv.children[4];
+                    const deleteBtn = buttonsDiv.children[5];
+
+                    if (colorTransferBtn) {
+                        colorTransferBtn.style.display = enableColorTransfer ? 'inline-flex' : 'none';
+                    }
 
                     // 设置主题名
                     nameSpan.textContent = theme.display;
@@ -1958,7 +1967,8 @@
                     TAG_FILTER_MODE_KEY,
                     USAGE_COUNT_KEY,
                     SHOW_USAGE_COUNT_KEY,
-                    ENABLE_AVATAR_HELPER_KEY
+                    ENABLE_AVATAR_HELPER_KEY,
+                    ENABLE_COLOR_TRANSFER_KEY
                 ];
 
                 function exportSettings() {
@@ -2105,6 +2115,149 @@
                         // 派发自定义事件以支持无刷新热更新
                         document.dispatchEvent(new CustomEvent('themeManager:enableAvatarHelperChanged', { detail: enableAvatarHelper }));
                     });
+                }
+
+                // 配色提取功能开启/禁用 toggle (默认关闭，与头像按钮一致使用 check/xmark 图标)
+                const toggleColorTransferBtn = managerPanel.querySelector('#tm-toggle-color-transfer-btn');
+                if (toggleColorTransferBtn) {
+                    const updateColorTransferBtnIcon = (enabled) => {
+                        const icon = toggleColorTransferBtn.querySelector('i');
+                        if (icon) {
+                            icon.className = enabled ? 'fa-solid fa-check' : 'fa-solid fa-xmark';
+                        }
+                        toggleColorTransferBtn.classList.toggle('active', enabled);
+                    };
+                    updateColorTransferBtnIcon(enableColorTransfer);
+                    toggleColorTransferBtn.addEventListener('click', () => {
+                        enableColorTransfer = !enableColorTransfer;
+                        localStorage.setItem(ENABLE_COLOR_TRANSFER_KEY, String(enableColorTransfer));
+                        updateColorTransferBtnIcon(enableColorTransfer);
+                        toastr.info(`提取配色功能已${enableColorTransfer ? '开启' : '关闭'}`);
+                        // 批量更新所有卡片上的配色按钮显示
+                        themeItemMap.forEach((item) => {
+                            const btn = item.querySelector('.color-transfer-btn');
+                            if (btn) btn.style.display = enableColorTransfer ? 'inline-flex' : 'none';
+                        });
+                    });
+                }
+
+                // === 提取配色模态框相关逻辑 (支持动态注入与绝对可靠弹窗) ===
+                let _colorTransferTargetTheme = null;
+
+                function getOrBuildColorTransferModal() {
+                    let modal = document.querySelector('#tm-color-transfer-modal');
+                    if (!modal) {
+                        modal = document.createElement('div');
+                        modal.id = 'tm-color-transfer-modal';
+                        modal.className = 'tm-modal';
+                        modal.style.display = 'none';
+                        modal.innerHTML = `
+                            <div class="tm-modal-content" style="max-width: 420px;">
+                                <div class="tm-modal-header">
+                                    <h3><i class="fa-solid fa-palette"></i> 提取配色方案</h3>
+                                    <button id="close-color-transfer-modal" class="tm-modal-close"><i class="fa-solid fa-xmark"></i></button>
+                                </div>
+                                <div class="tm-modal-body">
+                                    <div style="margin-bottom: 12px; font-size: 13px;">
+                                        <strong>目标美化:</strong> <span id="color-transfer-target-name" style="color: var(--SmartThemeQuoteColor, #4a90e2); font-weight: bold;"></span>
+                                    </div>
+                                    <div style="margin-bottom: 15px;">
+                                        <label style="display: block; margin-bottom: 6px; font-size: 12px;"><strong>选择来源美化 (提取其颜色配置):</strong></label>
+                                        <select id="color-transfer-source-select" class="text_pole" style="width: 100%; height: 32px; font-size: 12px; margin: 0;"></select>
+                                    </div>
+                                    <div style="font-size: 11px; opacity: 0.75; margin-bottom: 15px; line-height: 1.5; background: rgba(0,0,0,0.15); padding: 8px; border-radius: 4px;">
+                                        <i class="fa-solid fa-circle-info"></i> 将提取来源美化的主文本、引用、模糊遮罩、阴影边框色及布局数值覆盖到目标美化，<strong>100% 完整保留目标美化原有的 Custom CSS 代码</strong>。
+                                    </div>
+                                </div>
+                                <div class="tm-modal-footer" style="display:flex; justify-content:flex-end; gap:8px; padding-top:10px;">
+                                    <button id="cancel-color-transfer-btn" class="menu_button" style="margin:0;">取消</button>
+                                    <button id="confirm-color-transfer-btn" class="menu_button menu_button_icon primary" style="background: var(--SmartThemeQuoteColor, #4a90e2) !important; color: #fff !important; margin:0;"><i class="fa-solid fa-check"></i> 确认覆盖配色</button>
+                                </div>
+                            </div>`;
+                        document.body.appendChild(modal);
+
+                        modal.querySelector('#close-color-transfer-modal').addEventListener('click', closeColorTransferModal);
+                        modal.querySelector('#cancel-color-transfer-btn').addEventListener('click', closeColorTransferModal);
+                        modal.querySelector('#confirm-color-transfer-btn').addEventListener('click', async () => {
+                            if (!_colorTransferTargetTheme) return;
+                            const sourceSelect = modal.querySelector('#color-transfer-source-select');
+                            const sourceThemeName = sourceSelect ? sourceSelect.value : '';
+                            if (!sourceThemeName) {
+                                toastr.warning('请先选择一个来源美化！');
+                                return;
+                            }
+                            const targetThemeName = _colorTransferTargetTheme;
+                            closeColorTransferModal();
+                            await transferThemeColors(sourceThemeName, targetThemeName);
+                        });
+                    }
+                    return modal;
+                }
+
+                function openColorTransferModal(targetThemeName) {
+                    _colorTransferTargetTheme = targetThemeName;
+                    const modal = getOrBuildColorTransferModal();
+                    const targetNameSpan = modal.querySelector('#color-transfer-target-name');
+                    const sourceSelect = modal.querySelector('#color-transfer-source-select');
+
+                    if (targetNameSpan) targetNameSpan.textContent = targetThemeName;
+                    if (sourceSelect) {
+                        sourceSelect.innerHTML = '';
+                        const otherThemes = allParsedThemes.filter(t => t.value !== targetThemeName);
+                        otherThemes.forEach(t => {
+                            const opt = document.createElement('option');
+                            opt.value = t.value;
+                            opt.textContent = t.display;
+                            sourceSelect.appendChild(opt);
+                        });
+                    }
+                    modal.style.display = 'flex';
+                }
+
+                function closeColorTransferModal() {
+                    const modal = document.querySelector('#tm-color-transfer-modal');
+                    if (modal) modal.style.display = 'none';
+                    _colorTransferTargetTheme = null;
+                }
+
+                async function transferThemeColors(sourceName, targetName) {
+                    const sourceObj = allThemeObjectsMap.get(sourceName);
+                    const targetObj = allThemeObjectsMap.get(targetName);
+                    if (!sourceObj || !targetObj) {
+                        toastr.error('获取美化主题数据失败！');
+                        return;
+                    }
+
+                    showLoader();
+                    try {
+                        const colorKeys = [
+                            'main_text_color', 'italics_text_color', 'underline_text_color', 'quote_text_color',
+                            'blur_tint_color', 'chat_tint_color', 'user_mes_blur_tint_color', 'bot_mes_blur_tint_color',
+                            'shadow_color', 'border_color', 'blur_strength', 'shadow_width', 'font_scale', 'chat_width'
+                        ];
+
+                        colorKeys.forEach(key => {
+                            if (sourceObj[key] !== undefined) {
+                                targetObj[key] = sourceObj[key];
+                            }
+                        });
+
+                        await saveTheme(targetObj);
+                        updateSTThemeMemory(targetObj, 'add');
+                        allThemeObjectsMap.set(targetName, targetObj);
+
+                        if (originalSelect.value === targetName) {
+                            applyThemeColors(targetObj);
+                            syncCustomCssToST(targetObj.custom_css);
+                        }
+
+                        toastr.success(`已成功从「${sourceName}」提取配色应用至「${targetName}」！`);
+                    } catch (err) {
+                        console.error('[Theme Manager Error] 提取配色应用失败:', err);
+                        toastr.error('配色应用失败，请检查控制台。');
+                    } finally {
+                        hideLoader();
+                    }
                 }
 
                 firstPageBtns.forEach(btn => {
@@ -2836,6 +2989,12 @@
                             if (activeTagFilters.has('__FAVORITES__')) {
                                 filterThemeList();
                             }
+                            return;
+                        }
+
+                        if (button && button.classList.contains('color-transfer-btn')) {
+                            openColorTransferModal(themeName);
+                            return;
                         }
                         else if (button && button.classList.contains('rename-btn')) {
                             const oldName = themeName;
