@@ -211,7 +211,7 @@
                 let activeTagFilters = new Set(activeTagsData);
                 let editingThemeForTags = null;
 
-                async function apiRequest(endpoint, method = 'POST', body = {}) {
+                async function apiRequest(endpoint, method = 'POST', body = {}, suppressToast = false) {
                     try {
                         const headers = getRequestHeaders();
                         const options = { method, headers, body: JSON.stringify(body) };
@@ -224,13 +224,15 @@
                         return responseText ? JSON.parse(responseText) : {};
                     } catch (error) {
                         console.error(`API request to /api/${endpoint} failed:`, error);
-                        toastr.error(`API请求失败: ${error.message}`);
+                        if (!suppressToast) {
+                            toastr.error(`API请求失败: ${error.message}`);
+                        }
                         throw error;
                     }
                 }
 
                 async function getAllThemesFromAPI() { return (await apiRequest('settings/get', 'POST', {})).themes || []; }
-                async function deleteTheme(themeName) { await apiRequest('themes/delete', 'POST', { name: themeName }); }
+                async function deleteTheme(themeName, suppressToast = false) { await apiRequest('themes/delete', 'POST', { name: themeName }, suppressToast); }
                 async function saveTheme(themeObject) { await apiRequest('themes/save', 'POST', themeObject); }
 
                 // === 工具函数 ===
@@ -1736,11 +1738,11 @@
                                 const newThemeObject = { ...themeObject, name: newName };
                                 // 1. 先保存新主题文件
                                 await saveTheme(newThemeObject);
-                                // 2. 尝试删除旧主题（若后端已自动处理或不存在则静默捕获，不阻塞流程）
+                                // 2. 尝试删除旧主题（传入 true 静默 404 弹窗，若后端不存在旧文件则忽略）
                                 try {
-                                    await deleteTheme(oldName);
+                                    await deleteTheme(oldName, true);
                                 } catch (delErr) {
-                                    console.warn(`[Theme Manager] 删除原主题 "${oldName}" 提示 (可忽略):`, delErr);
+                                    console.warn(`[Theme Manager] 删除原主题 "${oldName}" 提示 (已静默):`, delErr);
                                 }
                                 return { oldName, newName, newThemeObject };
                             });
@@ -3429,7 +3431,11 @@
                                 const isActive = originalSelect.value === oldName;
                                 const newThemeObject = { ...themeObject, name: finalNewName };
                                 await saveTheme(newThemeObject);
-                                await deleteTheme(oldName);
+                                try {
+                                    await deleteTheme(oldName, true);
+                                } catch (e) {
+                                    console.warn(`[Theme Manager] 删除旧主题 "${oldName}" 提示 (已静默):`, e);
+                                }
                                 manualUpdateOriginalSelect('rename', oldName, finalNewName);
                                 // delete+add 比 rename 更可靠：不依赖 ST 内部数组里必须存在 oldName
                                 updateSTThemeMemory({ name: oldName }, 'delete');
