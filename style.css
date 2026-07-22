@@ -629,4 +629,43 @@
 #color-transfer-source-select option:checked {
     background-color: var(--SmartThemeQuoteColor, #4a90e2) !important;
     color: #ffffff !important;
-}
+}
+
+/* 批量重命名弹窗 Tab 及所有按键强制横向排列样式 */
+#tm-batch-rename-dialog button,
+.tm-rename-tab {
+    display: inline-flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: center !important;
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+    writing-mode: horizontal-tb !important;
+    width: auto !important;
+    height: auto !important;
+    min-height: 30px !important;
+    padding: 4px 12px !important;
+    margin: 0 !important;
+    opacity: 0.85;
+    transition: all 0.2s ease;
+    box-sizing: border-box !important;
+}
+
+#tm-batch-rename-dialog button i,
+.tm-rename-tab i {
+    margin-right: 6px !important;
+    margin-left: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    display: inline-block !important;
+}
+
+.tm-rename-tab.active {
+    opacity: 1 !important;
+    background-color: var(--SmartThemeQuoteColor, rgba(0, 120, 215, 0.6)) !important;
+    color: #ffffff !important;
+    font-weight: bold !important;
+    border-color: rgba(255, 255, 255, 0.3) !important;
+}
+
+
