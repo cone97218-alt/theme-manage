@@ -1690,55 +1690,62 @@
                 async function performBatchRename(renameLogic) {
                     if (selectedForBatch.size === 0) { toastr.info('请先选择至少一个主题。'); return; }
                     showLoader();
+                    _suspendObserver = true;
 
                     let successCount = 0;
                     let errorCount = 0;
                     let skippedCount = 0;
                     let activeThemeWasRenamed = false;
-                    const currentThemes = await getAllThemesFromAPI();
-                    let favoritesToUpdate = JSON.parse(localStorage.getItem(FAVORITES_KEY)) || [];
-                    let tagsToUpdate = loadThemeTags();
 
-                    const renameTasks = [];
+                    try {
+                        const currentThemes = await getAllThemesFromAPI();
+                        let favoritesToUpdate = JSON.parse(localStorage.getItem(FAVORITES_KEY)) || [];
+                        let tagsToUpdate = loadThemeTags();
 
-                    for (const oldName of selectedForBatch) {
-                        const themeObject = currentThemes.find(t => t.name === oldName);
-                        if (!themeObject) {
-                            console.warn(`批量操作：在API返回中未找到主题 "${oldName}"，已跳过。`);
-                            skippedCount++;
-                            continue;
+                        const renameTasks = [];
+
+                        for (const oldName of selectedForBatch) {
+                            let themeObject = currentThemes.find(t => t.name === oldName);
+                            if (!themeObject) {
+                                console.warn(`批量操作：在API返回中未找到主题 "${oldName}"，使用默认对象重命名。`);
+                                themeObject = { name: oldName };
+                            }
+                            const newName = renameLogic(oldName);
+                            if (!newName || !newName.trim()) {
+                                skippedCount++;
+                                continue;
+                            }
+                            if (currentThemes.some(t => t.name === newName && t.name !== oldName)) {
+                                console.warn(`批量操作：目标名称 "${newName}" 已存在，已跳过 "${oldName}"。`);
+                                toastr.warning(`主题 "${newName}" 已存在，跳过重命名。`);
+                                skippedCount++;
+                                continue;
+                            }
+
+                            if (newName === oldName) {
+                                successCount++; // 名字没变
+                                continue;
+                            }
+
+                            renameTasks.push({ oldName, newName, themeObject });
                         }
-                        const newName = renameLogic(oldName);
-                        if (currentThemes.some(t => t.name === newName && t.name !== oldName)) {
-                            console.warn(`批量操作：目标名称 "${newName}" 已存在，已跳过 "${oldName}"。`);
-                            toastr.warning(`主题 "${newName}" 已存在，跳过重命名。`);
-                            skippedCount++;
-                            continue;
-                        }
 
-                        if (newName === oldName) {
-                            successCount++; // 名字没变，不算作需要 API 的操作
-                            continue;
-                        }
+                        if (renameTasks.length > 0) {
+                            // 控制并发为 2，先保存新主题文件，成功后再删除旧文件（防止并发竞态与删除404）
+                            const results = await limitConcurrency(2, renameTasks, async ({ oldName, newName, themeObject }) => {
+                                const newThemeObject = { ...themeObject, name: newName };
+                                // 1. 先保存新主题文件
+                                await saveTheme(newThemeObject);
+                                // 2. 尝试删除旧主题（若后端已自动处理或不存在则静默捕获，不阻塞流程）
+                                try {
+                                    await deleteTheme(oldName);
+                                } catch (delErr) {
+                                    console.warn(`[Theme Manager] 删除原主题 "${oldName}" 提示 (可忽略):`, delErr);
+                                }
+                                return { oldName, newName, newThemeObject };
+                            });
 
-                        renameTasks.push({ oldName, newName, themeObject });
-                    }
-
-                    if (renameTasks.length > 0) {
-                        // 并行执行所有的重命名保存与删除操作 (限制并发为 3)
-                        const results = await limitConcurrency(3, renameTasks, async ({ oldName, newName, themeObject }) => {
-                            const newThemeObject = { ...themeObject, name: newName };
-                            // 保存新文件和删除旧文件并行进行
-                            await Promise.all([
-                                saveTheme(newThemeObject),
-                                deleteTheme(oldName)
-                            ]);
-                            return { oldName, newName, newThemeObject };
-                        });
-
-                        // 批量更新原生 DOM、内存与插件状态
-                        _suspendObserver = true;
-                        try {
+                            // 批量更新原生 DOM、内存与插件状态
                             results.forEach((res, index) => {
                                 const task = renameTasks[index];
                                 if (res.status === 'fulfilled') {
@@ -1775,35 +1782,38 @@
                                 } else {
                                     errorCount++;
                                     console.error(`批量重命名主题 "${task.oldName}" 时失败:`, res.reason);
-                                    toastr.error(`处理主题 "${task.oldName}" 时失败: ${res.reason.message || res.reason}`);
+                                    toastr.error(`处理主题 "${task.oldName}" 时失败: ${res.reason?.message || res.reason}`);
                                 }
                             });
-                        } finally {
-                            setTimeout(() => { _suspendObserver = false; }, 0);
                         }
+
+                        updateFavorites(favoritesToUpdate);
+                        localStorage.setItem(THEME_BACKGROUND_BINDINGS_KEY, JSON.stringify(themeBackgroundBindings));
+                        saveThemeTags(tagsToUpdate);
+
+                        selectedForBatch.clear();
+                        lastClickedThemeName = null;
+                        managerPanel.querySelectorAll('.selected-for-batch').forEach(el => el.classList.remove('selected-for-batch'));
+                        invalidateThemesCache();
+                        filterThemeList();
+
+                        let summary = `批量操作完成！成功 ${successCount} 个`;
+                        if (errorCount > 0) summary += `，失败 ${errorCount} 个`;
+                        if (skippedCount > 0) summary += `，跳过 ${skippedCount} 个`;
+                        summary += '。';
+                        toastr.success(summary);
+
+                        if (activeThemeWasRenamed) {
+                            originalSelect.dispatchEvent(new Event('change'));
+                        }
+                        updateActiveState();
+                    } catch (err) {
+                        console.error('批量重命名执行失败:', err);
+                        toastr.error('批量重命名发生异常：' + (err.message || err));
+                    } finally {
+                        hideLoader();
+                        setTimeout(() => { _suspendObserver = false; }, 100);
                     }
-
-                    updateFavorites(favoritesToUpdate);
-                    localStorage.setItem(THEME_BACKGROUND_BINDINGS_KEY, JSON.stringify(themeBackgroundBindings));
-                    saveThemeTags(tagsToUpdate);
-
-                    hideLoader();
-                    selectedForBatch.clear();
-                    lastClickedThemeName = null;
-                    managerPanel.querySelectorAll('.selected-for-batch').forEach(el => el.classList.remove('selected-for-batch'));
-                    invalidateThemesCache();
-                    filterThemeList();
-
-                    let summary = `批量操作完成！成功 ${successCount} 个`;
-                    if (errorCount > 0) summary += `，失败 ${errorCount} 个`;
-                    if (skippedCount > 0) summary += `，跳过 ${skippedCount} 个`;
-                    summary += '。';
-                    toastr.success(summary);
-
-                    if (activeThemeWasRenamed) {
-                        originalSelect.dispatchEvent(new Event('change'));
-                    }
-                    updateActiveState();
                 }
 
                 async function performBatchDelete() {
