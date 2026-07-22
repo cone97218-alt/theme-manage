@@ -606,4 +606,27 @@
     display: flex;
     justify-content: flex-end;
     margin-top: 10px;
+}
+
+/* 提取配色弹窗 OptGroup 分组与搜索列表美化 */
+#color-transfer-source-select optgroup {
+    font-weight: bold;
+    color: var(--SmartThemeQuoteColor, #4a90e2);
+    background: rgba(0, 0, 0, 0.2);
+    font-style: normal;
+    padding: 4px 6px;
+    margin-top: 4px;
+}
+
+#color-transfer-source-select option {
+    font-weight: normal;
+    color: var(--SmartThemeBodyColor, #fff);
+    padding: 3px 8px;
+    margin: 1px 0;
+    border-radius: 2px;
+}
+
+#color-transfer-source-select option:checked {
+    background-color: var(--SmartThemeQuoteColor, #4a90e2) !important;
+    color: #ffffff !important;
 }

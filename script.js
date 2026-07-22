@@ -2141,7 +2141,65 @@
                     });
                 }
 
-                // === 提取配色模态框相关逻辑 (支持动态注入与绝对可靠弹窗) ===
+                // === 智能推荐算法：提取美化主题的基础系列名称 (去除色彩词、修饰词及作者后缀) ===
+                function extractThemeBaseName(name) {
+                    if (!name) return '';
+                    let base = name;
+                    // 移除作者后缀 (如 by xxx, author xxx)
+                    base = base.replace(/by\s*.*$/i, '');
+                    // 移除版本号 (如 v1, v2.0)
+                    base = base.replace(/v\d+(\.\d+)?/gi, '');
+                    // 移除常见色彩、修饰词与符号
+                    const modifierRegex = /(深色|浅色|暗色|亮色|黑色|白色|红色|蓝色|绿色|黄色|粉色|紫色|灰色|米色|棕色|金|银|莫兰迪|莫兰迪米|莫兰迪暗|Dark|Light|Black|White|Red|Blue|Green|Yellow|Pink|Purple|Grey|Gray|Beige|Night|Day|版|模式|配色|主题|美化|[·・\-_s])/gi;
+                    base = base.replace(modifierRegex, '').trim();
+                    return base.toLowerCase();
+                }
+
+                // 计算智能推荐主题列表 (按置信度降序)
+                function getSmartRecommendedThemes(targetThemeName, allThemes) {
+                    const targetBase = extractThemeBaseName(targetThemeName);
+                    const recommendations = [];
+
+                    allThemes.forEach(t => {
+                        if (t.value === targetThemeName) return;
+                        const sourceBase = extractThemeBaseName(t.value);
+
+                        let isRecommended = false;
+                        let score = 0;
+
+                        if (targetBase && sourceBase) {
+                            if (targetBase === sourceBase) {
+                                isRecommended = true;
+                                score = 100;
+                            } else if (targetBase.length >= 2 && sourceBase.includes(targetBase)) {
+                                isRecommended = true;
+                                score = 80;
+                            } else if (sourceBase.length >= 2 && targetBase.includes(sourceBase)) {
+                                isRecommended = true;
+                                score = 70;
+                            }
+                        }
+
+                        // 回退匹配：原始名字前缀相同 (前 3 个字符及以上)
+                        if (!isRecommended && targetThemeName.length >= 3 && t.value.length >= 3) {
+                            const prefixTarget = targetThemeName.slice(0, 3).toLowerCase();
+                            const prefixSource = t.value.slice(0, 3).toLowerCase();
+                            if (prefixTarget === prefixSource) {
+                                isRecommended = true;
+                                score = 50;
+                            }
+                        }
+
+                        if (isRecommended) {
+                            recommendations.push({ theme: t, score });
+                        }
+                    });
+
+                    recommendations.sort((a, b) => b.score - a.score);
+                    return recommendations.map(r => r.theme);
+                }
+
+                // === 提取配色模态框相关逻辑 (支持动态注入、FontAwesome 搜索与 OptGroup 结构化分组) ===
                 let _colorTransferTargetTheme = null;
 
                 function getOrBuildColorTransferModal() {
@@ -2152,7 +2210,7 @@
                         modal.className = 'tm-modal';
                         modal.style.display = 'none';
                         modal.innerHTML = `
-                            <div class="tm-modal-content" style="max-width: 420px;">
+                            <div class="tm-modal-content" style="max-width: 440px;">
                                 <div class="tm-modal-header">
                                     <h3><i class="fa-solid fa-palette"></i> 提取配色方案</h3>
                                     <button id="close-color-transfer-modal" class="tm-modal-close"><i class="fa-solid fa-xmark"></i></button>
@@ -2163,10 +2221,11 @@
                                     </div>
                                     <div style="margin-bottom: 15px;">
                                         <label style="display: block; margin-bottom: 6px; font-size: 12px;"><strong>选择来源美化 (提取其颜色配置):</strong></label>
-                                        <select id="color-transfer-source-select" class="text_pole" style="width: 100%; height: 32px; font-size: 12px; margin: 0;"></select>
-                                    </div>
-                                    <div style="font-size: 11px; opacity: 0.75; margin-bottom: 15px; line-height: 1.5; background: rgba(0,0,0,0.15); padding: 8px; border-radius: 4px;">
-                                        <i class="fa-solid fa-circle-info"></i> 将提取来源美化的主文本、引用、模糊遮罩、阴影边框色及布局数值覆盖到目标美化，<strong>100% 完整保留目标美化原有的 Custom CSS 代码</strong>。
+                                        <div style="position: relative; margin-bottom: 8px;">
+                                            <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); opacity: 0.5; font-size: 12px; pointer-events: none;"></i>
+                                            <input type="search" id="color-transfer-search-input" class="text_pole" placeholder="搜索来源美化名称..." style="width: 100%; height: 32px; padding-left: 30px; font-size: 12px; box-sizing: border-box; margin: 0;">
+                                        </div>
+                                        <select id="color-transfer-source-select" class="text_pole" size="8" style="width: 100%; height: 200px; font-size: 12px; margin: 0; padding: 4px; box-sizing: border-box;"></select>
                                     </div>
                                 </div>
                                 <div class="tm-modal-footer" style="display:flex; justify-content:flex-end; gap:8px; padding-top:10px;">
@@ -2199,18 +2258,102 @@
                     const modal = getOrBuildColorTransferModal();
                     const targetNameSpan = modal.querySelector('#color-transfer-target-name');
                     const sourceSelect = modal.querySelector('#color-transfer-source-select');
+                    const searchInput = modal.querySelector('#color-transfer-search-input');
 
                     if (targetNameSpan) targetNameSpan.textContent = targetThemeName;
-                    if (sourceSelect) {
+                    if (searchInput) searchInput.value = '';
+
+                    const otherThemes = allParsedThemes.filter(t => t.value !== targetThemeName);
+                    const recommendedThemes = getSmartRecommendedThemes(targetThemeName, otherThemes);
+                    const recommendedSet = new Set(recommendedThemes.map(t => t.value));
+
+                    // 加载扩展分类标签
+                    const cachedTags = loadThemeTags();
+                    const tagMap = new Map();
+                    cachedTags.forEach(tag => {
+                        tagMap.set(tag.id, { name: tag.name, themes: [] });
+                    });
+
+                    const unclassifiedThemes = [];
+
+                    // 归类非推荐的主题
+                    otherThemes.forEach(t => {
+                        if (recommendedSet.has(t.value)) return;
+
+                        if (t.tags && t.tags.length > 0) {
+                            let added = false;
+                            t.tags.forEach(tagId => {
+                                const group = tagMap.get(tagId);
+                                if (group) {
+                                    group.themes.push(t);
+                                    added = true;
+                                }
+                            });
+                            if (!added) unclassifiedThemes.push(t);
+                        } else {
+                            unclassifiedThemes.push(t);
+                        }
+                    });
+
+                    function renderSourceSelectOptions(filterKeyword = '') {
+                        if (!sourceSelect) return;
                         sourceSelect.innerHTML = '';
-                        const otherThemes = allParsedThemes.filter(t => t.value !== targetThemeName);
-                        otherThemes.forEach(t => {
-                            const opt = document.createElement('option');
-                            opt.value = t.value;
-                            opt.textContent = t.display;
-                            sourceSelect.appendChild(opt);
+                        const keyword = filterKeyword.toLowerCase().trim();
+                        let firstSelectableOption = null;
+
+                        const addGroup = (groupTitle, themes, isRecommend = false) => {
+                            const matched = themes.filter(t => !keyword || t.display.toLowerCase().includes(keyword));
+                            if (matched.length === 0) return;
+
+                            const groupEl = document.createElement('optgroup');
+                            groupEl.label = groupTitle;
+
+                            matched.forEach(t => {
+                                const opt = document.createElement('option');
+                                opt.value = t.value;
+                                opt.textContent = isRecommend ? `${t.display} (智能推荐)` : t.display;
+                                groupEl.appendChild(opt);
+                                if (!firstSelectableOption) {
+                                    firstSelectableOption = opt;
+                                }
+                            });
+
+                            sourceSelect.appendChild(groupEl);
+                        };
+
+                        // 1. 智能推荐分组
+                        if (recommendedThemes.length > 0) {
+                            addGroup('智能推荐 (同系列美化)', recommendedThemes, true);
+                        }
+
+                        // 2. 标签分类分组
+                        cachedTags.forEach(tag => {
+                            const groupData = tagMap.get(tag.id);
+                            if (groupData && groupData.themes.length > 0) {
+                                addGroup(`标签: ${groupData.name}`, groupData.themes);
+                            }
                         });
+
+                        // 3. 其他未分类分组
+                        if (unclassifiedThemes.length > 0) {
+                            addGroup('未分类美化', unclassifiedThemes);
+                        }
+
+                        // 默认选中推荐的第一项
+                        if (firstSelectableOption) {
+                            firstSelectableOption.selected = true;
+                        }
                     }
+
+                    renderSourceSelectOptions();
+
+                    // 绑定实时搜索框输入事件
+                    if (searchInput) {
+                        searchInput.oninput = (e) => {
+                            renderSourceSelectOptions(e.target.value);
+                        };
+                    }
+
                     modal.style.display = 'flex';
                 }
 
