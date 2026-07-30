@@ -668,4 +668,131 @@
     border-color: rgba(255, 255, 255, 0.3) !important;
 }
 
+/* ======== 二级目录与标签拖拽样式 ======== */
+.theme-subtags-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    align-items: center;
+    margin-top: 4px;
+    margin-bottom: 6px;
+    padding: 6px 4px;
+    background: transparent;
+    border-top: 1px solid var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.2));
+    border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.15));
+}
+
+.tm-subtag-label {
+    font-size: 11px;
+    font-weight: bold;
+    opacity: 0.85;
+    margin-right: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--SmartThemeQuoteColor, #4a90e2);
+}
+
+.theme-tag-chip.level2 {
+    font-size: 11px;
+    padding: 1px 7px;
+    border-radius: 12px;
+    background: rgba(128, 128, 128, 0.12);
+    border: 1px solid rgba(128, 128, 128, 0.2);
+}
+
+.theme-tag-chip.level2:hover {
+    background: rgba(128, 128, 128, 0.25);
+}
+
+.theme-tag-chip.level2.active {
+    background: var(--SmartThemeQuoteColor, #4a90e2);
+    border-color: transparent;
+    color: #fff;
+}
+
+.tm-subtags-tree {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.tm-level1-card {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+    padding: 6px 0;
+    transition: all 0.2s ease;
+}
+
+.tm-level1-card.drag-over-target {
+    border: 2px dashed var(--SmartThemeQuoteColor, #4a90e2) !important;
+    background: rgba(74, 144, 226, 0.06) !important;
+    border-radius: 6px;
+}
+
+.tm-level1-card.dragging {
+    opacity: 0.4;
+}
+
+.tm-level1-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 4px;
+}
+
+.tm-level2-container {
+    min-height: 24px;
+    margin-top: 4px;
+    padding: 2px 0 2px 14px;
+    background: transparent;
+    border-left: 2px solid var(--SmartThemeQuoteColor, rgba(74, 144, 226, 0.3));
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.tm-level2-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 6px;
+    background: transparent;
+    border-bottom: 1px dashed rgba(128, 128, 128, 0.1);
+    border-radius: 4px;
+    font-size: 12px;
+    transition: background 0.15s ease;
+}
+
+.tm-level2-item:hover {
+    background: rgba(128, 128, 128, 0.08);
+}
+
+.tm-level2-item.dragging {
+    opacity: 0.4;
+}
+
+.tm-empty-subtags-dropzone {
+    font-size: 11px;
+    opacity: 0.45;
+    text-align: center;
+    padding: 4px 8px;
+    border: 1px dashed rgba(128, 128, 128, 0.2);
+    border-radius: 4px;
+    font-style: italic;
+    background: transparent;
+}
+
+.drag-handle, .drag-handle-l1, .drag-handle-l2 {
+    cursor: grab;
+    user-select: none;
+}
+
+.drag-handle:active, .drag-handle-l1:active, .drag-handle-l2:active {
+    cursor: grabbing;
+}
+
+
+
 

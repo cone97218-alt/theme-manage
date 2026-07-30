@@ -165,10 +165,15 @@
                 const PAGE_SIZE_KEY = 'themeManager_pageSize';
                 const SORT_SELECT_KEY = 'themeManager_sortSelect';
                 const TAG_FILTER_MODE_KEY = 'themeManager_tagFilterMode';
+                const ENABLE_SUBTAGS_KEY = 'themeManager_enableSubtags';
                 const USAGE_COUNT_KEY = 'themeManager_usageCount';
-                                const SHOW_USAGE_COUNT_KEY = 'themeManager_showUsageCount';
+                const SHOW_USAGE_COUNT_KEY = 'themeManager_showUsageCount';
                 const ENABLE_AVATAR_HELPER_KEY = 'themeManager_enableAvatarHelper';
                 const ENABLE_COLOR_TRANSFER_KEY = 'themeManager_enableColorTransfer';
+
+                function isSubtagsEnabled() {
+                    return localStorage.getItem(ENABLE_SUBTAGS_KEY) === 'true';
+                }
 
                 let listMode = localStorage.getItem(LIST_MODE_KEY) || 'scroll';
                 let pageSize = parseInt(localStorage.getItem(PAGE_SIZE_KEY)) || 50;
@@ -209,6 +214,7 @@
                     console.error('[Theme Manager] Failed to parse activeTagFilters:', e);
                 }
                 let activeTagFilters = new Set(activeTagsData);
+                let activeLevel1TagId = null;
                 let editingThemeForTags = null;
 
                 async function apiRequest(endpoint, method = 'POST', body = {}, suppressToast = false) {
@@ -1377,16 +1383,33 @@
                     }
                 }
 
+                function getExpandedTagIds(tagId, tags) {
+                    if (!isSubtagsEnabled()) return [tagId];
+                    const tag = tags.find(t => t.id === tagId);
+                    if (!tag) return [tagId];
+                    // 如果是一级标签（parentId 为空），包含其自身及所有二级子标签
+                    if (!tag.parentId) {
+                        const childIds = tags.filter(t => t.parentId === tagId).map(t => t.id);
+                        return [tagId, ...childIds];
+                    }
+                    return [tagId];
+                }
+
                 // 判断主题是否匹配当前标签筛选
                 function isThemeMatchingFilters(theme) {
                     if (activeTagFilters.size === 0) return true;
+                    const tags = loadThemeTags();
+
                     if (tagFilterMode === 'and') {
                         // AND 模式：主题必须同时满足所有已选标签
                         for (const tagId of activeTagFilters) {
                             let matched = false;
                             if (tagId === '__FAVORITES__' && favoritesSet.has(theme.value)) matched = true;
                             if (tagId === '__UNCATEGORIZED__' && (!theme.tags || theme.tags.length === 0)) matched = true;
-                            if (theme.tags && theme.tags.includes(tagId)) matched = true;
+                            if (theme.tags) {
+                                const targetIds = getExpandedTagIds(tagId, tags);
+                                if (theme.tags.some(tId => targetIds.includes(tId))) matched = true;
+                            }
                             if (!matched) return false;
                         }
                         return true;
@@ -1395,7 +1418,10 @@
                     for (const tagId of activeTagFilters) {
                         if (tagId === '__FAVORITES__' && favoritesSet.has(theme.value)) return true;
                         if (tagId === '__UNCATEGORIZED__' && (!theme.tags || theme.tags.length === 0)) return true;
-                        if (theme.tags && theme.tags.includes(tagId)) return true;
+                        if (theme.tags) {
+                            const targetIds = getExpandedTagIds(tagId, tags);
+                            if (theme.tags.some(tId => targetIds.includes(tId))) return true;
+                        }
                     }
                     return false;
                 }
@@ -1600,6 +1626,20 @@
                     if (!container) return;
                     container.innerHTML = '';
 
+                    let subtagsContainer = managerPanel.querySelector('#theme-subtags-container');
+                    if (!subtagsContainer) {
+                        subtagsContainer = document.createElement('div');
+                        subtagsContainer.className = 'theme-tags-row theme-subtags-row';
+                        subtagsContainer.id = 'theme-subtags-container';
+                        subtagsContainer.style.display = 'none';
+                        container.parentNode.insertBefore(subtagsContainer, container.nextSibling);
+                    } else {
+                        subtagsContainer.innerHTML = '';
+                        subtagsContainer.style.display = 'none';
+                    }
+
+                    const subtagsEnabled = isSubtagsEnabled();
+
                     // 筛选模式切换图标（OR / AND），放在最前面
                     const modeBtn = document.createElement('div');
                     modeBtn.className = `tm-filter-mode-btn${tagFilterMode === 'and' ? ' active' : ''}`;
@@ -1624,8 +1664,10 @@
                     allChip.dataset.special = 'all';
                     allChip.innerHTML = `全部`;
                     allChip.addEventListener('click', () => {
+                        activeLevel1TagId = null;
                         activeTagFilters.clear();
                         handleTagFilterChange();
+                        renderTagsUI();
                     });
                     container.appendChild(allChip);
 
@@ -1635,6 +1677,7 @@
                     favChip.dataset.special = 'favorites';
                     favChip.innerHTML = `收藏`;
                     favChip.addEventListener('click', () => {
+                        activeLevel1TagId = null;
                         if (activeTagFilters.has('__FAVORITES__')) {
                             activeTagFilters.delete('__FAVORITES__');
                         } else {
@@ -1642,6 +1685,7 @@
                             activeTagFilters.add('__FAVORITES__');
                         }
                         handleTagFilterChange();
+                        renderTagsUI();
                     });
                     container.appendChild(favChip);
 
@@ -1651,6 +1695,7 @@
                     uncatChip.dataset.special = 'uncategorized';
                     uncatChip.innerHTML = `未分类`;
                     uncatChip.addEventListener('click', () => {
+                        activeLevel1TagId = null;
                         if (activeTagFilters.has('__UNCATEGORIZED__')) {
                             activeTagFilters.delete('__UNCATEGORIZED__');
                         } else {
@@ -1658,27 +1703,105 @@
                             activeTagFilters.add('__UNCATEGORIZED__');
                         }
                         handleTagFilterChange();
+                        renderTagsUI();
                     });
                     container.appendChild(uncatChip);
 
                     const tags = cachedTags || loadThemeTags();
                     if (tags.length > 0) {
-                        tags.forEach(tag => {
+                        const visibleLevel1Tags = subtagsEnabled
+                            ? tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId))
+                            : tags;
+
+                        visibleLevel1Tags.forEach(tag => {
                             const chip = document.createElement('div');
-                            chip.className = `theme-tag-chip ${activeTagFilters.has(tag.id) ? 'active' : ''}`;
+                            const childIds = subtagsEnabled ? tags.filter(t => t.parentId === tag.id).map(t => t.id) : [];
+                            const hasActiveChild = childIds.some(cId => activeTagFilters.has(cId));
+                            const isL1Active = activeLevel1TagId === tag.id;
+                            const isDirectActive = activeTagFilters.has(tag.id);
+
+                            chip.className = `theme-tag-chip level1 ${isDirectActive || isL1Active || hasActiveChild ? 'active' : ''}`;
                             chip.dataset.tagId = tag.id;
-                            chip.innerHTML = `${escapeHtml(tag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${tag.themes ? tag.themes.length : 0})</span>`;
+
+                            let count = tag.themes ? tag.themes.length : 0;
+                            if (subtagsEnabled) {
+                                const allRelatedThemeNames = new Set(tag.themes || []);
+                                childIds.forEach(cId => {
+                                    const cTag = tags.find(t => t.id === cId);
+                                    if (cTag && cTag.themes) {
+                                        cTag.themes.forEach(th => allRelatedThemeNames.add(th));
+                                    }
+                                });
+                                count = allRelatedThemeNames.size;
+                            }
+
+                            chip.innerHTML = `${escapeHtml(tag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${count})</span>`;
                             chip.addEventListener('click', () => {
-                                if (activeTagFilters.has(tag.id)) {
-                                    activeTagFilters.delete(tag.id);
+                                if (subtagsEnabled) {
+                                    if (activeLevel1TagId === tag.id) {
+                                        activeLevel1TagId = null;
+                                        activeTagFilters.delete(tag.id);
+                                    } else {
+                                        activeLevel1TagId = tag.id;
+                                        if (tagFilterMode === 'or') activeTagFilters.clear();
+                                        activeTagFilters.add(tag.id);
+                                    }
                                 } else {
-                                    if (tagFilterMode === 'or') activeTagFilters.clear();
-                                    activeTagFilters.add(tag.id);
+                                    if (activeTagFilters.has(tag.id)) {
+                                        activeTagFilters.delete(tag.id);
+                                    } else {
+                                        if (tagFilterMode === 'or') activeTagFilters.clear();
+                                        activeTagFilters.add(tag.id);
+                                    }
                                 }
                                 handleTagFilterChange();
+                                renderTagsUI();
                             });
                             container.appendChild(chip);
                         });
+
+                        // 如果开启二级目录且选中的一级标签有效，渲染二级标签排
+                        if (subtagsEnabled && activeLevel1TagId) {
+                            const parentTag = tags.find(t => t.id === activeLevel1TagId);
+                            if (parentTag) {
+                                const childTags = tags.filter(t => t.parentId === activeLevel1TagId);
+                                subtagsContainer.style.display = 'flex';
+
+                                const labelSpan = document.createElement('span');
+                                labelSpan.className = 'tm-subtag-label';
+                                labelSpan.innerHTML = `<i class="fa-solid fa-angle-right"></i> ${escapeHtml(parentTag.name)}:`;
+                                subtagsContainer.appendChild(labelSpan);
+
+                                if (childTags.length === 0) {
+                                    const emptyTip = document.createElement('span');
+                                    emptyTip.style.cssText = 'font-size:11px; opacity:0.55; font-style:italic; padding:2px 4px;';
+                                    emptyTip.textContent = '(暂无二级标签)';
+                                    subtagsContainer.appendChild(emptyTip);
+                                } else {
+                                    childTags.forEach(childTag => {
+                                        const subChip = document.createElement('div');
+                                        subChip.className = `theme-tag-chip level2 ${activeTagFilters.has(childTag.id) ? 'active' : ''}`;
+                                        subChip.dataset.tagId = childTag.id;
+                                        subChip.innerHTML = `${escapeHtml(childTag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${childTag.themes ? childTag.themes.length : 0})</span>`;
+                                        subChip.addEventListener('click', (e) => {
+                                            e.stopPropagation();
+                                            if (activeTagFilters.has(childTag.id)) {
+                                                activeTagFilters.delete(childTag.id);
+                                            } else {
+                                                if (tagFilterMode === 'or') {
+                                                    activeTagFilters.clear();
+                                                    activeTagFilters.add(activeLevel1TagId);
+                                                }
+                                                activeTagFilters.add(childTag.id);
+                                            }
+                                            handleTagFilterChange();
+                                            renderTagsUI();
+                                        });
+                                        subtagsContainer.appendChild(subChip);
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
                 function updateActiveState() {
@@ -2825,34 +2948,20 @@
 
                 async function openManageTagsPopup() {
                     let tags = loadThemeTags();
+                    let subtagsEnabled = isSubtagsEnabled();
 
                     let popupHtml = `
-                        <div style="margin-bottom:15px; display:flex; gap:10px; align-items:center; flex-wrap:nowrap;">
-                            <input type="text" id="new-tag-name" class="text_pole" placeholder="新标签名称" style="flex-grow:1; min-width:0;">
-                            <button id="add-new-tag-btn" class="menu_button" style="margin:0; white-space:nowrap; flex-shrink:0; width:auto;"><i class="fa-solid fa-plus"></i> 添加</button>
+                        <div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; border-bottom:1px solid rgba(128,128,128,0.2); padding-bottom:10px;">
+                            <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; font-weight:bold; user-select:none;">
+                                <input type="checkbox" id="chk-enable-subtags" ${subtagsEnabled ? 'checked' : ''}>
+                                <span>开启二级目录模式</span> <small style="opacity:0.6; font-weight:normal;">(支持一级目录/二级标签)</small>
+                            </label>
                         </div>
-                        <ul id="tags-management-list" style="list-style:none; padding:0; margin:0; max-height: 300px; overflow-y:auto;">
-                    `;
-
-                    const renderList = () => {
-                        let listHtml = '';
-                        tags.forEach(t => {
-                            const kwCount = t.keywords ? t.keywords.length : 0;
-                            listHtml += `
-                                <li style="display:flex; justify-content:space-between; padding:8px; background:rgba(255,255,255,0.05); margin-bottom:5px; border-radius:4px; align-items:center;">
-                                    <span style="word-break: break-all;">${escapeHtml(t.name)} <small style="opacity:0.6; white-space:nowrap;">(${t.themes ? t.themes.length : 0})</small>${kwCount > 0 ? `<small style="opacity:0.5; white-space:nowrap; margin-left:4px;">[${kwCount}词]</small>` : ''}</span>
-                                    <div style="display:flex; gap:5px; flex-shrink:0;">
-                                        <button class="menu_button keywords-tag-inline" data-id="${t.id}" style="margin:0; padding:4px 8px; font-size:12px; width:auto; flex-basis:auto;" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
-                                        <button class="menu_button rename-tag-inline" data-id="${t.id}" style="margin:0; padding:4px 8px; font-size:12px; width:auto; flex-basis:auto;"><i class="fa-solid fa-pen"></i></button>
-                                        <button class="menu_button delete-tag-inline" data-id="${t.id}" style="margin:0; padding:4px 8px; font-size:12px; width:auto; flex-basis:auto;"><i class="fa-solid fa-trash"></i></button>
-                                    </div>
-                                </li>
-                            `;
-                        });
-                        return listHtml;
-                    };
-
-                    popupHtml += renderList() + `</ul>
+                        <div style="margin-bottom:15px; display:flex; gap:8px; align-items:center;">
+                            <input type="text" id="new-tag-name" class="text_pole" placeholder="${subtagsEnabled ? '新一级标签名称...' : '新标签名称...'}" style="flex-grow:1; min-width:0;">
+                            <button id="add-new-tag-btn" class="menu_button" style="margin:0; white-space:nowrap; flex-shrink:0; width:auto;"><i class="fa-solid fa-plus"></i> ${subtagsEnabled ? '添加一级标签' : '添加标签'}</button>
+                        </div>
+                        <div id="tags-management-list" style="max-height: 380px; overflow-y:auto; padding-right:4px;"></div>
                         <div style="margin-top:10px; border-top:1px solid rgba(128,128,128,0.2); padding-top:10px;">
                             <button id="apply-keyword-mappings-btn" class="menu_button" style="width:100%; justify-content:center;"><i class="fa-solid fa-wand-magic-sparkles"></i> 对所有现有美化重新应用关键词映射</button>
                         </div>
@@ -2865,73 +2974,322 @@
                         wide: true,
                         onOpen: (popup) => {
                             const dlg = popup.dlg;
-                            const RefreshList = () => {
-                                dlg.querySelector('#tags-management-list').innerHTML = renderList();
+                            let draggedId = null;
+                            let draggedType = null;
+
+                            const renderList = () => {
+                                const listContainer = dlg.querySelector('#tags-management-list');
+                                if (!listContainer) return;
+
+                                if (!subtagsEnabled) {
+                                    let html = '<ul style="list-style:none; padding:0; margin:0;">';
+                                    tags.forEach((t, idx) => {
+                                        const kwCount = t.keywords ? t.keywords.length : 0;
+                                        html += `
+                                            <li class="tm-flat-tag-item" data-id="${t.id}" data-index="${idx}" draggable="true" style="display:flex; justify-content:space-between; padding:8px; background:rgba(255,255,255,0.05); margin-bottom:5px; border-radius:4px; align-items:center;">
+                                                <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
+                                                    <i class="fa-solid fa-grip-vertical drag-handle" style="cursor:grab; opacity:0.6;" title="拖拽排序"></i>
+                                                    <span style="word-break: break-all;">${escapeHtml(t.name)} <small style="opacity:0.6; white-space:nowrap;">(${t.themes ? t.themes.length : 0})</small>${kwCount > 0 ? `<small style="opacity:0.5; white-space:nowrap; margin-left:4px;">[${kwCount}词]</small>` : ''}</span>
+                                                </div>
+                                                <div style="display:flex; gap:5px; flex-shrink:0;">
+                                                    <button class="menu_button keywords-tag-inline" data-id="${t.id}" style="margin:0; padding:4px 8px; font-size:12px; width:auto;" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
+                                                    <button class="menu_button rename-tag-inline" data-id="${t.id}" style="margin:0; padding:4px 8px; font-size:12px; width:auto;"><i class="fa-solid fa-pen"></i></button>
+                                                    <button class="menu_button delete-tag-inline" data-id="${t.id}" style="margin:0; padding:4px 8px; font-size:12px; width:auto;"><i class="fa-solid fa-trash"></i></button>
+                                                </div>
+                                            </li>
+                                        `;
+                                    });
+                                    html += '</ul>';
+                                    listContainer.innerHTML = html;
+                                } else {
+                                    let html = '<div class="tm-subtags-tree">';
+                                    const l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
+
+                                    l1Tags.forEach((l1Tag, l1Idx) => {
+                                        const kwCount = l1Tag.keywords ? l1Tag.keywords.length : 0;
+                                        const childTags = tags.filter(t => t.parentId === l1Tag.id);
+
+                                        html += `
+                                            <div class="tm-level1-card" data-id="${l1Tag.id}" data-index="${l1Idx}">
+                                                <div class="tm-level1-header" draggable="true" data-id="${l1Tag.id}">
+                                                    <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1;">
+                                                        <i class="fa-solid fa-grip-vertical drag-handle-l1" style="cursor:grab; opacity:0.6;" title="按住拖拽排序一级目录"></i>
+                                                        <i class="fa-solid fa-folder-open" style="color:var(--SmartThemeQuoteColor, #4a90e2);"></i>
+                                                        <span style="font-weight:bold; font-size:13px;">${escapeHtml(l1Tag.name)}</span>
+                                                        <small style="opacity:0.6;">(二级: ${childTags.length} / 主题: ${l1Tag.themes ? l1Tag.themes.length : 0})</small>
+                                                        ${kwCount > 0 ? `<small style="opacity:0.5;">[${kwCount}词]</small>` : ''}
+                                                    </div>
+                                                    <div style="display:flex; gap:4px; flex-shrink:0;">
+                                                        <button class="menu_button add-subtag-btn" data-id="${l1Tag.id}" style="margin:0; padding:3px 7px; font-size:11px; width:auto;" title="添加二级标签"><i class="fa-solid fa-plus"></i></button>
+                                                        <button class="menu_button keywords-tag-inline" data-id="${l1Tag.id}" style="margin:0; padding:3px 6px; font-size:11px; width:auto;" title="关键词"><i class="fa-solid fa-key"></i></button>
+                                                        <button class="menu_button rename-tag-inline" data-id="${l1Tag.id}" style="margin:0; padding:3px 6px; font-size:11px; width:auto;" title="重命名"><i class="fa-solid fa-pen"></i></button>
+                                                        <button class="menu_button delete-tag-inline" data-id="${l1Tag.id}" style="margin:0; padding:3px 6px; font-size:11px; width:auto;" title="删除"><i class="fa-solid fa-trash"></i></button>
+                                                    </div>
+                                                </div>
+                                                <div class="tm-level2-container dropzone-l1" data-parent-id="${l1Tag.id}">
+                                        `;
+
+                                        if (childTags.length === 0) {
+                                            html += `<div class="tm-empty-subtags-dropzone" data-parent-id="${l1Tag.id}">(暂无二级标签，可拖拽放置于此)</div>`;
+                                        } else {
+                                            childTags.forEach((cTag, cIdx) => {
+                                                const cKwCount = cTag.keywords ? cTag.keywords.length : 0;
+                                                html += `
+                                                    <div class="tm-level2-item" data-id="${cTag.id}" data-parent-id="${l1Tag.id}" data-index="${cIdx}" draggable="true">
+                                                        <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1;">
+                                                            <i class="fa-solid fa-grip-vertical drag-handle-l2" style="cursor:grab; opacity:0.6;" title="拖拽重排/跨目录放置"></i>
+                                                            <i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px;"></i>
+                                                            <span>${escapeHtml(cTag.name)}</span>
+                                                            <small style="opacity:0.6;">(${cTag.themes ? cTag.themes.length : 0})</small>
+                                                            ${cKwCount > 0 ? `<small style="opacity:0.5;">[${cKwCount}词]</small>` : ''}
+                                                        </div>
+                                                        <div style="display:flex; gap:3px; flex-shrink:0;">
+                                                            <button class="menu_button keywords-tag-inline" data-id="${cTag.id}" style="margin:0; padding:2px 5px; font-size:10px; width:auto;" title="关键词"><i class="fa-solid fa-key"></i></button>
+                                                            <button class="menu_button rename-tag-inline" data-id="${cTag.id}" style="margin:0; padding:2px 5px; font-size:10px; width:auto;" title="重命名"><i class="fa-solid fa-pen"></i></button>
+                                                            <button class="menu_button promote-tag-inline" data-id="${cTag.id}" style="margin:0; padding:2px 5px; font-size:10px; width:auto;" title="升为一级标签"><i class="fa-solid fa-arrow-up-from-bracket"></i></button>
+                                                            <button class="menu_button delete-tag-inline" data-id="${cTag.id}" style="margin:0; padding:2px 5px; font-size:10px; width:auto;" title="删除"><i class="fa-solid fa-trash"></i></button>
+                                                        </div>
+                                                    </div>
+                                                `;
+                                            });
+                                        }
+                                        html += `
+                                                </div>
+                                            </div>
+                                        `;
+                                    });
+                                    html += '</div>';
+                                    listContainer.innerHTML = html;
+                                }
+
                                 BindEvents();
+                                BindDragEvents();
                             };
 
                             const BindEvents = () => {
                                 dlg.querySelectorAll('.delete-tag-inline').forEach(btn => {
                                     btn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
                                         const id = e.currentTarget.dataset.id;
                                         if (confirm('确定删除此标签吗？(不会删除主题本身)')) {
+                                            tags.forEach(t => {
+                                                if (t.parentId === id) t.parentId = null;
+                                            });
                                             tags = tags.filter(t => t.id !== id);
                                             saveThemeTags(tags);
-                                            RefreshList();
+                                            renderList();
                                             softRefreshUI();
                                         }
                                     });
                                 });
+
                                 dlg.querySelectorAll('.rename-tag-inline').forEach(btn => {
                                     btn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
                                         const id = e.currentTarget.dataset.id;
                                         const tag = tags.find(t => t.id === id);
+                                        if (!tag) return;
                                         const newName = prompt('输入新名称:', tag.name);
                                         if (newName && newName.trim() && newName.trim() !== tag.name) {
                                             tag.name = newName.trim();
                                             saveThemeTags(tags);
-                                            RefreshList();
+                                            renderList();
                                             softRefreshUI();
                                         }
                                     });
                                 });
-                                // 关键词编辑按钮
+
                                 dlg.querySelectorAll('.keywords-tag-inline').forEach(btn => {
                                     btn.addEventListener('click', (e) => {
                                         e.stopPropagation();
                                         const id = e.currentTarget.dataset.id;
                                         const tag = tags.find(t => t.id === id);
+                                        if (!tag) return;
                                         const currentKeywords = (tag.keywords || []).join(', ');
                                         const input = prompt(
-                                            `「${tag.name}」的关键词（逗号分隔）
-导入或重命名的美化名如包含这些词，将自动帰入此标签：`,
+                                            `「${tag.name}」的关键词（逗号分隔）\n导入或重命名的美化名如包含这些词，将自动归入此标签：`,
                                             currentKeywords
                                         );
                                         if (input !== null) {
                                             tag.keywords = input.split(',').map(k => k.trim()).filter(k => k.length > 0);
                                             saveThemeTags(tags);
-                                            RefreshList();
+                                            renderList();
+                                        }
+                                    });
+                                });
+
+                                dlg.querySelectorAll('.add-subtag-btn').forEach(btn => {
+                                    btn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        const parentId = e.currentTarget.dataset.id;
+                                        const parentTag = tags.find(t => t.id === parentId);
+                                        const subName = prompt(`为一级目录「${parentTag ? parentTag.name : ''}」添加二级标签名称:`);
+                                        if (subName && subName.trim()) {
+                                            const name = subName.trim();
+                                            if (tags.some(t => t.name === name && t.parentId === parentId)) {
+                                                toastr.warning('该一级目录已存在同名二级标签');
+                                                return;
+                                            }
+                                            tags.push({ id: Date.now().toString(), name: name, parentId: parentId, themes: [], keywords: [] });
+                                            saveThemeTags(tags);
+                                            renderList();
+                                            softRefreshUI();
+                                        }
+                                    });
+                                });
+
+                                dlg.querySelectorAll('.promote-tag-inline').forEach(btn => {
+                                    btn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        const id = e.currentTarget.dataset.id;
+                                        const tag = tags.find(t => t.id === id);
+                                        if (tag) {
+                                            tag.parentId = null;
+                                            saveThemeTags(tags);
+                                            renderList();
+                                            softRefreshUI();
                                         }
                                     });
                                 });
                             };
 
+                            const BindDragEvents = () => {
+                                if (!subtagsEnabled) {
+                                    let dragSrcIndex = null;
+                                    dlg.querySelectorAll('.tm-flat-tag-item').forEach(item => {
+                                        item.addEventListener('dragstart', (e) => {
+                                            dragSrcIndex = parseInt(item.dataset.index);
+                                            e.dataTransfer.effectAllowed = 'move';
+                                            item.style.opacity = '0.4';
+                                        });
+                                        item.addEventListener('dragend', () => {
+                                            item.style.opacity = '1';
+                                        });
+                                        item.addEventListener('dragover', (e) => {
+                                            e.preventDefault();
+                                            e.dataTransfer.dropEffect = 'move';
+                                        });
+                                        item.addEventListener('drop', (e) => {
+                                            e.preventDefault();
+                                            const targetIndex = parseInt(item.dataset.index);
+                                            if (dragSrcIndex !== null && dragSrcIndex !== targetIndex) {
+                                                const moved = tags.splice(dragSrcIndex, 1)[0];
+                                                tags.splice(targetIndex, 0, moved);
+                                                saveThemeTags(tags);
+                                                renderList();
+                                                softRefreshUI();
+                                            }
+                                        });
+                                    });
+                                } else {
+                                    dlg.querySelectorAll('.tm-level2-item').forEach(item => {
+                                        item.addEventListener('dragstart', (e) => {
+                                            e.stopPropagation();
+                                            draggedId = item.dataset.id;
+                                            draggedType = 'l2';
+                                            e.dataTransfer.effectAllowed = 'move';
+                                            item.classList.add('dragging');
+                                        });
+                                        item.addEventListener('dragend', (e) => {
+                                            e.stopPropagation();
+                                            item.classList.remove('dragging');
+                                            dlg.querySelectorAll('.drag-over-target').forEach(el => el.classList.remove('drag-over-target'));
+                                        });
+                                    });
+
+                                    dlg.querySelectorAll('.tm-level1-header').forEach(header => {
+                                        header.addEventListener('dragstart', (e) => {
+                                            draggedId = header.dataset.id;
+                                            draggedType = 'l1';
+                                            e.dataTransfer.effectAllowed = 'move';
+                                            header.closest('.tm-level1-card').classList.add('dragging');
+                                        });
+                                        header.addEventListener('dragend', () => {
+                                            dlg.querySelectorAll('.tm-level1-card').forEach(c => c.classList.remove('dragging', 'drag-over-target'));
+                                        });
+                                    });
+
+                                    dlg.querySelectorAll('.tm-level1-card').forEach(card => {
+                                        card.addEventListener('dragover', (e) => {
+                                            e.preventDefault();
+                                            if (!draggedId) return;
+                                            card.classList.add('drag-over-target');
+                                            e.dataTransfer.dropEffect = 'move';
+                                        });
+                                        card.addEventListener('dragleave', () => {
+                                            card.classList.remove('drag-over-target');
+                                        });
+                                        card.addEventListener('drop', (e) => {
+                                            e.preventDefault();
+                                            card.classList.remove('drag-over-target');
+                                            if (!draggedId) return;
+
+                                            const targetL1Id = card.dataset.id;
+
+                                            if (draggedType === 'l2') {
+                                                const tag = tags.find(t => t.id === draggedId);
+                                                if (tag && tag.parentId !== targetL1Id) {
+                                                    tag.parentId = targetL1Id;
+                                                    saveThemeTags(tags);
+                                                    renderList();
+                                                    softRefreshUI();
+                                                }
+                                            } else if (draggedType === 'l1') {
+                                                if (draggedId !== targetL1Id) {
+                                                    const l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
+                                                    const srcIdx = l1Tags.findIndex(t => t.id === draggedId);
+                                                    const tgtIdx = l1Tags.findIndex(t => t.id === targetL1Id);
+                                                    if (srcIdx > -1 && tgtIdx > -1) {
+                                                        const srcTag = tags.find(t => t.id === draggedId);
+                                                        const tgtTag = tags.find(t => t.id === targetL1Id);
+                                                        const fromPos = tags.indexOf(srcTag);
+                                                        const toPos = tags.indexOf(tgtTag);
+                                                        if (fromPos > -1 && toPos > -1) {
+                                                            const [moved] = tags.splice(fromPos, 1);
+                                                            tags.splice(toPos, 0, moved);
+                                                            saveThemeTags(tags);
+                                                            renderList();
+                                                            softRefreshUI();
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            draggedId = null;
+                                            draggedType = null;
+                                        });
+                                    });
+                                }
+                            };
+
+                            const chkSubtags = dlg.querySelector('#chk-enable-subtags');
+                            if (chkSubtags) {
+                                chkSubtags.addEventListener('change', () => {
+                                    subtagsEnabled = chkSubtags.checked;
+                                    localStorage.setItem(ENABLE_SUBTAGS_KEY, subtagsEnabled ? 'true' : 'false');
+                                    const input = dlg.querySelector('#new-tag-name');
+                                    const addBtn = dlg.querySelector('#add-new-tag-btn');
+                                    if (input) input.placeholder = subtagsEnabled ? '新一级标签名称...' : '新标签名称...';
+                                    if (addBtn) addBtn.innerHTML = subtagsEnabled ? '<i class="fa-solid fa-plus"></i> 添加一级标签' : '<i class="fa-solid fa-plus"></i> 添加标签';
+                                    renderList();
+                                    softRefreshUI();
+                                });
+                            }
+
                             dlg.querySelector('#add-new-tag-btn').addEventListener('click', () => {
                                 const input = dlg.querySelector('#new-tag-name');
                                 const name = input.value.trim();
                                 if (!name) return;
-                                if (tags.some(t => t.name === name)) {
-                                    toastr.warning('标签名已存在');
+                                if (tags.some(t => t.name === name && !t.parentId)) {
+                                    toastr.warning('同名标签已存在');
                                     return;
                                 }
-                                tags.push({ id: Date.now().toString(), name: name, themes: [], keywords: [] });
+                                tags.push({ id: Date.now().toString(), name: name, parentId: null, themes: [], keywords: [] });
                                 saveThemeTags(tags);
                                 input.value = '';
-                                RefreshList();
+                                renderList();
                                 softRefreshUI();
                             });
 
-                            // 重新应用关键词映射按钮
                             const applyMappingsBtn = dlg.querySelector('#apply-keyword-mappings-btn');
                             if (applyMappingsBtn) {
                                 applyMappingsBtn.addEventListener('click', () => {
@@ -2944,7 +3302,7 @@
                                 });
                             }
 
-                            BindEvents();
+                            renderList();
                         }
                     });
                 }
@@ -2959,17 +3317,49 @@
                         return;
                     }
 
-                    let popupHtml = `<p>选择要分配的标签：</p><div style="display:flex; flex-direction:column; gap:8px; max-height:300px; overflow-y:auto;">`;
-                    tags.forEach(t => {
-                        // In single mode, check if the theme has this tag
-                        const isChecked = singleMode ? (t.themes && t.themes.includes(themeNames)) : false;
-                        popupHtml += `
-                            <label style="display:flex; align-items:center; gap:8px; padding:4px;">
-                                <input type="checkbox" class="tag-assign-cb" data-id="${t.id}" ${isChecked ? 'checked' : ''}>
-                                ${escapeHtml(t.name)}
-                            </label>
-                        `;
-                    });
+                    const subtagsEnabled = isSubtagsEnabled();
+                    let popupHtml = `<p>选择要分配的标签：</p><div style="display:flex; flex-direction:column; gap:6px; max-height:300px; overflow-y:auto; padding-right:4px;">`;
+
+                    if (!subtagsEnabled) {
+                        tags.forEach(t => {
+                            const isChecked = singleMode ? (t.themes && t.themes.includes(themeNames)) : false;
+                            popupHtml += `
+                                <label style="display:flex; align-items:center; gap:8px; padding:4px;">
+                                    <input type="checkbox" class="tag-assign-cb" data-id="${t.id}" ${isChecked ? 'checked' : ''}>
+                                    ${escapeHtml(t.name)}
+                                </label>
+                            `;
+                        });
+                    } else {
+                        const l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
+                        l1Tags.forEach(l1 => {
+                            const isCheckedL1 = singleMode ? (l1.themes && l1.themes.includes(themeNames)) : false;
+                            const childTags = tags.filter(t => t.parentId === l1.id);
+                            popupHtml += `
+                                <div style="border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:6px; background:rgba(255,255,255,0.02);">
+                                    <label style="display:flex; align-items:center; gap:8px; font-weight:bold; font-size:12px;">
+                                        <input type="checkbox" class="tag-assign-cb" data-id="${l1.id}" ${isCheckedL1 ? 'checked' : ''}>
+                                        <i class="fa-solid fa-folder-open" style="color:var(--SmartThemeQuoteColor, #4a90e2); font-size:11px;"></i>
+                                        ${escapeHtml(l1.name)}
+                                    </label>
+                            `;
+                            if (childTags.length > 0) {
+                                popupHtml += `<div style="display:flex; flex-direction:column; gap:4px; margin-left:22px; margin-top:4px; padding-left:6px; border-left:2px solid rgba(255,255,255,0.1);">`;
+                                childTags.forEach(c => {
+                                    const isCheckedC = singleMode ? (c.themes && c.themes.includes(themeNames)) : false;
+                                    popupHtml += `
+                                        <label style="display:flex; align-items:center; gap:6px; font-size:12px;">
+                                            <input type="checkbox" class="tag-assign-cb" data-id="${c.id}" ${isCheckedC ? 'checked' : ''}>
+                                            <i class="fa-solid fa-tag" style="opacity:0.7; font-size:10px;"></i>
+                                            ${escapeHtml(c.name)}
+                                        </label>
+                                    `;
+                                });
+                                popupHtml += `</div>`;
+                            }
+                            popupHtml += `</div>`;
+                        });
+                    }
                     popupHtml += `</div>`;
 
                     await callGenericPopup(popupHtml, 'confirm', null, {
@@ -2978,7 +3368,7 @@
                         onOpen: (popup) => {
                             popup.dlg.querySelector('.popup-button-ok').addEventListener('click', () => {
                                 const checkboxes = popup.dlg.querySelectorAll('.tag-assign-cb');
-                                const tagsById = new Map(tags.map(t => [t.id, t])); // O(1) 查找，避免每个 checkbox 都 Array.find
+                                const tagsById = new Map(tags.map(t => [t.id, t]));
                                 checkboxes.forEach(cb => {
                                     const tagId = cb.dataset.id;
                                     const tag = tagsById.get(tagId);
@@ -3002,14 +3392,14 @@
                                     selectedForBatch.clear();
                                     lastClickedThemeName = null;
                                 }
-                                softRefreshUI(themesToAssign); // 精准更新：只重建受影响的主题项的 pill
+                                softRefreshUI(themesToAssign);
                             });
                         }
                     });
                 }
 
                 async function openTagRemovalPopup(themeNames) {
-                    const themesToAssign = themeNames; // always array for batch
+                    const themesToAssign = themeNames;
 
                     let tags = loadThemeTags();
                     if (tags.length === 0) {
@@ -3017,15 +3407,46 @@
                         return;
                     }
 
-                    let popupHtml = `<p>选择要从所选主题中移除的标签：</p><div style="display:flex; flex-direction:column; gap:8px; max-height:300px; overflow-y:auto;">`;
-                    tags.forEach(t => {
-                        popupHtml += `
-                            <label style="display:flex; align-items:center; gap:8px; padding:4px;">
-                                <input type="checkbox" class="tag-remove-cb" data-id="${t.id}">
-                                ${t.name}
-                            </label>
-                        `;
-                    });
+                    const subtagsEnabled = isSubtagsEnabled();
+                    let popupHtml = `<p>选择要从所选主题中移除的标签：</p><div style="display:flex; flex-direction:column; gap:6px; max-height:300px; overflow-y:auto; padding-right:4px;">`;
+
+                    if (!subtagsEnabled) {
+                        tags.forEach(t => {
+                            popupHtml += `
+                                <label style="display:flex; align-items:center; gap:8px; padding:4px;">
+                                    <input type="checkbox" class="tag-remove-cb" data-id="${t.id}">
+                                    ${escapeHtml(t.name)}
+                                </label>
+                            `;
+                        });
+                    } else {
+                        const l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
+                        l1Tags.forEach(l1 => {
+                            const childTags = tags.filter(t => t.parentId === l1.id);
+                            popupHtml += `
+                                <div style="border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:6px; background:rgba(255,255,255,0.02);">
+                                    <label style="display:flex; align-items:center; gap:8px; font-weight:bold; font-size:12px;">
+                                        <input type="checkbox" class="tag-remove-cb" data-id="${l1.id}">
+                                        <i class="fa-solid fa-folder-open" style="color:var(--SmartThemeQuoteColor, #4a90e2); font-size:11px;"></i>
+                                        ${escapeHtml(l1.name)}
+                                    </label>
+                            `;
+                            if (childTags.length > 0) {
+                                popupHtml += `<div style="display:flex; flex-direction:column; gap:4px; margin-left:22px; margin-top:4px; padding-left:6px; border-left:2px solid rgba(255,255,255,0.1);">`;
+                                childTags.forEach(c => {
+                                    popupHtml += `
+                                        <label style="display:flex; align-items:center; gap:6px; font-size:12px;">
+                                            <input type="checkbox" class="tag-remove-cb" data-id="${c.id}">
+                                            <i class="fa-solid fa-tag" style="opacity:0.7; font-size:10px;"></i>
+                                            ${escapeHtml(c.name)}
+                                        </label>
+                                    `;
+                                });
+                                popupHtml += `</div>`;
+                            }
+                            popupHtml += `</div>`;
+                        });
+                    }
                     popupHtml += `</div>`;
 
                     await callGenericPopup(popupHtml, 'confirm', null, {
@@ -3212,25 +3633,30 @@
                                 input.addEventListener('change', updatePreview);
                             });
 
+                            function sanitizeThemeName(str) {
+                                if (!str) return '';
+                                return str.replace(/[\\/:*?"<>|]/g, '').trim();
+                            }
+
                             function getRenameLogic() {
                                 if (activeTab === 'prefix') {
                                     const action = container.querySelector('input[name="tm-prefix-action"]:checked')?.value || 'add';
                                     const prefix = container.querySelector('#tm-rename-prefix-input').value;
                                     if (!prefix) return (name) => name;
-                                    if (action === 'add') return (name) => prefix + name;
-                                    if (action === 'remove') return (name) => name.startsWith(prefix) ? name.slice(prefix.length) : name;
+                                    if (action === 'add') return (name) => sanitizeThemeName(prefix + name);
+                                    if (action === 'remove') return (name) => sanitizeThemeName(name.startsWith(prefix) ? name.slice(prefix.length) : name);
                                 } else if (activeTab === 'suffix') {
                                     const action = container.querySelector('input[name="tm-suffix-action"]:checked')?.value || 'add';
                                     const suffix = container.querySelector('#tm-rename-suffix-input').value;
                                     if (!suffix) return (name) => name;
-                                    if (action === 'add') return (name) => name + suffix;
-                                    if (action === 'remove') return (name) => name.endsWith(suffix) ? name.slice(0, name.length - suffix.length) : name;
+                                    if (action === 'add') return (name) => sanitizeThemeName(name + suffix);
+                                    if (action === 'remove') return (name) => sanitizeThemeName(name.endsWith(suffix) ? name.slice(0, name.length - suffix.length) : name);
                                 } else if (activeTab === 'phrase') {
                                     const action = container.querySelector('input[name="tm-phrase-action"]:checked')?.value || 'delete';
                                     const findPhrase = container.querySelector('#tm-rename-find-phrase').value;
                                     const replacePhrase = action === 'replace' ? container.querySelector('#tm-rename-replace-phrase').value : '';
                                     if (!findPhrase) return (name) => name;
-                                    return (name) => name.split(findPhrase).join(replacePhrase);
+                                    return (name) => sanitizeThemeName(name.split(findPhrase).join(replacePhrase));
                                 } else if (activeTab === 'combo') {
                                     const addPrefix = container.querySelector('#tm-combo-add-prefix').value;
                                     const delPrefix = container.querySelector('#tm-combo-del-prefix').value;
@@ -3246,7 +3672,7 @@
                                         if (findPhrase) res = res.split(findPhrase).join(replacePhrase);
                                         if (delSuffix && res.endsWith(delSuffix)) res = res.slice(0, res.length - delSuffix.length);
                                         if (addSuffix) res = res + addSuffix;
-                                        return res;
+                                        return sanitizeThemeName(res);
                                     };
                                 }
                                 return (name) => name;
