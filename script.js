@@ -2974,8 +2974,6 @@
                         wide: true,
                         onOpen: (popup) => {
                             const dlg = popup.dlg;
-                            let draggedId = null;
-                            let draggedType = null;
 
                             const renderList = () => {
                                 const listContainer = dlg.querySelector('#tags-management-list');
@@ -2986,15 +2984,19 @@
                                     tags.forEach((t, idx) => {
                                         const kwCount = t.keywords ? t.keywords.length : 0;
                                         html += `
-                                            <li class="tm-flat-tag-item" data-id="${t.id}" data-index="${idx}" draggable="true" style="display:flex; justify-content:space-between; padding:8px; background:rgba(255,255,255,0.05); margin-bottom:5px; border-radius:4px; align-items:center;">
-                                                <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
-                                                    <i class="fa-solid fa-grip-vertical drag-handle" style="cursor:grab; opacity:0.6;" title="拖拽排序"></i>
-                                                    <span style="word-break: break-all;">${escapeHtml(t.name)} <small style="opacity:0.6; white-space:nowrap;">(${t.themes ? t.themes.length : 0})</small>${kwCount > 0 ? `<small style="opacity:0.5; white-space:nowrap; margin-left:4px;">[${kwCount}词]</small>` : ''}</span>
+                                            <li class="tm-flat-tag-item" data-id="${t.id}" data-index="${idx}" style="display:flex; justify-content:space-between; padding:6px 8px; background:rgba(255,255,255,0.04); margin-bottom:4px; border-radius:4px; align-items:center;">
+                                                <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
+                                                    <i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
+                                                    <span style="word-break: break-all; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(t.name)}</span>
+                                                    <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${t.themes ? t.themes.length : 0})</small>
+                                                    ${kwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${kwCount}词]</small>` : ''}
                                                 </div>
-                                                <div style="display:flex; gap:5px; flex-shrink:0;">
-                                                    <button class="menu_button keywords-tag-inline" data-id="${t.id}" style="margin:0; padding:4px 8px; font-size:12px; width:auto;" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
-                                                    <button class="menu_button rename-tag-inline" data-id="${t.id}" style="margin:0; padding:4px 8px; font-size:12px; width:auto;"><i class="fa-solid fa-pen"></i></button>
-                                                    <button class="menu_button delete-tag-inline" data-id="${t.id}" style="margin:0; padding:4px 8px; font-size:12px; width:auto;"><i class="fa-solid fa-trash"></i></button>
+                                                <div style="display:flex; gap:3px; align-items:center; flex-shrink:0;">
+                                                    <button class="menu_button move-flat-up tm-btn-icon-only" data-id="${t.id}" title="向上移动" ${idx === 0 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-up"></i></button>
+                                                    <button class="menu_button move-flat-down tm-btn-icon-only" data-id="${t.id}" title="向下移动" ${idx === tags.length - 1 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-down"></i></button>
+                                                    <button class="menu_button keywords-tag-inline tm-btn-icon-only" data-id="${t.id}" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
+                                                    <button class="menu_button rename-tag-inline tm-btn-icon-only" data-id="${t.id}" title="重命名"><i class="fa-solid fa-pen"></i></button>
+                                                    <button class="menu_button delete-tag-inline tm-btn-icon-only" data-id="${t.id}" title="删除"><i class="fa-solid fa-trash"></i></button>
                                                 </div>
                                             </li>
                                         `;
@@ -3011,43 +3013,46 @@
 
                                         html += `
                                             <div class="tm-level1-card" data-id="${l1Tag.id}" data-index="${l1Idx}">
-                                                <div class="tm-level1-header" draggable="true" data-id="${l1Tag.id}">
-                                                    <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1;">
-                                                        <i class="fa-solid fa-grip-vertical drag-handle-l1" style="cursor:grab; opacity:0.6;" title="按住拖拽排序一级目录"></i>
-                                                        <i class="fa-solid fa-folder-open" style="color:var(--SmartThemeQuoteColor, #4a90e2);"></i>
-                                                        <span style="font-weight:bold; font-size:13px;">${escapeHtml(l1Tag.name)}</span>
-                                                        <small style="opacity:0.6;">(二级: ${childTags.length} / 主题: ${l1Tag.themes ? l1Tag.themes.length : 0})</small>
-                                                        ${kwCount > 0 ? `<small style="opacity:0.5;">[${kwCount}词]</small>` : ''}
+                                                <div class="tm-level1-header" data-id="${l1Tag.id}">
+                                                    <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
+                                                        <i class="fa-solid fa-folder-open" style="color:var(--SmartThemeQuoteColor, #4a90e2); flex-shrink:0;"></i>
+                                                        <span style="font-weight:bold; font-size:13px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(l1Tag.name)}</span>
+                                                        <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(二级:${childTags.length}/主题:${l1Tag.themes ? l1Tag.themes.length : 0})</small>
+                                                        ${kwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${kwCount}词]</small>` : ''}
                                                     </div>
-                                                    <div style="display:flex; gap:4px; flex-shrink:0;">
-                                                        <button class="menu_button add-subtag-btn" data-id="${l1Tag.id}" style="margin:0; padding:3px 7px; font-size:11px; width:auto;" title="添加二级标签"><i class="fa-solid fa-plus"></i></button>
-                                                        <button class="menu_button keywords-tag-inline" data-id="${l1Tag.id}" style="margin:0; padding:3px 6px; font-size:11px; width:auto;" title="关键词"><i class="fa-solid fa-key"></i></button>
-                                                        <button class="menu_button rename-tag-inline" data-id="${l1Tag.id}" style="margin:0; padding:3px 6px; font-size:11px; width:auto;" title="重命名"><i class="fa-solid fa-pen"></i></button>
-                                                        <button class="menu_button delete-tag-inline" data-id="${l1Tag.id}" style="margin:0; padding:3px 6px; font-size:11px; width:auto;" title="删除"><i class="fa-solid fa-trash"></i></button>
+                                                    <div style="display:flex; gap:3px; align-items:center; flex-shrink:0;">
+                                                        <button class="menu_button move-l1-up tm-btn-icon-only" data-id="${l1Tag.id}" title="向上移动一级目录" ${l1Idx === 0 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-up"></i></button>
+                                                        <button class="menu_button move-l1-down tm-btn-icon-only" data-id="${l1Tag.id}" title="向下移动一级目录" ${l1Idx === l1Tags.length - 1 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-down"></i></button>
+                                                        <button class="menu_button add-subtag-btn tm-btn-icon-only" data-id="${l1Tag.id}" title="添加二级标签"><i class="fa-solid fa-plus"></i></button>
+                                                        <button class="menu_button demote-tag-inline tm-btn-icon-only" data-id="${l1Tag.id}" title="降为二级标签（划入别的一级目录）"><i class="fa-solid fa-turn-down"></i></button>
+                                                        <button class="menu_button keywords-tag-inline tm-btn-icon-only" data-id="${l1Tag.id}" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
+                                                        <button class="menu_button rename-tag-inline tm-btn-icon-only" data-id="${l1Tag.id}" title="重命名"><i class="fa-solid fa-pen"></i></button>
+                                                        <button class="menu_button delete-tag-inline tm-btn-icon-only" data-id="${l1Tag.id}" title="删除"><i class="fa-solid fa-trash"></i></button>
                                                     </div>
                                                 </div>
-                                                <div class="tm-level2-container dropzone-l1" data-parent-id="${l1Tag.id}">
+                                                <div class="tm-level2-container" data-parent-id="${l1Tag.id}">
                                         `;
 
                                         if (childTags.length === 0) {
-                                            html += `<div class="tm-empty-subtags-dropzone" data-parent-id="${l1Tag.id}">(暂无二级标签，可拖拽放置于此)</div>`;
+                                            html += `<div class="tm-empty-subtags-dropzone" data-parent-id="${l1Tag.id}">(暂无二级标签)</div>`;
                                         } else {
                                             childTags.forEach((cTag, cIdx) => {
                                                 const cKwCount = cTag.keywords ? cTag.keywords.length : 0;
                                                 html += `
-                                                    <div class="tm-level2-item" data-id="${cTag.id}" data-parent-id="${l1Tag.id}" data-index="${cIdx}" draggable="true">
-                                                        <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1;">
-                                                            <i class="fa-solid fa-grip-vertical drag-handle-l2" style="cursor:grab; opacity:0.6;" title="拖拽重排/跨目录放置"></i>
-                                                            <i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px;"></i>
-                                                            <span>${escapeHtml(cTag.name)}</span>
-                                                            <small style="opacity:0.6;">(${cTag.themes ? cTag.themes.length : 0})</small>
-                                                            ${cKwCount > 0 ? `<small style="opacity:0.5;">[${cKwCount}词]</small>` : ''}
+                                                    <div class="tm-level2-item" data-id="${cTag.id}" data-parent-id="${l1Tag.id}" data-index="${cIdx}">
+                                                        <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
+                                                            <i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
+                                                            <span style="text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(cTag.name)}</span>
+                                                            <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${cTag.themes ? cTag.themes.length : 0})</small>
+                                                            ${cKwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${cKwCount}词]</small>` : ''}
                                                         </div>
-                                                        <div style="display:flex; gap:3px; flex-shrink:0;">
-                                                            <button class="menu_button keywords-tag-inline" data-id="${cTag.id}" style="margin:0; padding:2px 5px; font-size:10px; width:auto;" title="关键词"><i class="fa-solid fa-key"></i></button>
-                                                            <button class="menu_button rename-tag-inline" data-id="${cTag.id}" style="margin:0; padding:2px 5px; font-size:10px; width:auto;" title="重命名"><i class="fa-solid fa-pen"></i></button>
-                                                            <button class="menu_button promote-tag-inline" data-id="${cTag.id}" style="margin:0; padding:2px 5px; font-size:10px; width:auto;" title="升为一级标签"><i class="fa-solid fa-arrow-up-from-bracket"></i></button>
-                                                            <button class="menu_button delete-tag-inline" data-id="${cTag.id}" style="margin:0; padding:2px 5px; font-size:10px; width:auto;" title="删除"><i class="fa-solid fa-trash"></i></button>
+                                                        <div style="display:flex; gap:3px; align-items:center; flex-shrink:0;">
+                                                            <button class="menu_button move-l2-up tm-btn-icon-only" data-id="${cTag.id}" title="向上移动" ${cIdx === 0 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-up"></i></button>
+                                                            <button class="menu_button move-l2-down tm-btn-icon-only" data-id="${cTag.id}" title="向下移动" ${cIdx === childTags.length - 1 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-down"></i></button>
+                                                            <button class="menu_button promote-tag-inline tm-btn-icon-only" data-id="${cTag.id}" title="升为独立一级目录/标签"><i class="fa-solid fa-turn-up"></i></button>
+                                                            <button class="menu_button keywords-tag-inline tm-btn-icon-only" data-id="${cTag.id}" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
+                                                            <button class="menu_button rename-tag-inline tm-btn-icon-only" data-id="${cTag.id}" title="重命名"><i class="fa-solid fa-pen"></i></button>
+                                                            <button class="menu_button delete-tag-inline tm-btn-icon-only" data-id="${cTag.id}" title="删除"><i class="fa-solid fa-trash"></i></button>
                                                         </div>
                                                     </div>
                                                 `;
@@ -3063,10 +3068,10 @@
                                 }
 
                                 BindEvents();
-                                BindDragEvents();
                             };
 
                             const BindEvents = () => {
+                                // 删除
                                 dlg.querySelectorAll('.delete-tag-inline').forEach(btn => {
                                     btn.addEventListener('click', (e) => {
                                         e.stopPropagation();
@@ -3083,6 +3088,7 @@
                                     });
                                 });
 
+                                // 重命名
                                 dlg.querySelectorAll('.rename-tag-inline').forEach(btn => {
                                     btn.addEventListener('click', (e) => {
                                         e.stopPropagation();
@@ -3099,6 +3105,7 @@
                                     });
                                 });
 
+                                // 关键词
                                 dlg.querySelectorAll('.keywords-tag-inline').forEach(btn => {
                                     btn.addEventListener('click', (e) => {
                                         e.stopPropagation();
@@ -3118,6 +3125,7 @@
                                     });
                                 });
 
+                                // 添加二级标签
                                 dlg.querySelectorAll('.add-subtag-btn').forEach(btn => {
                                     btn.addEventListener('click', (e) => {
                                         e.stopPropagation();
@@ -3138,6 +3146,7 @@
                                     });
                                 });
 
+                                // 提升为一级标签
                                 dlg.querySelectorAll('.promote-tag-inline').forEach(btn => {
                                     btn.addEventListener('click', (e) => {
                                         e.stopPropagation();
@@ -3148,117 +3157,187 @@
                                             saveThemeTags(tags);
                                             renderList();
                                             softRefreshUI();
+                                            toastr.success(`已将「${tag.name}」升为一级标签`);
                                         }
                                     });
                                 });
-                            };
 
-                            const BindDragEvents = () => {
-                                if (!subtagsEnabled) {
-                                    let dragSrcIndex = null;
-                                    dlg.querySelectorAll('.tm-flat-tag-item').forEach(item => {
-                                        item.addEventListener('dragstart', (e) => {
-                                            dragSrcIndex = parseInt(item.dataset.index);
-                                            e.dataTransfer.effectAllowed = 'move';
-                                            item.style.opacity = '0.4';
+                                // 降为二级标签（划入别的一级目录）
+                                dlg.querySelectorAll('.demote-tag-inline').forEach(btn => {
+                                    btn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        const id = e.currentTarget.dataset.id;
+                                        const l1Tag = tags.find(t => t.id === id);
+                                        if (!l1Tag) return;
+                                        const otherL1Tags = tags.filter(t => (!t.parentId || !tags.some(p => p.id === t.parentId)) && t.id !== id);
+                                        if (otherL1Tags.length === 0) {
+                                            toastr.warning('没有其他一级目录，请先新建另一个一级目录');
+                                            return;
+                                        }
+
+                                        let selectHtml = `<p style="margin-bottom:10px;">选择将「<b>${escapeHtml(l1Tag.name)}</b>」转为哪个一级目录下的二级标签：</p>
+                                        <div style="display:flex; flex-direction:column; gap:8px; max-height:260px; overflow-y:auto; padding-right:4px;">`;
+                                        otherL1Tags.forEach((targetL1, idx) => {
+                                            selectHtml += `
+                                                <label class="target-l1-label" style="display:flex; align-items:center; gap:10px; padding:10px 12px; background:rgba(255,255,255,0.05); border-radius:6px; cursor:pointer; user-select:none; border:1px solid rgba(128,128,128,0.2); transition:background 0.2s;">
+                                                    <input type="radio" name="target_l1_radio" value="${targetL1.id}" ${idx === 0 ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px; accent-color:var(--SmartThemeQuoteColor, #4a90e2);">
+                                                    <i class="fa-solid fa-folder-open" style="color:var(--SmartThemeQuoteColor, #4a90e2); font-size:14px;"></i>
+                                                    <span style="font-weight:bold; font-size:13px; flex:1; min-width:0; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(targetL1.name)}</span>
+                                                    <small style="opacity:0.6; flex-shrink:0;">(${targetL1.themes ? targetL1.themes.length : 0}个主题)</small>
+                                                </label>
+                                            `;
                                         });
-                                        item.addEventListener('dragend', () => {
-                                            item.style.opacity = '1';
+                                        selectHtml += `</div>`;
+
+                                        callGenericPopup(selectHtml, 'confirm', null, {
+                                            title: '降为二级标签',
+                                            okButton: '确定转换',
+                                            cancelButton: '取消',
+                                            wide: true,
+                                            onOpen: (subPopup) => {
+                                                const subDlg = subPopup.dlg;
+                                                const okBtn = subDlg ? subDlg.querySelector('.popup-button-ok') : null;
+                                                if (okBtn) {
+                                                    okBtn.addEventListener('click', () => {
+                                                        const checkedRadio = subDlg.querySelector('input[name="target_l1_radio"]:checked');
+                                                        if (!checkedRadio) return;
+                                                        const targetL1Id = checkedRadio.value;
+                                                        tags.forEach(t => {
+                                                            if (t.parentId === l1Tag.id) t.parentId = null;
+                                                        });
+                                                        l1Tag.parentId = targetL1Id;
+                                                        saveThemeTags(tags);
+                                                        renderList();
+                                                        softRefreshUI();
+                                                        toastr.success(`已将「${l1Tag.name}」划入别的一级目录作为二级标签`);
+                                                    });
+                                                }
+                                            }
                                         });
-                                        item.addEventListener('dragover', (e) => {
-                                            e.preventDefault();
-                                            e.dataTransfer.dropEffect = 'move';
-                                        });
-                                        item.addEventListener('drop', (e) => {
-                                            e.preventDefault();
-                                            const targetIndex = parseInt(item.dataset.index);
-                                            if (dragSrcIndex !== null && dragSrcIndex !== targetIndex) {
-                                                const moved = tags.splice(dragSrcIndex, 1)[0];
-                                                tags.splice(targetIndex, 0, moved);
+                                    });
+                                });
+
+                                // 上下移动按钮事件 (平级模式)
+                                dlg.querySelectorAll('.move-flat-up').forEach(btn => {
+                                    btn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        const id = e.currentTarget.dataset.id;
+                                        const idx = tags.findIndex(t => t.id === id);
+                                        if (idx > 0) {
+                                            const [moved] = tags.splice(idx, 1);
+                                            tags.splice(idx - 1, 0, moved);
+                                            saveThemeTags(tags);
+                                            renderList();
+                                            softRefreshUI();
+                                        }
+                                    });
+                                });
+                                dlg.querySelectorAll('.move-flat-down').forEach(btn => {
+                                    btn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        const id = e.currentTarget.dataset.id;
+                                        const idx = tags.findIndex(t => t.id === id);
+                                        if (idx > -1 && idx < tags.length - 1) {
+                                            const [moved] = tags.splice(idx, 1);
+                                            tags.splice(idx + 1, 0, moved);
+                                            saveThemeTags(tags);
+                                            renderList();
+                                            softRefreshUI();
+                                        }
+                                    });
+                                });
+
+                                // 上下移动按钮事件 (一级目录)
+                                dlg.querySelectorAll('.move-l1-up').forEach(btn => {
+                                    btn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        const id = e.currentTarget.dataset.id;
+                                        const l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
+                                        const l1Idx = l1Tags.findIndex(t => t.id === id);
+                                        if (l1Idx > 0) {
+                                            const srcTag = l1Tags[l1Idx];
+                                            const tgtTag = l1Tags[l1Idx - 1];
+                                            const posA = tags.indexOf(srcTag);
+                                            const posB = tags.indexOf(tgtTag);
+                                            if (posA > -1 && posB > -1) {
+                                                const [moved] = tags.splice(posA, 1);
+                                                tags.splice(posB, 0, moved);
                                                 saveThemeTags(tags);
                                                 renderList();
                                                 softRefreshUI();
                                             }
-                                        });
+                                        }
                                     });
-                                } else {
-                                    dlg.querySelectorAll('.tm-level2-item').forEach(item => {
-                                        item.addEventListener('dragstart', (e) => {
-                                            e.stopPropagation();
-                                            draggedId = item.dataset.id;
-                                            draggedType = 'l2';
-                                            e.dataTransfer.effectAllowed = 'move';
-                                            item.classList.add('dragging');
-                                        });
-                                        item.addEventListener('dragend', (e) => {
-                                            e.stopPropagation();
-                                            item.classList.remove('dragging');
-                                            dlg.querySelectorAll('.drag-over-target').forEach(el => el.classList.remove('drag-over-target'));
-                                        });
-                                    });
-
-                                    dlg.querySelectorAll('.tm-level1-header').forEach(header => {
-                                        header.addEventListener('dragstart', (e) => {
-                                            draggedId = header.dataset.id;
-                                            draggedType = 'l1';
-                                            e.dataTransfer.effectAllowed = 'move';
-                                            header.closest('.tm-level1-card').classList.add('dragging');
-                                        });
-                                        header.addEventListener('dragend', () => {
-                                            dlg.querySelectorAll('.tm-level1-card').forEach(c => c.classList.remove('dragging', 'drag-over-target'));
-                                        });
-                                    });
-
-                                    dlg.querySelectorAll('.tm-level1-card').forEach(card => {
-                                        card.addEventListener('dragover', (e) => {
-                                            e.preventDefault();
-                                            if (!draggedId) return;
-                                            card.classList.add('drag-over-target');
-                                            e.dataTransfer.dropEffect = 'move';
-                                        });
-                                        card.addEventListener('dragleave', () => {
-                                            card.classList.remove('drag-over-target');
-                                        });
-                                        card.addEventListener('drop', (e) => {
-                                            e.preventDefault();
-                                            card.classList.remove('drag-over-target');
-                                            if (!draggedId) return;
-
-                                            const targetL1Id = card.dataset.id;
-
-                                            if (draggedType === 'l2') {
-                                                const tag = tags.find(t => t.id === draggedId);
-                                                if (tag && tag.parentId !== targetL1Id) {
-                                                    tag.parentId = targetL1Id;
-                                                    saveThemeTags(tags);
-                                                    renderList();
-                                                    softRefreshUI();
-                                                }
-                                            } else if (draggedType === 'l1') {
-                                                if (draggedId !== targetL1Id) {
-                                                    const l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
-                                                    const srcIdx = l1Tags.findIndex(t => t.id === draggedId);
-                                                    const tgtIdx = l1Tags.findIndex(t => t.id === targetL1Id);
-                                                    if (srcIdx > -1 && tgtIdx > -1) {
-                                                        const srcTag = tags.find(t => t.id === draggedId);
-                                                        const tgtTag = tags.find(t => t.id === targetL1Id);
-                                                        const fromPos = tags.indexOf(srcTag);
-                                                        const toPos = tags.indexOf(tgtTag);
-                                                        if (fromPos > -1 && toPos > -1) {
-                                                            const [moved] = tags.splice(fromPos, 1);
-                                                            tags.splice(toPos, 0, moved);
-                                                            saveThemeTags(tags);
-                                                            renderList();
-                                                            softRefreshUI();
-                                                        }
-                                                    }
-                                                }
+                                });
+                                dlg.querySelectorAll('.move-l1-down').forEach(btn => {
+                                    btn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        const id = e.currentTarget.dataset.id;
+                                        const l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
+                                        const l1Idx = l1Tags.findIndex(t => t.id === id);
+                                        if (l1Idx > -1 && l1Idx < l1Tags.length - 1) {
+                                            const srcTag = l1Tags[l1Idx];
+                                            const tgtTag = l1Tags[l1Idx + 1];
+                                            const posA = tags.indexOf(srcTag);
+                                            const posB = tags.indexOf(tgtTag);
+                                            if (posA > -1 && posB > -1) {
+                                                const [moved] = tags.splice(posA, 1);
+                                                tags.splice(posB, 0, moved);
+                                                saveThemeTags(tags);
+                                                renderList();
+                                                softRefreshUI();
                                             }
-                                            draggedId = null;
-                                            draggedType = null;
-                                        });
+                                        }
                                     });
-                                }
+                                });
+
+                                // 上下移动按钮事件 (二级标签)
+                                dlg.querySelectorAll('.move-l2-up').forEach(btn => {
+                                    btn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        const id = e.currentTarget.dataset.id;
+                                        const tag = tags.find(t => t.id === id);
+                                        if (!tag) return;
+                                        const childTags = tags.filter(t => t.parentId === tag.parentId);
+                                        const cIdx = childTags.findIndex(t => t.id === id);
+                                        if (cIdx > 0) {
+                                            const srcTag = childTags[cIdx];
+                                            const tgtTag = childTags[cIdx - 1];
+                                            const posA = tags.indexOf(srcTag);
+                                            const posB = tags.indexOf(tgtTag);
+                                            if (posA > -1 && posB > -1) {
+                                                const [moved] = tags.splice(posA, 1);
+                                                tags.splice(posB, 0, moved);
+                                                saveThemeTags(tags);
+                                                renderList();
+                                                softRefreshUI();
+                                            }
+                                        }
+                                    });
+                                });
+                                dlg.querySelectorAll('.move-l2-down').forEach(btn => {
+                                    btn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        const id = e.currentTarget.dataset.id;
+                                        const tag = tags.find(t => t.id === id);
+                                        if (!tag) return;
+                                        const childTags = tags.filter(t => t.parentId === tag.parentId);
+                                        const cIdx = childTags.findIndex(t => t.id === id);
+                                        if (cIdx > -1 && cIdx < childTags.length - 1) {
+                                            const srcTag = childTags[cIdx];
+                                            const tgtTag = childTags[cIdx + 1];
+                                            const posA = tags.indexOf(srcTag);
+                                            const posB = tags.indexOf(tgtTag);
+                                            if (posA > -1 && posB > -1) {
+                                                const [moved] = tags.splice(posA, 1);
+                                                tags.splice(posB, 0, moved);
+                                                saveThemeTags(tags);
+                                                renderList();
+                                                softRefreshUI();
+                                            }
+                                        }
+                                    });
+                                });
                             };
 
                             const chkSubtags = dlg.querySelector('#chk-enable-subtags');
