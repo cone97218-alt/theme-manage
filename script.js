@@ -1,6 +1,113 @@
 (function () {
     'use strict';
 
+    // === 自动将 themeManager_* 数据桥接到 SillyTavern 服务器 (extension_settings) ===
+    (function initThemeManagerStorageBridge() {
+        if (window.__themeManagerStorageBridgeInitialized) return;
+        window.__themeManagerStorageBridgeInitialized = true;
+
+        const PREFIX = 'themeManager_';
+
+        function getExtensionSettingsStore() {
+            if (!window.extension_settings) window.extension_settings = {};
+            if (!window.extension_settings.theme_manage) window.extension_settings.theme_manage = {};
+            return window.extension_settings.theme_manage;
+        }
+
+        function triggerSaveSettings() {
+            if (typeof window.saveSettingsDebounced === 'function') {
+                window.saveSettingsDebounced();
+            } else if (window.SillyTavern?.getContext()?.saveSettingsDebounced) {
+                window.SillyTavern.getContext().saveSettingsDebounced();
+            }
+        }
+
+        const nativeGetItem = localStorage.getItem;
+        const nativeSetItem = localStorage.setItem;
+        const nativeRemoveItem = localStorage.removeItem;
+
+        function syncAndMigrate() {
+            try {
+                const store = getExtensionSettingsStore();
+                let hasNewDataToSave = false;
+
+                // 1. 如果服务器端 extension_settings.theme_manage 已有数据，同步填入本地 localStorage 缓存
+                for (const key in store) {
+                    if (key.startsWith(PREFIX)) {
+                        const serverVal = store[key];
+                        const strVal = typeof serverVal === 'object' ? JSON.stringify(serverVal) : String(serverVal);
+                        nativeSetItem.call(localStorage, key, strVal);
+                    }
+                }
+
+                // 2. 如果本地 localStorage 有旧版 themeManager_* 数据但服务器端尚无，自动迁移写入服务器端
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith(PREFIX)) {
+                        if (!(key in store)) {
+                            const localVal = nativeGetItem.call(localStorage, key);
+                            if (localVal !== null) {
+                                try {
+                                    store[key] = JSON.parse(localVal);
+                                } catch (e) {
+                                    store[key] = localVal;
+                                }
+                                hasNewDataToSave = true;
+                            }
+                        }
+                    }
+                }
+
+                if (hasNewDataToSave) {
+                    triggerSaveSettings();
+                }
+            } catch (err) {
+                console.error('[Theme Manager Storage Bridge] Sync failed:', err);
+            }
+        }
+
+        localStorage.getItem = function (key) {
+            if (typeof key === 'string' && key.startsWith(PREFIX)) {
+                const store = getExtensionSettingsStore();
+                if (key in store) {
+                    const val = store[key];
+                    return typeof val === 'object' ? JSON.stringify(val) : String(val);
+                }
+            }
+            return nativeGetItem.apply(this, arguments);
+        };
+
+        localStorage.setItem = function (key, value) {
+            nativeSetItem.apply(this, arguments);
+            if (typeof key === 'string' && key.startsWith(PREFIX)) {
+                const store = getExtensionSettingsStore();
+                try {
+                    store[key] = JSON.parse(value);
+                } catch (e) {
+                    store[key] = value;
+                }
+                triggerSaveSettings();
+            }
+        };
+
+        localStorage.removeItem = function (key) {
+            nativeRemoveItem.apply(this, arguments);
+            if (typeof key === 'string' && key.startsWith(PREFIX)) {
+                const store = getExtensionSettingsStore();
+                delete store[key];
+                triggerSaveSettings();
+            }
+        };
+
+        syncAndMigrate();
+        const interval = setInterval(() => {
+            if (window.SillyTavern?.getContext) {
+                syncAndMigrate();
+                clearInterval(interval);
+            }
+        }, 100);
+    })();
+
     let currentAutoThemeState = null;
     let autoThemeApplied = false;
 
