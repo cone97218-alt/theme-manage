@@ -4933,14 +4933,53 @@
                     // 监听聊天切换事件，在 SillyTavern 重置背景后重新应用绑定的背景图
                     // 解决移动端进入角色卡聊天时背景图被 onChatChanged() 覆盖的问题
                     // 监听聊天与角色切换事件，实现角色绑定的美化自动切换
+                    function performCrossDeviceSync() {
+                        try {
+                            const store = window.extension_settings?.theme_manage;
+                            if (!store) return;
+
+                            let hasChanges = false;
+                            const PREFIX = 'themeManager_';
+
+                            for (const key in store) {
+                                if (key.startsWith(PREFIX)) {
+                                    const serverVal = store[key];
+                                    if (serverVal !== undefined && serverVal !== null) {
+                                        const strVal = typeof serverVal === 'object' ? JSON.stringify(serverVal) : String(serverVal);
+                                        const localVal = localStorage.getItem(key);
+                                        if (localVal !== strVal) {
+                                            localStorage.setItem(key, strVal);
+                                            hasChanges = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (hasChanges) {
+                                console.log('[Theme Manager] 检测到跨设备同步数据更新，重置缓存并同步 UI...');
+                                invalidateTagsCache();
+                                const cachedTags = loadThemeTags();
+                                buildThemeTagIndex(cachedTags);
+                                renderTagsUI(cachedTags);
+                                softRefreshUI();
+                            }
+                        } catch (err) {
+                            console.error('[Theme Manager] Cross-device sync update failed:', err);
+                        }
+                    }
+
+                    // 监听 SillyTavern 跨设备同步事件
                     if (eventSource && eventTypes) {
                         console.log(`[Theme Manager Debug] Event source & event types found. Registering listeners.`);
+                        if (eventTypes.SETTINGS_LOADED) eventSource.on(eventTypes.SETTINGS_LOADED, performCrossDeviceSync);
+                        if (eventTypes.SETTINGS_UPDATED) eventSource.on(eventTypes.SETTINGS_UPDATED, performCrossDeviceSync);
+                        if (eventTypes.EXTENSION_SETTINGS_LOADED) eventSource.on(eventTypes.EXTENSION_SETTINGS_LOADED, performCrossDeviceSync);
+
                         eventSource.on(eventTypes.CHAT_CHANGED, () => {
                             console.log(`[Theme Manager Debug] CHAT_CHANGED event fired`);
                             const currentTheme = originalSelect.value;
                             const boundBg = themeBackgroundBindings[currentTheme];
                             if (boundBg) {
-                                // 短延迟确保在 SillyTavern 的 onChatChanged 完成后再应用
                                 setTimeout(() => applyBackgroundDirectly(boundBg), 300);
                             }
                         });
@@ -4950,16 +4989,19 @@
                             const { characters, characterId } = SillyTavern.getContext();
                             const character = characters[characterId];
                             if (character && character.avatar) {
-                                console.log(`[Theme Manager Debug] CHARACTER_SELECTED avatar:`, character.avatar);
-                                // 短延时确保上下文就绪
                                 setTimeout(() => applyBoundThemeForCharacter(character.avatar), 100);
-                            } else {
-                                console.log(`[Theme Manager Debug] CHARACTER_SELECTED: no character or avatar. ID:`, characterId);
                             }
                         });
                     } else {
                         console.warn(`[Theme Manager Debug] eventSource or eventTypes not found!`);
                     }
+
+                    // 监听窗口聚焦、页面可见性及 3 秒轮询，确保手机与电脑跨设备数据无缝同步
+                    document.addEventListener('visibilitychange', () => {
+                        if (!document.hidden) performCrossDeviceSync();
+                    });
+                    window.addEventListener('focus', performCrossDeviceSync);
+                    setInterval(performCrossDeviceSync, 3000);
 
                     // 首次载入时，自动应用当前选中角色的绑定主题
                     try {
