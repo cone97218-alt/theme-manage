@@ -1,125 +1,6 @@
 (function () {
     'use strict';
 
-    // === 自动将 themeManager_* 数据桥接到 SillyTavern 服务器 (extension_settings) ===
-    (function initThemeManagerStorageBridge() {
-        if (window.__themeManagerStorageBridgeInitialized) return;
-        window.__themeManagerStorageBridgeInitialized = true;
-
-        const PREFIX = 'themeManager_';
-
-        function getExtensionSettingsStore() {
-            if (!window.extension_settings) window.extension_settings = {};
-            if (!window.extension_settings.theme_manage) window.extension_settings.theme_manage = {};
-            return window.extension_settings.theme_manage;
-        }
-
-        function triggerSaveSettings() {
-            if (typeof window.saveSettingsDebounced === 'function') {
-                window.saveSettingsDebounced();
-            } else if (window.SillyTavern?.getContext()?.saveSettingsDebounced) {
-                window.SillyTavern.getContext().saveSettingsDebounced();
-            }
-        }
-
-        const nativeGetItem = localStorage.getItem;
-        const nativeSetItem = localStorage.setItem;
-        const nativeRemoveItem = localStorage.removeItem;
-
-        function syncAndMigrate() {
-            try {
-                const store = getExtensionSettingsStore();
-                let hasNewDataToSave = false;
-
-                // 1. 如果服务器端 extension_settings.theme_manage 已有数据，同步填入本地 localStorage 缓存
-                for (const key in store) {
-                    if (key.startsWith(PREFIX)) {
-                        const serverVal = store[key];
-                        if (serverVal !== undefined && serverVal !== null) {
-                            const strVal = typeof serverVal === 'object' ? JSON.stringify(serverVal) : String(serverVal);
-                            nativeSetItem.call(localStorage, key, strVal);
-                        }
-                    }
-                }
-
-                // 2. 如果本地 localStorage 有旧版 themeManager_* 数据但服务器端尚无，自动迁移写入服务器端
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    if (key && key.startsWith(PREFIX)) {
-                        if (!(key in store) || store[key] === undefined || store[key] === null) {
-                            const localVal = nativeGetItem.call(localStorage, key);
-                            if (localVal !== null) {
-                                try {
-                                    store[key] = JSON.parse(localVal);
-                                } catch (e) {
-                                    store[key] = localVal;
-                                }
-                                hasNewDataToSave = true;
-                            }
-                        }
-                    }
-                }
-
-                if (hasNewDataToSave) {
-                    triggerSaveSettings();
-                }
-
-                if (window.__invalidateTagsCache) {
-                    window.__invalidateTagsCache();
-                }
-            } catch (err) {
-                console.error('[Theme Manager Storage Bridge] Sync failed:', err);
-            }
-        }
-
-        localStorage.getItem = function (key) {
-            if (typeof key === 'string' && key.startsWith(PREFIX)) {
-                const store = getExtensionSettingsStore();
-                if (key in store && store[key] !== undefined && store[key] !== null) {
-                    const val = store[key];
-                    return typeof val === 'object' ? JSON.stringify(val) : String(val);
-                }
-            }
-            return nativeGetItem.apply(this, arguments);
-        };
-
-        localStorage.setItem = function (key, value) {
-            nativeSetItem.apply(this, arguments);
-            if (typeof key === 'string' && key.startsWith(PREFIX) && value !== undefined) {
-                const store = getExtensionSettingsStore();
-                if (value === null) {
-                    delete store[key];
-                } else {
-                    try {
-                        store[key] = JSON.parse(value);
-                    } catch (e) {
-                        store[key] = value;
-                    }
-                }
-                triggerSaveSettings();
-            }
-        };
-
-        localStorage.removeItem = function (key) {
-            nativeRemoveItem.apply(this, arguments);
-            if (typeof key === 'string' && key.startsWith(PREFIX)) {
-                const store = getExtensionSettingsStore();
-                delete store[key];
-                triggerSaveSettings();
-            }
-        };
-
-        window.__syncThemeBridge = syncAndMigrate;
-
-        syncAndMigrate();
-        const interval = setInterval(() => {
-            if (window.SillyTavern?.getContext) {
-                syncAndMigrate();
-                clearInterval(interval);
-            }
-        }, 100);
-    })();
-
     let currentAutoThemeState = null;
     let autoThemeApplied = false;
 
@@ -856,75 +737,65 @@
                     triggerSelectChange(originalSelect);
                 }
 
+                // === 酒馆原生 extension_settings 服务端数据读写助手 ===
+                function getThemeStore() {
+                    if (!window.extension_settings) window.extension_settings = {};
+                    if (!window.extension_settings.theme_manage) window.extension_settings.theme_manage = {};
+                    return window.extension_settings.theme_manage;
+                }
+
+                function syncDataToSillyTavernServer(key, value) {
+                    try {
+                        const store = getThemeStore();
+                        store[key] = value;
+                        if (typeof saveSettingsDebounced === 'function') {
+                            saveSettingsDebounced();
+                        }
+                    } catch (e) {
+                        console.error('[Theme Manager] Save to server failed:', e);
+                    }
+                }
+
                 // 标签数据缓存（避免每次调用都 JSON.parse）
                 let _tagsCache = null;
                 function loadThemeTags() {
-                    if (Array.isArray(_tagsCache) && _tagsCache.length > 0) {
+                    if (_tagsCache) return _tagsCache;
+
+                    // 1. 优先从酒馆服务端 extension_settings 读取
+                    const store = getThemeStore();
+                    if (store && store[THEME_TAGS_KEY] && Array.isArray(store[THEME_TAGS_KEY]) && store[THEME_TAGS_KEY].length > 0) {
+                        _tagsCache = store[THEME_TAGS_KEY];
+                        localStorage.setItem(THEME_TAGS_KEY, JSON.stringify(_tagsCache));
                         return _tagsCache;
                     }
-                    let tags = null;
-                    const store = window.extension_settings?.theme_manage || window.extension_settings?.['theme-manage'];
-                    if (store && THEME_TAGS_KEY in store) {
-                        tags = store[THEME_TAGS_KEY];
-                        if (typeof tags === 'string') {
-                            try { tags = JSON.parse(tags); } catch(e) { tags = null; }
-                        }
-                    }
-                    if (!Array.isArray(tags) || tags.length === 0) {
-                        const raw = localStorage.getItem(THEME_TAGS_KEY);
-                        try {
-                            const parsed = raw ? JSON.parse(raw) : [];
-                            if (Array.isArray(parsed) && parsed.length > 0) {
-                                tags = parsed;
-                            }
-                        } catch(e) {}
-                    }
-                    _tagsCache = Array.isArray(tags) ? tags : [];
 
-                    if (store && _tagsCache.length > 0 && (!store[THEME_TAGS_KEY] || store[THEME_TAGS_KEY].length === 0)) {
+                    // 2. 回退从 localStorage 读取
+                    try {
+                        const localRaw = localStorage.getItem(THEME_TAGS_KEY);
+                        const parsed = localRaw ? JSON.parse(localRaw) : [];
+                        _tagsCache = Array.isArray(parsed) ? parsed : [];
+                    } catch(e) {
+                        _tagsCache = [];
+                    }
+
+                    // 如果从 localStorage 读到了有效数据但服务端尚无，自动迁移写入服务端
+                    if (_tagsCache.length > 0 && store) {
                         store[THEME_TAGS_KEY] = _tagsCache;
+                        if (typeof saveSettingsDebounced === 'function') saveSettingsDebounced();
                     }
 
                     return _tagsCache;
                 }
                 function saveThemeTags(tags) {
                     _tagsCache = tags; // 更新内存缓存
-                    window.extension_settings = window.extension_settings || {};
-                    window.extension_settings.theme_manage = window.extension_settings.theme_manage || {};
-                    window.extension_settings.theme_manage[THEME_TAGS_KEY] = tags;
-                    window.extension_settings['theme-manage'] = window.extension_settings.theme_manage;
-
-                    localStorage.setItem(THEME_TAGS_KEY, JSON.stringify(tags));
+                    localStorage.setItem(THEME_TAGS_KEY, JSON.stringify(tags)); // 本地缓存
+                    syncDataToSillyTavernServer(THEME_TAGS_KEY, tags); // 服务端保存
                     invalidateThemeTagIndex(); // 标签数据变了，反向索引也要失效
-
-                    if (typeof window.saveSettingsDebounced === 'function') {
-                        window.saveSettingsDebounced();
-                    } else if (window.SillyTavern?.getContext()?.saveSettingsDebounced) {
-                        window.SillyTavern.getContext().saveSettingsDebounced();
-                    }
-
                     document.dispatchEvent(new CustomEvent('themeManager:tagsChanged', { detail: tags }));
                 }
                 function invalidateTagsCache() {
                     _tagsCache = null;
                     invalidateThemeTagIndex();
-                }
-                window.__invalidateTagsCache = invalidateTagsCache;
-
-                if (eventSource && eventTypes) {
-                    const handleSettingsLoaded = () => {
-                        invalidateTagsCache();
-                        if (typeof window.__syncThemeBridge === 'function') window.__syncThemeBridge();
-                        try {
-                            const freshTags = loadThemeTags();
-                            buildThemeTagIndex(freshTags);
-                            renderTagsUI(freshTags);
-                        } catch(e) {}
-                    };
-                    if (eventTypes.SETTINGS_LOADED) {
-                        eventSource.on(eventTypes.SETTINGS_LOADED, handleSettingsLoaded);
-                    }
-                    eventSource.on('settings_loaded', handleSettingsLoaded);
                 }
                 // 构建 themeName -> [tagId] 的反向索引，避免每次调用都做 O(tags*themes) 扫描
                 let _themeTagIndex = null;
