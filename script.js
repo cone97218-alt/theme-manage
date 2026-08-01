@@ -737,59 +737,16 @@
                     triggerSelectChange(originalSelect);
                 }
 
-                // === 酒馆原生 extension_settings 服务端数据读写助手 ===
-                function getThemeStore() {
-                    if (!window.extension_settings) window.extension_settings = {};
-                    if (!window.extension_settings.theme_manage) window.extension_settings.theme_manage = {};
-                    return window.extension_settings.theme_manage;
-                }
-
-                function syncDataToSillyTavernServer(key, value) {
-                    try {
-                        const store = getThemeStore();
-                        store[key] = value;
-                        if (typeof saveSettingsDebounced === 'function') {
-                            saveSettingsDebounced();
-                        }
-                    } catch (e) {
-                        console.error('[Theme Manager] Save to server failed:', e);
-                    }
-                }
-
                 // 标签数据缓存（避免每次调用都 JSON.parse）
                 let _tagsCache = null;
                 function loadThemeTags() {
                     if (_tagsCache) return _tagsCache;
-
-                    // 1. 优先从酒馆服务端 extension_settings 读取
-                    const store = getThemeStore();
-                    if (store && store[THEME_TAGS_KEY] && Array.isArray(store[THEME_TAGS_KEY]) && store[THEME_TAGS_KEY].length > 0) {
-                        _tagsCache = store[THEME_TAGS_KEY];
-                        localStorage.setItem(THEME_TAGS_KEY, JSON.stringify(_tagsCache));
-                        return _tagsCache;
-                    }
-
-                    // 2. 回退从 localStorage 读取
-                    try {
-                        const localRaw = localStorage.getItem(THEME_TAGS_KEY);
-                        const parsed = localRaw ? JSON.parse(localRaw) : [];
-                        _tagsCache = Array.isArray(parsed) ? parsed : [];
-                    } catch(e) {
-                        _tagsCache = [];
-                    }
-
-                    // 如果从 localStorage 读到了有效数据但服务端尚无，自动迁移写入服务端
-                    if (_tagsCache.length > 0 && store) {
-                        store[THEME_TAGS_KEY] = _tagsCache;
-                        if (typeof saveSettingsDebounced === 'function') saveSettingsDebounced();
-                    }
-
+                    _tagsCache = JSON.parse(localStorage.getItem(THEME_TAGS_KEY)) || [];
                     return _tagsCache;
                 }
                 function saveThemeTags(tags) {
-                    _tagsCache = tags; // 更新内存缓存
-                    localStorage.setItem(THEME_TAGS_KEY, JSON.stringify(tags)); // 本地缓存
-                    syncDataToSillyTavernServer(THEME_TAGS_KEY, tags); // 服务端保存
+                    _tagsCache = tags; // 更新缓存
+                    localStorage.setItem(THEME_TAGS_KEY, JSON.stringify(tags));
                     invalidateThemeTagIndex(); // 标签数据变了，反向索引也要失效
                     document.dispatchEvent(new CustomEvent('themeManager:tagsChanged', { detail: tags }));
                 }
