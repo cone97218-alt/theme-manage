@@ -35,8 +35,10 @@
                 for (const key in store) {
                     if (key.startsWith(PREFIX)) {
                         const serverVal = store[key];
-                        const strVal = typeof serverVal === 'object' ? JSON.stringify(serverVal) : String(serverVal);
-                        nativeSetItem.call(localStorage, key, strVal);
+                        if (serverVal !== undefined && serverVal !== null) {
+                            const strVal = typeof serverVal === 'object' ? JSON.stringify(serverVal) : String(serverVal);
+                            nativeSetItem.call(localStorage, key, strVal);
+                        }
                     }
                 }
 
@@ -44,7 +46,7 @@
                 for (let i = 0; i < localStorage.length; i++) {
                     const key = localStorage.key(i);
                     if (key && key.startsWith(PREFIX)) {
-                        if (!(key in store)) {
+                        if (!(key in store) || store[key] === undefined || store[key] === null) {
                             const localVal = nativeGetItem.call(localStorage, key);
                             if (localVal !== null) {
                                 try {
@@ -60,6 +62,10 @@
 
                 if (hasNewDataToSave) {
                     triggerSaveSettings();
+                }
+
+                if (window.__invalidateTagsCache) {
+                    window.__invalidateTagsCache();
                 }
             } catch (err) {
                 console.error('[Theme Manager Storage Bridge] Sync failed:', err);
@@ -848,12 +854,32 @@
                 let _tagsCache = null;
                 function loadThemeTags() {
                     if (_tagsCache) return _tagsCache;
-                    _tagsCache = JSON.parse(localStorage.getItem(THEME_TAGS_KEY)) || [];
+                    let tags = null;
+                    const store = window.extension_settings?.theme_manage;
+                    if (store && THEME_TAGS_KEY in store) {
+                        tags = store[THEME_TAGS_KEY];
+                        if (typeof tags === 'string') {
+                            try { tags = JSON.parse(tags); } catch(e) { tags = []; }
+                        }
+                    }
+                    if (!Array.isArray(tags)) {
+                        const raw = localStorage.getItem(THEME_TAGS_KEY);
+                        try { tags = raw ? JSON.parse(raw) : []; } catch(e) { tags = []; }
+                    }
+                    _tagsCache = Array.isArray(tags) ? tags : [];
                     return _tagsCache;
                 }
                 function saveThemeTags(tags) {
                     _tagsCache = tags; // 更新缓存
+                    window.extension_settings = window.extension_settings || {};
+                    window.extension_settings.theme_manage = window.extension_settings.theme_manage || {};
+                    window.extension_settings.theme_manage[THEME_TAGS_KEY] = tags;
                     localStorage.setItem(THEME_TAGS_KEY, JSON.stringify(tags));
+                    if (typeof window.saveSettingsDebounced === 'function') {
+                        window.saveSettingsDebounced();
+                    } else if (window.SillyTavern?.getContext()?.saveSettingsDebounced) {
+                        window.SillyTavern.getContext().saveSettingsDebounced();
+                    }
                     invalidateThemeTagIndex(); // 标签数据变了，反向索引也要失效
                     document.dispatchEvent(new CustomEvent('themeManager:tagsChanged', { detail: tags }));
                 }
@@ -861,6 +887,7 @@
                     _tagsCache = null;
                     invalidateThemeTagIndex();
                 }
+                window.__invalidateTagsCache = invalidateTagsCache;
                 // 构建 themeName -> [tagId] 的反向索引，避免每次调用都做 O(tags*themes) 扫描
                 let _themeTagIndex = null;
                 function buildThemeTagIndex(tags) {
