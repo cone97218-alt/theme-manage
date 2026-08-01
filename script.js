@@ -75,7 +75,7 @@
         localStorage.getItem = function (key) {
             if (typeof key === 'string' && key.startsWith(PREFIX)) {
                 const store = getExtensionSettingsStore();
-                if (key in store) {
+                if (key in store && store[key] !== undefined && store[key] !== null) {
                     const val = store[key];
                     return typeof val === 'object' ? JSON.stringify(val) : String(val);
                 }
@@ -85,12 +85,16 @@
 
         localStorage.setItem = function (key, value) {
             nativeSetItem.apply(this, arguments);
-            if (typeof key === 'string' && key.startsWith(PREFIX)) {
+            if (typeof key === 'string' && key.startsWith(PREFIX) && value !== undefined) {
                 const store = getExtensionSettingsStore();
-                try {
-                    store[key] = JSON.parse(value);
-                } catch (e) {
-                    store[key] = value;
+                if (value === null) {
+                    delete store[key];
+                } else {
+                    try {
+                        store[key] = JSON.parse(value);
+                    } catch (e) {
+                        store[key] = value;
+                    }
                 }
                 triggerSaveSettings();
             }
