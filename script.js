@@ -28,10 +28,11 @@
 
         function syncAndMigrate() {
             try {
-                const store = getExtensionSettingsStore();
-                let hasNewDataToSave = false;
+                if (!window.extension_settings) return;
+                window.extension_settings.theme_manage = window.extension_settings.theme_manage || {};
+                const store = window.extension_settings.theme_manage;
 
-                // 1. 如果服务器端 extension_settings.theme_manage 已有数据，同步填入本地 localStorage 缓存
+                // 1. 服务端配置 (extension_settings.theme_manage) 为绝对权威数据，单向覆盖填充本地 localStorage
                 for (const key in store) {
                     if (key.startsWith(PREFIX)) {
                         const serverVal = store[key];
@@ -42,11 +43,12 @@
                     }
                 }
 
-                // 2. 如果本地 localStorage 有旧版 themeManager_* 数据但服务器端尚无，自动迁移写入服务器端
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    if (key && key.startsWith(PREFIX)) {
-                        if (!(key in store) || store[key] === undefined || store[key] === null) {
+                // 2. 仅在服务端配置首次全空且未进行过迁移时，才从本地 localStorage 迁移一次
+                if (!store.__migratedFromLocalStorage && Object.keys(store).length === 0) {
+                    let hasNewDataToSave = false;
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key && key.startsWith(PREFIX)) {
                             const localVal = nativeGetItem.call(localStorage, key);
                             if (localVal !== null) {
                                 try {
@@ -58,10 +60,10 @@
                             }
                         }
                     }
-                }
-
-                if (hasNewDataToSave) {
-                    triggerSaveSettings();
+                    store.__migratedFromLocalStorage = true;
+                    if (hasNewDataToSave) {
+                        triggerSaveSettings();
+                    }
                 }
 
                 if (window.__invalidateTagsCache) {
