@@ -400,9 +400,6 @@
                         }
                         deduplicateSelectOptions(originalSelect);
                     } finally {
-                        // rename 会触发 characterData mutation，需要更长的暂停窗口
-                        // 避免 MutationObserver 重建整个 UI（即"出现两个"的根本原因）
-                        // 软更新模式下不再需要长时间暂停；0ms 足够让 MutationObserver 先于 setTimeout 触发并被 flag 拦截
                         setTimeout(() => { _suspendObserver = false; }, 0);
                     }
                 }
@@ -419,7 +416,19 @@
 
                 // === ST 原生 Custom CSS 编辑器与 CodeMirror 深度内存/DOM 双向同步助手 ===
                 function syncCustomCssToST(customCss) {
-                    const cssVal = customCss !== undefined ? customCss : '';
+                    let cssVal = customCss !== undefined && customCss !== null ? customCss : '';
+
+                    // 自动防冲刷回退恢复：若传入 CSS 为空，且当前选中的主题拥有 custom_css，自动恢复使用主题的 custom_css
+                    const originalSelect = document.querySelector('#themes');
+                    const activeThemeName = (originalSelect && originalSelect.value) || (typeof power_user !== 'undefined' && power_user.theme);
+                    if (!cssVal && activeThemeName) {
+                        const activeThemeObj = allThemeObjectsMap.get(activeThemeName);
+                        if (activeThemeObj && activeThemeObj.custom_css) {
+                            cssVal = activeThemeObj.custom_css;
+                            console.log(`[Theme Manager] 自动防干涉：使用缓存主题 "${activeThemeName}" 的 Custom CSS (字节数: ${cssVal.length})`);
+                        }
+                    }
+
                     console.log(`[Theme Manager] syncCustomCssToST 触发, 目标 CSS 字节数: ${cssVal.length}`);
 
                     // 1. 同步 ST 全局与 power_user 数据结构
@@ -440,18 +449,23 @@
                     // 2. 同步酒馆原生 Custom CSS 文本框元素 DOM
                     const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style') || document.querySelector('#style_custom');
                     if (editorEl) {
-                        console.log('[Theme Manager] 找到 Custom CSS 编辑器 DOM 节点:', editorEl.id || editorEl.tagName);
-                        editorEl.value = cssVal;
-                        editorEl.dispatchEvent(new Event('input', { bubbles: true }));
-                        editorEl.dispatchEvent(new Event('change', { bubbles: true }));
+                        if (editorEl.value !== cssVal) {
+                            console.log('[Theme Manager] 找到 Custom CSS 编辑器 DOM 节点:', editorEl.id || editorEl.tagName);
+                            editorEl.value = cssVal;
+                            editorEl.dispatchEvent(new Event('input', { bubbles: true }));
+                            editorEl.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
 
                         // 3. 同步 CodeMirror 编辑器实例 (若 ST 或插件挂载了 CodeMirror)
-                        if (editorEl.CodeMirror) {
+                        if (editorEl.CodeMirror && editorEl.CodeMirror.getValue() !== cssVal) {
                             console.log('[Theme Manager] 找到 editorEl.CodeMirror 实例, 执行 setValue');
                             editorEl.CodeMirror.setValue(cssVal);
                         } else if (window.jQuery && $(editorEl).data('codemirror')) {
-                            console.log('[Theme Manager] 找到 $(editorEl).data("codemirror") 实例, 执行 setValue');
-                            $(editorEl).data('codemirror').setValue(cssVal);
+                            const cm = $(editorEl).data('codemirror');
+                            if (cm && cm.getValue() !== cssVal) {
+                                console.log('[Theme Manager] 找到 $(editorEl).data("codemirror") 实例, 执行 setValue');
+                                cm.setValue(cssVal);
+                            }
                         }
                     } else {
                         console.warn('[Theme Manager] 未在当前页面找到 Custom CSS 文本框 DOM 节点 (#style_custom_content)');
@@ -461,7 +475,6 @@
                     try {
                         const cmDoms = document.querySelectorAll('.CodeMirror');
                         if (cmDoms.length > 0) {
-                            console.log(`[Theme Manager] 找到 ${cmDoms.length} 个 CodeMirror DOM 实例进行兜底同步`);
                             cmDoms.forEach(cmDom => {
                                 if (cmDom && cmDom.CodeMirror && cmDom.CodeMirror.getValue() !== cssVal) {
                                     cmDom.CodeMirror.setValue(cssVal);
@@ -545,7 +558,8 @@
                             'meta[name=theme-color]'
                         ];
                         selectors.forEach(sel => {
-                            _uiControlsCache[sel] = document.querySelector(sel);
+                            const el = document.querySelector(sel);
+                            if (el) _uiControlsCache[sel] = el;
                         });
                     }
                     return _uiControlsCache;
@@ -554,60 +568,52 @@
                 // === 彻底消除上一个美化颜色残留的全量主题颜色/控件应用函数 ===
                 function applyThemeColors(themeObj) {
                     if (!themeObj) return;
-
-                    console.log(`[Theme Manager] 执行 applyThemeColors 颜色重置与映射, 主题: "${themeObj.name}"`);
+                    console.log(`[Theme Manager] applyThemeColors 颜色重置与映射, 主题: "${themeObj.name}"`);
                     const root = document.documentElement;
+                    const controls = getUIControls();
 
-                    const colorMap = [
-                        { prop: 'main_text_color', var: '--SmartThemeBodyColor', picker: '#main-text-color-picker', default: 'rgba(255, 255, 255, 1)' },
-                        { prop: 'italics_text_color', var: '--SmartThemeEmColor', picker: '#italics-color-picker', default: 'rgba(255, 255, 255, 1)' },
-                        { prop: 'underline_text_color', var: '--SmartThemeUnderlineColor', picker: '#underline-color-picker', default: 'rgba(255, 255, 255, 1)' },
-                        { prop: 'quote_text_color', var: '--SmartThemeQuoteColor', picker: '#quote-color-picker', default: 'rgba(255, 255, 255, 1)' },
-                        { prop: 'blur_tint_color', var: '--SmartThemeBlurTintColor', picker: '#blur-tint-color-picker', default: 'rgba(0, 0, 0, 0.6)' },
-                        { prop: 'chat_tint_color', var: '--SmartThemeChatTintColor', picker: '#chat-tint-color-picker', default: 'rgba(0, 0, 0, 0.4)' },
-                        { prop: 'user_mes_blur_tint_color', var: '--SmartThemeUserMesBlurTintColor', picker: '#user-mes-blur-tint-color-picker', default: 'rgba(0, 0, 0, 0.4)' },
-                        { prop: 'bot_mes_blur_tint_color', var: '--SmartThemeBotMesBlurTintColor', picker: '#bot-mes-blur-tint-color-picker', default: 'rgba(0, 0, 0, 0.4)' },
-                        { prop: 'shadow_color', var: '--SmartThemeShadowColor', picker: '#shadow-color-picker', default: 'rgba(0, 0, 0, 0.8)' },
-                        { prop: 'border_color', var: '--SmartThemeBorderColor', picker: '#border-color-picker', default: 'rgba(255, 255, 255, 0.1)' },
+                    // 1. 明确定义支持的主题颜色映射字典
+                    const colorVarsMap = [
+                        { prop: 'main_text_color', var: '--SmartThemeBodyColor', picker: '#main-text-color-picker' },
+                        { prop: 'italics_color', var: '--SmartThemeEmColor', picker: '#italics-color-picker' },
+                        { prop: 'underline_color', var: '--SmartThemeUnderlineColor', picker: '#underline-color-picker' },
+                        { prop: 'quote_color', var: '--SmartThemeQuoteColor', picker: '#quote-color-picker' },
+                        { prop: 'blur_tint_color', var: '--SmartThemeBlurTintColor', picker: '#blur-tint-color-picker' },
+                        { prop: 'chat_tint_color', var: '--SmartThemeChatTintColor', picker: '#chat-tint-color-picker' },
+                        { prop: 'user_mes_blur_tint_color', var: '--SmartThemeUserMesBlurTintColor', picker: '#user-mes-blur-tint-color-picker' },
+                        { prop: 'bot_mes_blur_tint_color', var: '--SmartThemeBotMesBlurTintColor', picker: '#bot-mes-blur-tint-color-picker' },
+                        { prop: 'shadow_color', var: '--SmartThemeShadowColor', picker: '#shadow-color-picker' },
+                        { prop: 'border_color', var: '--SmartThemeBorderColor', picker: '#border-color-picker' }
                     ];
 
-                    colorMap.forEach(item => {
-                        const val = themeObj[item.prop] !== undefined ? themeObj[item.prop] : item.default;
-                        
-                        // 1. 设置 CSS 变量
-                        root.style.setProperty(item.var, val);
+                    // 2. 先强行移除当前根 DOM 节点的行内颜色定义，避免上一个主题遗留未定义的残余样式
+                    colorVarsMap.forEach(item => root.style.removeProperty(item.var));
 
-                        // 2. 主文本色 RGB 拆分
-                        if (item.prop === 'main_text_color' && val) {
-                            try {
-                                const parts = val.split('(')[1].split(')')[0].split(',');
-                                root.style.setProperty('--SmartThemeCheckboxBgColorR', parts[0].trim());
-                                root.style.setProperty('--SmartThemeCheckboxBgColorG', parts[1].trim());
-                                root.style.setProperty('--SmartThemeCheckboxBgColorB', parts[2].trim());
-                                root.style.setProperty('--SmartThemeCheckboxBgColorA', parts[3] ? parts[3].trim() : '1');
-                            } catch(e){}
-                        }
-
-                        // 3. 更新酒馆 UI 界面中的 Color Picker 控件
-                        const pickerEl = document.querySelector(item.picker);
-                        if (pickerEl) {
-                            pickerEl.setAttribute('color', val);
-                            pickerEl.value = val;
-                            if (window.jQuery) {
-                                try {
-                                    $(pickerEl).attr('color', val).val(val).trigger('input').trigger('change');
-                                } catch(e){}
+                    // 3. 将新主题中明确定义的颜色写入 style 行内属性与原生 Color Picker
+                    colorVarsMap.forEach(item => {
+                        const val = themeObj[item.prop];
+                        if (val !== undefined && val !== null && val !== '') {
+                            root.style.setProperty(item.var, val);
+                            const pEl = controls[item.picker];
+                            if (pEl) pEl.value = val;
+                            
+                            if (item.var === '--SmartThemeBlurTintColor') {
+                                const metaTheme = controls['meta[name=theme-color]'];
+                                if (metaTheme) metaTheme.setAttribute('content', val);
                             }
                         }
+                    });
 
-                        // 4. 同步更新 power_user 内存中对应的值
-                        if (typeof power_user !== 'undefined') {
-                            power_user[item.prop] = val;
-                        }
-                        if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
-                            const ctx = SillyTavern.getContext();
-                            if (ctx && ctx.power_user) {
-                                ctx.power_user[item.prop] = val;
+                    // 4. 同步更新上下文全局配置 (如 power_user)，防止 ST 内部校验认为样式失效
+                    colorVarsMap.forEach(item => {
+                        const val = themeObj[item.prop];
+                        if (val !== undefined) {
+                            if (typeof power_user !== 'undefined') power_user[item.prop] = val;
+                            if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                                const ctx = SillyTavern.getContext();
+                                if (ctx && ctx.power_user) {
+                                    ctx.power_user[item.prop] = val;
+                                }
                             }
                         }
                     });
@@ -621,8 +627,8 @@
                     numMap.forEach(item => {
                         const val = themeObj[item.prop] !== undefined ? themeObj[item.prop] : item.default;
                         root.style.setProperty(item.var, String(val));
-                        const pEl = document.querySelector(item.picker);
-                        const cEl = document.querySelector(item.counter);
+                        const pEl = controls[item.picker];
+                        const cEl = controls[item.counter];
                         if (pEl) pEl.value = val;
                         if (cEl) cEl.value = val;
                         if (typeof power_user !== 'undefined') power_user[item.prop] = val;
@@ -630,8 +636,8 @@
 
                     if (themeObj.chat_width !== undefined) {
                         root.style.setProperty('--sheldWidth', `${themeObj.chat_width}vw`);
-                        const cw = document.querySelector('#chat_width_slider');
-                        const cwc = document.querySelector('#chat_width_slider_counter');
+                        const cw = controls['#chat_width_slider'];
+                        const cwc = controls['#chat_width_slider_counter'];
                         if (cw) cw.value = themeObj.chat_width;
                         if (cwc) cwc.value = themeObj.chat_width;
                         if (typeof power_user !== 'undefined') power_user.chat_width = themeObj.chat_width;
@@ -643,6 +649,7 @@
                 // 在重命名/导入后无需刷新即可切换主题
                 function applyThemeDirect(themeName) {
                     console.log(`[Theme Manager] applyThemeDirect 触发切换至主题: "${themeName}"`);
+                    const originalSelect = document.querySelector('#themes');
                     deduplicateSelectOptions(originalSelect);
                     syncStKnownThemes();
 
@@ -654,6 +661,18 @@
                         applyThemeColors(themeObj);
                     }
 
+                    // 防范 ST 原生 loadTheme 异步冲刷 custom_css 的多阶延迟安全保障
+                    const scheduleAsyncProtection = () => {
+                        if (!themeObj) return;
+                        [0, 50, 150, 350, 600].forEach(delay => {
+                            setTimeout(() => {
+                                updateSTThemeMemory(themeObj, 'add');
+                                syncCustomCssToST(themeObj.custom_css);
+                                applyThemeColors(themeObj);
+                            }, delay);
+                        });
+                    };
+
                     // 核心优化 1: 如果 ST 内部 themes 包含此主题，则使用 ST 原生逻辑处理，完美规避重复执行与组件刷新冲突
                     if (stKnownThemes.has(themeName)) {
                         originalSelect.value = themeName;
@@ -662,6 +681,7 @@
                             syncCustomCssToST(themeObj.custom_css);
                             applyThemeColors(themeObj);
                         }
+                        scheduleAsyncProtection();
                         return;
                     }
 
@@ -669,6 +689,7 @@
                     if (!themeObj) {
                         originalSelect.value = themeName;
                         triggerSelectChange(originalSelect);
+                        scheduleAsyncProtection();
                         return;
                     }
 
@@ -735,6 +756,7 @@
                     // 4. 设置 select 值并双重触发 ST 原生 change
                     originalSelect.value = themeName;
                     triggerSelectChange(originalSelect);
+                    scheduleAsyncProtection();
                 }
 
                 // 标签数据缓存（避免每次调用都 JSON.parse）
