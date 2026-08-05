@@ -556,52 +556,60 @@
                 // === 彻底消除上一个美化颜色残留的全量主题颜色/控件应用函数 ===
                 function applyThemeColors(themeObj) {
                     if (!themeObj) return;
-                    console.log(`[Theme Manager] applyThemeColors 颜色重置与映射, 主题: "${themeObj.name}"`);
-                    const root = document.documentElement;
-                    const controls = getUIControls();
 
-                    // 1. 明确定义支持的主题颜色映射字典
-                    const colorVarsMap = [
-                        { prop: 'main_text_color', var: '--SmartThemeBodyColor', picker: '#main-text-color-picker' },
-                        { prop: 'italics_color', var: '--SmartThemeEmColor', picker: '#italics-color-picker' },
-                        { prop: 'underline_color', var: '--SmartThemeUnderlineColor', picker: '#underline-color-picker' },
-                        { prop: 'quote_color', var: '--SmartThemeQuoteColor', picker: '#quote-color-picker' },
-                        { prop: 'blur_tint_color', var: '--SmartThemeBlurTintColor', picker: '#blur-tint-color-picker' },
-                        { prop: 'chat_tint_color', var: '--SmartThemeChatTintColor', picker: '#chat-tint-color-picker' },
-                        { prop: 'user_mes_blur_tint_color', var: '--SmartThemeUserMesBlurTintColor', picker: '#user-mes-blur-tint-color-picker' },
-                        { prop: 'bot_mes_blur_tint_color', var: '--SmartThemeBotMesBlurTintColor', picker: '#bot-mes-blur-tint-color-picker' },
-                        { prop: 'shadow_color', var: '--SmartThemeShadowColor', picker: '#shadow-color-picker' },
-                        { prop: 'border_color', var: '--SmartThemeBorderColor', picker: '#border-color-picker' }
+                    console.log(`[Theme Manager] 执行 applyThemeColors 颜色重置与映射, 主题: "${themeObj.name}"`);
+                    const root = document.documentElement;
+
+                    const colorMap = [
+                        { prop: 'main_text_color', var: '--SmartThemeBodyColor', picker: '#main-text-color-picker', default: 'rgba(255, 255, 255, 1)' },
+                        { prop: 'italics_text_color', var: '--SmartThemeEmColor', picker: '#italics-color-picker', default: 'rgba(255, 255, 255, 1)' },
+                        { prop: 'underline_text_color', var: '--SmartThemeUnderlineColor', picker: '#underline-color-picker', default: 'rgba(255, 255, 255, 1)' },
+                        { prop: 'quote_text_color', var: '--SmartThemeQuoteColor', picker: '#quote-color-picker', default: 'rgba(255, 255, 255, 1)' },
+                        { prop: 'blur_tint_color', var: '--SmartThemeBlurTintColor', picker: '#blur-tint-color-picker', default: 'rgba(0, 0, 0, 0.6)' },
+                        { prop: 'chat_tint_color', var: '--SmartThemeChatTintColor', picker: '#chat-tint-color-picker', default: 'rgba(0, 0, 0, 0.4)' },
+                        { prop: 'user_mes_blur_tint_color', var: '--SmartThemeUserMesBlurTintColor', picker: '#user-mes-blur-tint-color-picker', default: 'rgba(0, 0, 0, 0.4)' },
+                        { prop: 'bot_mes_blur_tint_color', var: '--SmartThemeBotMesBlurTintColor', picker: '#bot-mes-blur-tint-color-picker', default: 'rgba(0, 0, 0, 0.4)' },
+                        { prop: 'shadow_color', var: '--SmartThemeShadowColor', picker: '#shadow-color-picker', default: 'rgba(0, 0, 0, 0.8)' },
+                        { prop: 'border_color', var: '--SmartThemeBorderColor', picker: '#border-color-picker', default: 'rgba(255, 255, 255, 0.1)' },
                     ];
 
-                    // 2. 先强行移除当前根 DOM 节点的行内颜色定义，避免上一个主题遗留未定义的残余样式
-                    colorVarsMap.forEach(item => root.style.removeProperty(item.var));
+                    colorMap.forEach(item => {
+                        const val = themeObj[item.prop] !== undefined ? themeObj[item.prop] : item.default;
+                        
+                        // 1. 设置 CSS 变量
+                        root.style.setProperty(item.var, val);
 
-                    // 3. 将新主题中明确定义的颜色写入 style 行内属性与原生 Color Picker
-                    colorVarsMap.forEach(item => {
-                        const val = themeObj[item.prop];
-                        if (val !== undefined && val !== null && val !== '') {
-                            root.style.setProperty(item.var, val);
-                            const pEl = controls[item.picker];
-                            if (pEl) pEl.value = val;
-                            
-                            if (item.var === '--SmartThemeBlurTintColor') {
-                                const metaTheme = controls['meta[name=theme-color]'];
-                                if (metaTheme) metaTheme.setAttribute('content', val);
+                        // 2. 主文本色 RGB 拆分
+                        if (item.prop === 'main_text_color' && val) {
+                            try {
+                                const parts = val.split('(')[1].split(')')[0].split(',');
+                                root.style.setProperty('--SmartThemeCheckboxBgColorR', parts[0].trim());
+                                root.style.setProperty('--SmartThemeCheckboxBgColorG', parts[1].trim());
+                                root.style.setProperty('--SmartThemeCheckboxBgColorB', parts[2].trim());
+                                root.style.setProperty('--SmartThemeCheckboxBgColorA', parts[3] ? parts[3].trim() : '1');
+                            } catch(e){}
+                        }
+
+                        // 3. 更新酒馆 UI 界面中的 Color Picker 控件
+                        const pickerEl = document.querySelector(item.picker);
+                        if (pickerEl) {
+                            pickerEl.setAttribute('color', val);
+                            pickerEl.value = val;
+                            if (window.jQuery) {
+                                try {
+                                    $(pickerEl).attr('color', val).val(val).trigger('input').trigger('change');
+                                } catch(e){}
                             }
                         }
-                    });
 
-                    // 4. 同步更新上下文全局配置 (如 power_user)，防止 ST 内部校验认为样式失效
-                    colorVarsMap.forEach(item => {
-                        const val = themeObj[item.prop];
-                        if (val !== undefined) {
-                            if (typeof power_user !== 'undefined') power_user[item.prop] = val;
-                            if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
-                                const ctx = SillyTavern.getContext();
-                                if (ctx && ctx.power_user) {
-                                    ctx.power_user[item.prop] = val;
-                                }
+                        // 4. 同步更新 power_user 内存中对应的值
+                        if (typeof power_user !== 'undefined') {
+                            power_user[item.prop] = val;
+                        }
+                        if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                            const ctx = SillyTavern.getContext();
+                            if (ctx && ctx.power_user) {
+                                ctx.power_user[item.prop] = val;
                             }
                         }
                     });
@@ -615,8 +623,8 @@
                     numMap.forEach(item => {
                         const val = themeObj[item.prop] !== undefined ? themeObj[item.prop] : item.default;
                         root.style.setProperty(item.var, String(val));
-                        const pEl = controls[item.picker];
-                        const cEl = controls[item.counter];
+                        const pEl = document.querySelector(item.picker);
+                        const cEl = document.querySelector(item.counter);
                         if (pEl) pEl.value = val;
                         if (cEl) cEl.value = val;
                         if (typeof power_user !== 'undefined') power_user[item.prop] = val;
@@ -624,8 +632,8 @@
 
                     if (themeObj.chat_width !== undefined) {
                         root.style.setProperty('--sheldWidth', `${themeObj.chat_width}vw`);
-                        const cw = controls['#chat_width_slider'];
-                        const cwc = controls['#chat_width_slider_counter'];
+                        const cw = document.querySelector('#chat_width_slider');
+                        const cwc = document.querySelector('#chat_width_slider_counter');
                         if (cw) cw.value = themeObj.chat_width;
                         if (cwc) cwc.value = themeObj.chat_width;
                         if (typeof power_user !== 'undefined') power_user.chat_width = themeObj.chat_width;
