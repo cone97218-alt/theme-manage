@@ -576,7 +576,7 @@
                     colorMap.forEach(item => {
                         const val = themeObj[item.prop] !== undefined ? themeObj[item.prop] : item.default;
                         
-                        // 1. 设置 CSS 变量
+                        // 1. 设置 CSS 变量 (高效直接写入行内 style)
                         root.style.setProperty(item.var, val);
 
                         // 2. 主文本色 RGB 拆分
@@ -590,16 +590,11 @@
                             } catch(e){}
                         }
 
-                        // 3. 更新酒馆 UI 界面中的 Color Picker 控件
+                        // 3. 极速更新酒馆 UI 界面中的 Color Picker 控件（静默赋值，防止 20 次事件轰炸导致重绘顿挫）
                         const pickerEl = document.querySelector(item.picker);
                         if (pickerEl) {
                             pickerEl.setAttribute('color', val);
                             pickerEl.value = val;
-                            if (window.jQuery) {
-                                try {
-                                    $(pickerEl).attr('color', val).val(val).trigger('input').trigger('change');
-                                } catch(e){}
-                            }
                         }
 
                         // 4. 同步更新 power_user 内存中对应的值
@@ -660,13 +655,11 @@
                     // 防范 ST 原生 loadTheme 异步清空 custom_css 的条件保护
                     const scheduleAsyncProtection = () => {
                         if (!themeObj || !themeObj.custom_css) return;
-                        // 仅在 ST 原生 loadTheme 异步执行完后（约 200ms），精准检测是否有 custom_css 被意外冲刷置空
                         setTimeout(() => {
                             const curCss = (typeof power_user !== 'undefined' && power_user.custom_css) || '';
                             const styleEl = document.getElementById('custom-style');
                             const curStyleContent = styleEl ? styleEl.innerHTML : '';
 
-                            // 仅当检测到原生异步 loadTheme 将原本非空的 CSS 重置为空值时，才进行单次精准补回
                             if (!curCss || !curStyleContent) {
                                 console.log(`[Theme Manager] 检测到原生 loadTheme 冲刷 Custom CSS，已补回主题 "${themeName}" 的样式`);
                                 syncCustomCssToST(themeObj.custom_css);
@@ -674,87 +667,7 @@
                         }, 200);
                     };
 
-                    // 核心优化 1: 如果 ST 内部 themes 包含此主题，则使用 ST 原生逻辑处理，完美规避重复执行与组件刷新冲突
-                    if (stKnownThemes.has(themeName)) {
-                        originalSelect.value = themeName;
-                        triggerSelectChange(originalSelect);
-                        if (themeObj) {
-                            syncCustomCssToST(themeObj.custom_css);
-                            applyThemeColors(themeObj);
-                        }
-                        scheduleAsyncProtection();
-                        return;
-                    }
-
-                    // 核心优化 2: 如果 ST 内部不包含该主题 (当前会话重命名或导入)，我们再手动按需执行 applyThemeDirect
-                    if (!themeObj) {
-                        originalSelect.value = themeName;
-                        triggerSelectChange(originalSelect);
-                        scheduleAsyncProtection();
-                        return;
-                    }
-
-                    const root = document.documentElement;
-                    try {
-                        if (typeof power_user !== 'undefined') {
-                            power_user.theme = themeName;
-                            // 赋值所有 power_user 属性，以便 ST 其余部分能读取到最新的值
-                            Object.entries(themeObj).forEach(([k, v]) => {
-                                if (v !== undefined) power_user[k] = v;
-                            });
-                        }
-                    } catch(e) {}
-
-                    // 核心优化 3: 使用 requestAnimationFrame 批处理所有 DOM 写入，确保仅触发一次重绘与回流
-                    requestAnimationFrame(() => {
-                        applyThemeColors(themeObj);
-                        syncCustomCssToST(themeObj.custom_css);
-
-                        // 3. 开关类样式与控件
-                        const controls = getUIControls();
-                        if (themeObj.fast_ui_mode !== undefined) {
-                            document.body.classList.toggle('no-blur', themeObj.fast_ui_mode);
-                            const bs = controls['#blur-strength-block'];
-                            if (bs) bs.style.opacity = themeObj.fast_ui_mode ? '0.2' : '1';
-                        }
-                        if (themeObj.waifuMode !== undefined) document.body.classList.toggle('waifuMode', themeObj.waifuMode);
-                        if (themeObj.noShadows !== undefined) {
-                            document.body.classList.toggle('noShadows', themeObj.noShadows);
-                            const sw = controls['#shadow-width-block'];
-                            if (sw) sw.style.opacity = themeObj.noShadows ? '0.2' : '1';
-                        }
-                        
-                        if (themeObj.avatar_style !== undefined) {
-                            document.body.classList.toggle('big-avatars', themeObj.avatar_style === 0);
-                            document.body.classList.toggle('square-avatars', themeObj.avatar_style === 1);
-                            document.body.classList.toggle('rounded-avatars', themeObj.avatar_style === 2);
-                        }
-                        if (themeObj.chat_display !== undefined) {
-                            document.body.classList.remove('bubblechat', 'documentstyle');
-                            if (themeObj.chat_display === 1) document.body.classList.add('bubblechat');
-                            if (themeObj.chat_display === 2) document.body.classList.add('documentstyle');
-                        }
-
-                        // 复选框和下拉菜单控制（保留非颜色/非数字属性）
-                        const otherInputs = {
-                            '#fast_ui_mode': themeObj.fast_ui_mode,
-                            '#waifuMode': themeObj.waifuMode,
-                            '#noShadowsmode': themeObj.noShadows,
-                            '#avatar_style': themeObj.avatar_style,
-                            '#chat_display': themeObj.chat_display,
-                        };
-                        for (const [sel, val] of Object.entries(otherInputs)) {
-                            if (val !== undefined) {
-                                const el = controls[sel];
-                                if (el) {
-                                    if (el.type === 'checkbox') el.checked = val;
-                                    else if (el.tagName === 'SELECT') el.value = val;
-                                }
-                            }
-                        }
-                    });
-
-                    // 4. 设置 select 值并双重触发 ST 原生 change
+                    // 核心优化: 更新选中值并同步触发表单变更
                     originalSelect.value = themeName;
                     triggerSelectChange(originalSelect);
                     scheduleAsyncProtection();
