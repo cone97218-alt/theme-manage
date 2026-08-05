@@ -416,19 +416,7 @@
 
                 // === ST 原生 Custom CSS 编辑器与 CodeMirror 深度内存/DOM 双向同步助手 ===
                 function syncCustomCssToST(customCss) {
-                    let cssVal = customCss !== undefined && customCss !== null ? customCss : '';
-
-                    // 自动防冲刷回退恢复：若传入 CSS 为空，且当前选中的主题拥有 custom_css，自动恢复使用主题的 custom_css
-                    const originalSelect = document.querySelector('#themes');
-                    const activeThemeName = (originalSelect && originalSelect.value) || (typeof power_user !== 'undefined' && power_user.theme);
-                    if (!cssVal && activeThemeName) {
-                        const activeThemeObj = allThemeObjectsMap.get(activeThemeName);
-                        if (activeThemeObj && activeThemeObj.custom_css) {
-                            cssVal = activeThemeObj.custom_css;
-                            console.log(`[Theme Manager] 自动防干涉：使用缓存主题 "${activeThemeName}" 的 Custom CSS (字节数: ${cssVal.length})`);
-                        }
-                    }
-
+                    const cssVal = customCss !== undefined && customCss !== null ? customCss : '';
                     console.log(`[Theme Manager] syncCustomCssToST 触发, 目标 CSS 字节数: ${cssVal.length}`);
 
                     // 1. 同步 ST 全局与 power_user 数据结构
@@ -661,16 +649,21 @@
                         applyThemeColors(themeObj);
                     }
 
-                    // 防范 ST 原生 loadTheme 异步冲刷 custom_css 的多阶延迟安全保障
+                    // 防范 ST 原生 loadTheme 异步清空 custom_css 的条件保护
                     const scheduleAsyncProtection = () => {
-                        if (!themeObj) return;
-                        [0, 50, 150, 350, 600].forEach(delay => {
-                            setTimeout(() => {
-                                updateSTThemeMemory(themeObj, 'add');
+                        if (!themeObj || !themeObj.custom_css) return;
+                        // 仅在 ST 原生 loadTheme 异步执行完后（约 200ms），精准检测是否有 custom_css 被意外冲刷置空
+                        setTimeout(() => {
+                            const curCss = (typeof power_user !== 'undefined' && power_user.custom_css) || '';
+                            const styleEl = document.getElementById('custom-style');
+                            const curStyleContent = styleEl ? styleEl.innerHTML : '';
+
+                            // 仅当检测到原生异步 loadTheme 将原本非空的 CSS 重置为空值时，才进行单次精准补回
+                            if (!curCss || !curStyleContent) {
+                                console.log(`[Theme Manager] 检测到原生 loadTheme 冲刷 Custom CSS，已补回主题 "${themeName}" 的样式`);
                                 syncCustomCssToST(themeObj.custom_css);
-                                applyThemeColors(themeObj);
-                            }, delay);
-                        });
+                            }
+                        }, 200);
                     };
 
                     // 核心优化 1: 如果 ST 内部 themes 包含此主题，则使用 ST 原生逻辑处理，完美规避重复执行与组件刷新冲突
