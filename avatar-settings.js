@@ -377,11 +377,16 @@
             /* 头像框网格预览 */
             .frame-list-grid {
                 display: grid;
-                grid-template-columns: repeat(3, 1fr);
+                grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+                grid-auto-rows: max-content;
+                align-content: start;
+                align-items: start;
                 gap: 10px;
-                max-height: 200px;
+                max-height: 240px;
                 overflow-y: auto;
+                overflow-x: hidden;
                 padding: 4px;
+                box-sizing: border-box;
             }
             .frame-item-card {
                 background: transparent;
@@ -394,6 +399,10 @@
                 gap: 6px;
                 cursor: pointer;
                 transition: all 0.2s;
+                box-sizing: border-box;
+                min-width: 0;
+                min-height: 0;
+                flex-shrink: 0;
             }
             .frame-item-card:hover, .frame-item-card.active {
                 background: var(--SmartThemeBlurTintColor, rgba(0,0,0,0.03));
@@ -419,20 +428,30 @@
             /* 图库样式 */
             .gallery-grid {
                 display: grid;
-                grid-template-columns: repeat(4, 1fr);
+                grid-template-columns: repeat(auto-fill, minmax(68px, 1fr));
+                grid-auto-rows: max-content;
+                align-content: start;
+                align-items: start;
                 gap: 8px;
-                max-height: 180px;
+                max-height: 280px;
                 overflow-y: auto;
+                overflow-x: hidden;
                 padding: 4px;
+                box-sizing: border-box;
             }
             .gallery-item {
                 position: relative;
+                width: 100%;
                 aspect-ratio: 1;
                 border-radius: 6px;
                 overflow: hidden;
                 cursor: pointer;
                 border: 1px solid var(--SmartThemeBorderColor, rgba(0,0,0,0.08));
                 background: transparent;
+                box-sizing: border-box;
+                min-width: 0;
+                min-height: 0;
+                flex-shrink: 0;
             }
             .gallery-item:hover, .gallery-item.active {
                 border-color: var(--SmartThemeQuoteColor, #007bff);
@@ -441,6 +460,8 @@
                 width: 100%;
                 height: 100%;
                 object-fit: cover;
+                display: block;
+                pointer-events: none;
             }
             .gallery-item-delete {
                 position: absolute;
