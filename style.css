@@ -433,6 +433,15 @@
     text-shadow: 0 0 5px var(--SmartThemeQuoteColor, #007bff) !important;
 }
 
+.link-daynight-btn {
+    color: var(--SmartThemeBodyColor);
+}
+
+.link-daynight-btn.daynight-linked {
+    color: #f39c12 !important;
+    text-shadow: 0 0 5px rgba(243, 156, 18, 0.7) !important;
+}
+
 
 /* ======== START: 最终优化样式 ======== */
 

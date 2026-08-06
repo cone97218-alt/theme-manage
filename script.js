@@ -31,7 +31,7 @@
 
         let newState = null;
         if (settings.mode === 'system') {
-            newState = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'day';
+            newState = (document.documentElement.classList.contains('dark') || document.body.classList.contains('dark') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) ? 'night' : 'day';
         } else if (settings.mode === 'time') {
             const now = new Date();
             const currentTime = now.getHours() * 60 + now.getMinutes();
@@ -50,7 +50,23 @@
         if (!newState) return;
         currentAutoThemeState = newState;
 
-        const target = newState === 'day' ? settings.dayTarget : settings.nightTarget;
+        let target = null;
+        const currentThemeVal = originalSelect.value;
+        try {
+            const rawPairs = JSON.parse(localStorage.getItem('themeManager_themeDayNightPairs'));
+            let pair = null;
+            if (Array.isArray(rawPairs)) {
+                pair = rawPairs.find(p => p && (p.dayTheme === currentThemeVal || p.nightTheme === currentThemeVal));
+            }
+            if (pair) {
+                if (newState === 'night') target = pair.nightTheme || pair.dayTheme;
+                else if (newState === 'day') target = pair.dayTheme || pair.nightTheme;
+            }
+        } catch (e) {}
+
+        if (!target) {
+            target = newState === 'day' ? settings.dayTarget : settings.nightTarget;
+        }
         if (!target) return;
 
         let themeToApply = null;
@@ -91,7 +107,10 @@
             if (themeChanged) {
                 console.log(`[Theme Manager] 启动早期极速切换主题至: ${themeToApply}`);
                 originalSelect.value = themeToApply;
-                originalSelect.dispatchEvent(new Event('change'));
+                originalSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                if (window.jQuery) {
+                    try { $(originalSelect).trigger('change'); } catch (e) {}
+                }
             }
 
             // 延迟应用背景，避免阻塞渲染
@@ -158,6 +177,7 @@
                 const THEME_TAGS_KEY = 'themeManager_themeTags';
                 const THEME_BACKGROUND_BINDINGS_KEY = 'themeManager_backgroundBindings';
                 const CHARACTER_THEME_BINDINGS_KEY = 'themeManager_characterThemeBindings';
+                const THEME_DAY_NIGHT_PAIRS_KEY = 'themeManager_themeDayNightPairs';
                 const BATCH_EDIT_COLLAPSED_KEY = 'themeManager_batchEditCollapsed';
                 const ACTIVE_TAGS_KEY = 'themeManager_activeTagsFilters';
                 const AUTO_THEME_KEY = 'themeManager_autoTheme';
@@ -170,6 +190,51 @@
                 const SHOW_USAGE_COUNT_KEY = 'themeManager_showUsageCount';
                 const ENABLE_AVATAR_HELPER_KEY = 'themeManager_enableAvatarHelper';
                 const ENABLE_COLOR_TRANSFER_KEY = 'themeManager_enableColorTransfer';
+                const ENABLE_DAYNIGHT_BINDING_KEY = 'themeManager_enableDayNightBinding';
+
+                let themeDayNightPairs = loadThemeDayNightPairs();
+                let enableDayNightBinding = localStorage.getItem(ENABLE_DAYNIGHT_BINDING_KEY) !== 'false'; // 默认开启 (true)
+
+                function loadThemeDayNightPairs() {
+                    try {
+                        const raw = JSON.parse(localStorage.getItem(THEME_DAY_NIGHT_PAIRS_KEY));
+                        if (Array.isArray(raw)) {
+                            return raw.filter(p => p && (p.dayTheme || p.nightTheme));
+                        }
+                        if (raw && typeof raw === 'object') {
+                            // 兼容性迁移：将旧版字典模式自动平滑迁移为统一日夜组数组模式
+                            const list = [];
+                            const processed = new Set();
+                            Object.keys(raw).forEach(k => {
+                                const targetNight = raw[k]?.nightTarget;
+                                const targetDay = raw[k]?.dayTarget;
+                                if (targetNight && !processed.has(`${k}-${targetNight}`)) {
+                                    list.push({ dayTheme: k, nightTheme: targetNight });
+                                    processed.add(`${k}-${targetNight}`);
+                                    processed.add(`${targetNight}-${k}`);
+                                }
+                                if (targetDay && !processed.has(`${targetDay}-${k}`)) {
+                                    list.push({ dayTheme: targetDay, nightTheme: k });
+                                    processed.add(`${targetDay}-${k}`);
+                                    processed.add(`${k}-${targetDay}`);
+                                }
+                            });
+                            localStorage.setItem(THEME_DAY_NIGHT_PAIRS_KEY, JSON.stringify(list));
+                            return list;
+                        }
+                    } catch (e) {}
+                    return [];
+                }
+
+                function saveThemeDayNightPairs(pairs) {
+                    themeDayNightPairs = pairs;
+                    localStorage.setItem(THEME_DAY_NIGHT_PAIRS_KEY, JSON.stringify(themeDayNightPairs));
+                }
+
+                function getPairForTheme(themeName) {
+                    if (!themeName || !Array.isArray(themeDayNightPairs)) return null;
+                    return themeDayNightPairs.find(p => p && (p.dayTheme === themeName || p.nightTheme === themeName)) || null;
+                }
 
                 function isSubtagsEnabled() {
                     return localStorage.getItem(ENABLE_SUBTAGS_KEY) === 'true';
@@ -778,6 +843,7 @@
                                 <button id="tm-toggle-usage-count-btn" class="menu_button" title="显示/隐藏使用次数统计"><i class="fa-solid fa-chart-bar"></i> 统计</button>
                                 <button id="tm-toggle-avatar-helper-btn" class="menu_button" title="开启/完全禁用头像管理功能"><i class="fa-solid fa-check"></i> 头像</button>
                                 <button id="tm-toggle-color-transfer-btn" class="menu_button" title="开启/禁用提取配色功能"><i class="fa-solid fa-palette"></i> 配色</button>
+                                <button id="tm-toggle-daynight-binding-btn" class="menu_button" title="显示/隐藏卡片日夜绑定按钮"><i class="fa-solid fa-circle-half-stroke"></i> 日夜</button>
                                 <button id="manage-tags-btn" class="menu_button" title="管理标签"><i class="fa-solid fa-tags"></i> 标签</button>
                                 <button id="tm-export-settings-btn" class="menu_button" title="导出配置文件"><i class="fa-solid fa-file-export"></i> 导出</button>
                                 <button id="tm-import-settings-btn" class="menu_button" title="从配置文件中导入插件设置"><i class="fa-solid fa-file-import"></i> 导入</button>
@@ -840,16 +906,45 @@
                                     </div>
                                     <hr>
                                     <div style="margin-top:10px;">
-                                        <label><b>日间主题/标签 (浅色):</b></label>
+                                        <label><b>日间主题/标签 (全局浅色):</b></label>
                                         <select id="auto-theme-day-target" class="text_pole" style="width:100%; margin-bottom:10px;"></select>
                                         
-                                        <label><b>夜间主题/标签 (深色):</b></label>
+                                        <label><b>夜间主题/标签 (全局深色):</b></label>
                                         <select id="auto-theme-night-target" class="text_pole" style="width:100%;"></select>
                                         <p style="font-size: 0.8em; opacity: 0.8; margin-top: 5px;">* 如果选择带有 <code>[Tag]</code> 的分类，将在该标签下随机挑选。</p>
+                                    </div>
+                                    <hr>
+                                    <div style="margin-top:10px;">
+                                        <label><b>按美化独立日夜组配置 (优先于全局):</b></label>
+                                        <div id="tm-pairs-list-container" style="max-height: 140px; overflow-y: auto; font-size: 0.85em; margin-top: 5px; border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 4px; padding: 6px;"></div>
                                     </div>
                                 </div>
                                 <div class="tm-modal-footer" style="display:flex; justify-content:center; padding-top:10px;">
                                     <button id="save-auto-theme-btn" class="menu_button" style="width:100%; justify-content:center;"><i class="fa-solid fa-check"></i> 保存设置</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="tm-daynight-pair-modal" class="tm-modal" style="display:none;">
+                            <div class="tm-modal-content">
+                                <div class="tm-modal-header">
+                                    <h3><i class="fa-solid fa-circle-half-stroke"></i> 美化日夜联动绑定</h3>
+                                    <button id="close-tm-daynight-modal" class="tm-modal-close"><i class="fa-solid fa-xmark"></i></button>
+                                </div>
+                                <div class="tm-modal-body">
+                                    <p style="margin-bottom:10px; font-weight:bold;">当前美化：<span id="tm-daynight-current-name" style="color:var(--SmartThemeEmColor);"></span></p>
+                                    <label style="display:block; margin-bottom:10px;">
+                                        <b>对应的夜间美化 (切换到夜间时):</b>
+                                        <select id="tm-daynight-night-select" class="text_pole" style="width:100%; margin-top:4px;"></select>
+                                    </label>
+                                    <label style="display:block; margin-bottom:10px;">
+                                        <b>对应的日间美化 (切换到日间时):</b>
+                                        <select id="tm-daynight-day-select" class="text_pole" style="width:100%; margin-top:4px;"></select>
+                                    </label>
+                                    <p style="font-size:0.8em; opacity:0.8; margin-top:5px;">* 配置后，当在当前美化下触发日夜模式切换时，将优先切换至此处绑定的专属美化；无绑定时回退全局设置。</p>
+                                </div>
+                                <div class="tm-modal-footer" style="display:flex; gap:10px; justify-content:center; padding-top:10px;">
+                                    <button id="save-tm-daynight-btn" class="menu_button" style="flex:1; justify-content:center;"><i class="fa-solid fa-check"></i> 保存绑定</button>
+                                    <button id="clear-tm-daynight-btn" class="menu_button" style="flex:1; justify-content:center; color:#ff4d4f;"><i class="fa-solid fa-trash-can"></i> 解除绑定</button>
                                 </div>
                             </div>
                         </div>
@@ -1157,6 +1252,7 @@
                         <div class="theme-item-buttons">
                             <button class="set-tag-btn" title="分类标签"><i class="fa-solid fa-tags"></i></button>
                             <button class="link-bg-btn" title="关联背景图"><i class="fa-solid fa-link"></i></button>
+                            <button class="link-daynight-btn" title="绑定日夜美化"><i class="fa-solid fa-circle-half-stroke"></i></button>
                             <button class="favorite-btn" title="收藏"><i class="fa-regular fa-star"></i></button>
                             <button class="color-transfer-btn" title="提取配色" style="display:none;"><i class="fa-solid fa-palette"></i></button>
                             <button class="rename-btn" title="重命名"><i class="fa-solid fa-pen"></i></button>
@@ -1177,10 +1273,11 @@
                     const buttonsDiv = item.children[1]; // item level: nameDiv=0, buttonsDiv=1
                     const setTagBtn = buttonsDiv.children[0];
                     const linkBgBtn = buttonsDiv.children[1];
-                    const favoriteBtn = buttonsDiv.children[2];
-                    const colorTransferBtn = buttonsDiv.children[3];
-                    const renameBtn = buttonsDiv.children[4];
-                    const deleteBtn = buttonsDiv.children[5];
+                    const linkDaynightBtn = buttonsDiv.children[2];
+                    const favoriteBtn = buttonsDiv.children[3];
+                    const colorTransferBtn = buttonsDiv.children[4];
+                    const renameBtn = buttonsDiv.children[5];
+                    const deleteBtn = buttonsDiv.children[6];
 
                     if (colorTransferBtn) {
                         colorTransferBtn.style.display = enableColorTransfer ? 'inline-flex' : 'none';
@@ -1219,12 +1316,27 @@
                         favoriteBtn.children[0].className = 'fa-solid fa-star';
                     }
 
-                    // 设置绑定状态
+                    // 设置背景绑定状态
                     const isBound = !!themeBackgroundBindings[theme.value];
                     if (isBound) {
                         linkBgBtn.classList.add('linked');
                         linkBgBtn.children[0].className = 'fa-solid fa-link-slash';
                         linkBgBtn.title = '取消背景图关联';
+                    }
+
+                    if (linkDaynightBtn) {
+                        linkDaynightBtn.style.display = enableDayNightBinding ? 'inline-flex' : 'none';
+                    }
+
+                    // 设置日夜美化绑定状态
+                    const pair = getPairForTheme(theme.value);
+                    if (pair) {
+                        linkDaynightBtn.classList.add('daynight-linked');
+                        const otherTheme = pair.dayTheme === theme.value ? pair.nightTheme : pair.dayTheme;
+                        linkDaynightBtn.title = `已绑定日夜组合 (对应美化: ${otherTheme || '未指定'})`;
+                    } else {
+                        linkDaynightBtn.classList.remove('daynight-linked');
+                        linkDaynightBtn.title = '绑定日夜美化';
                     }
 
                     // 批量选中状态
@@ -1865,7 +1977,7 @@
                         toastr.success(summary);
 
                         if (activeThemeWasRenamed) {
-                            originalSelect.dispatchEvent(new Event('change'));
+                            triggerSelectChange(originalSelect);
                         }
                         updateActiveState();
                     } catch (err) {
@@ -1993,7 +2105,7 @@
                     if (isCurrentlyActiveDeleted) {
                         const azureOption = findOptionByValue(originalSelect, 'Azure');
                         originalSelect.value = azureOption ? 'Azure' : (originalSelect.options[0]?.value || '');
-                        originalSelect.dispatchEvent(new Event('change'));
+                        triggerSelectChange(originalSelect);
                     }
 
                     // 批量操作完成后统一触发持久化
@@ -2209,6 +2321,30 @@
                         themeItemMap.forEach((item) => {
                             const btn = item.querySelector('.color-transfer-btn');
                             if (btn) btn.style.display = enableColorTransfer ? 'inline-flex' : 'none';
+                        });
+                    });
+                }
+
+                // 日夜绑定功能开启/禁用 toggle
+                const toggleDayNightBindingBtn = managerPanel.querySelector('#tm-toggle-daynight-binding-btn');
+                if (toggleDayNightBindingBtn) {
+                    const updateDayNightBindingBtnIcon = (enabled) => {
+                        const icon = toggleDayNightBindingBtn.querySelector('i');
+                        if (icon) {
+                            icon.className = enabled ? 'fa-solid fa-check' : 'fa-solid fa-xmark';
+                        }
+                        toggleDayNightBindingBtn.classList.toggle('active', enabled);
+                    };
+                    updateDayNightBindingBtnIcon(enableDayNightBinding);
+                    toggleDayNightBindingBtn.addEventListener('click', () => {
+                        enableDayNightBinding = !enableDayNightBinding;
+                        localStorage.setItem(ENABLE_DAYNIGHT_BINDING_KEY, String(enableDayNightBinding));
+                        updateDayNightBindingBtnIcon(enableDayNightBinding);
+                        toastr.info(`日夜绑定图标已${enableDayNightBinding ? '显示' : '隐藏'}`);
+                        // 批量更新所有卡片上的日夜绑定按钮显示
+                        themeItemMap.forEach((item) => {
+                            const btn = item.querySelector('.link-daynight-btn');
+                            if (btn) btn.style.display = enableDayNightBinding ? 'inline-flex' : 'none';
                         });
                     });
                 }
@@ -2559,7 +2695,7 @@
                     if (allParsedThemes.length > 0) {
                         const randomIndex = Math.floor(Math.random() * allParsedThemes.length);
                         originalSelect.value = allParsedThemes[randomIndex].value;
-                        originalSelect.dispatchEvent(new Event('change'));
+                        triggerSelectChange(originalSelect);
                     }
                 });
 
@@ -3838,6 +3974,11 @@
                             return;
                         }
 
+                        if (button && button.classList.contains('link-daynight-btn')) {
+                            openDayNightPairModal(themeName);
+                            return;
+                        }
+
                         if (button && button.classList.contains('favorite-btn')) {
                             if (favoritesSet.has(themeName)) {
                                 updateFavorites(favorites.filter(f => f !== themeName));
@@ -3934,6 +4075,15 @@
                                     localStorage.setItem(AUTO_THEME_KEY, JSON.stringify(autoThemeSettings));
                                 }
 
+                                if (Array.isArray(themeDayNightPairs)) {
+                                    let pairsChanged = false;
+                                    themeDayNightPairs.forEach(p => {
+                                        if (p.dayTheme === oldName) { p.dayTheme = finalNewName; pairsChanged = true; }
+                                        if (p.nightTheme === oldName) { p.nightTheme = finalNewName; pairsChanged = true; }
+                                    });
+                                    if (pairsChanged) saveThemeDayNightPairs(themeDayNightPairs);
+                                }
+
                                 // 增量更新 UI（无需全量重建 DOM）
                                 softRenameThemeUI(oldName, finalNewName);
                                 filterThemeList();
@@ -3986,7 +4136,7 @@
                                     localStorage.setItem(CHARACTER_THEME_BINDINGS_KEY, JSON.stringify(charBindings));
                                 }
 
-                                // 清理自动切换主题设置的选中主题
+                                // 清理自动切换主题设置的选中主题与独立日夜对
                                 let autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || {};
                                 let autoThemeChanged = false;
                                 if (autoThemeSettings.dayTarget === themeName) {
@@ -4001,10 +4151,15 @@
                                     localStorage.setItem(AUTO_THEME_KEY, JSON.stringify(autoThemeSettings));
                                 }
 
+                                if (Array.isArray(themeDayNightPairs)) {
+                                    themeDayNightPairs = themeDayNightPairs.filter(p => p && p.dayTheme !== themeName && p.nightTheme !== themeName);
+                                    saveThemeDayNightPairs(themeDayNightPairs);
+                                }
+
                                 if (isCurrentlyActive) {
                                     const azureOption = findOptionByValue(originalSelect, 'Azure');
                                     originalSelect.value = azureOption ? 'Azure' : (originalSelect.options[0]?.value || '');
-                                    originalSelect.dispatchEvent(new Event('change'));
+                                    triggerSelectChange(originalSelect);
                                 }
                                 invalidateThemesCache();
                                 updateActiveState();
@@ -4316,7 +4471,7 @@
                                 if (themeSelect.value !== themeToApply) {
                                     console.log(`[Theme Manager] 角色绑定触发切换: ${themeToApply} (来源: ${target})`);
                                     themeSelect.value = themeToApply;
-                                    themeSelect.dispatchEvent(new Event('change'));
+                                    triggerSelectChange(themeSelect);
                                     toastr.info(`已应用角色绑定的美化：<b>${escapeHtml(themeToApply)}</b>`, '', { timeOut: 2000, escapeHtml: false });
                                 } else {
                                     console.log(`[Theme Manager Debug] Theme is already active:`, themeToApply);
@@ -4381,24 +4536,49 @@
 
 
 
+                function getSystemThemeMode() {
+                    if (document.documentElement.classList.contains('dark') || document.body.classList.contains('dark')) {
+                        return 'night';
+                    }
+                    if (document.documentElement.classList.contains('light') || document.body.classList.contains('light')) {
+                        return 'day';
+                    }
+                    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                        return 'night';
+                    }
+                    return 'day';
+                }
+
                 function performAutoThemeSwitch(newState) {
                     if (currentAutoThemeState === newState) return;
 
-                    const target = newState === 'day' ? autoThemeSettings.dayTarget : autoThemeSettings.nightTarget;
+                    let target = null;
+                    const currentTheme = originalSelect.value;
+                    const pair = getPairForTheme(currentTheme);
+                    if (pair) {
+                        if (newState === 'night') {
+                            target = pair.nightTheme || pair.dayTheme;
+                        } else if (newState === 'day') {
+                            target = pair.dayTheme || pair.nightTheme;
+                        }
+                    }
+
+                    if (!target) {
+                        target = newState === 'day' ? autoThemeSettings.dayTarget : autoThemeSettings.nightTarget;
+                    }
+
                     const themeToApply = getThemeForTarget(target);
 
                     if (themeToApply) {
                         const themeChanged = originalSelect.value !== themeToApply;
                         if (themeChanged) {
                             originalSelect.value = themeToApply;
-                            originalSelect.dispatchEvent(new Event('change'));
+                            triggerSelectChange(originalSelect);
                             toastr.info(`自动切换至 ${newState === 'day' ? '日间' : '夜间'} 主题: <b>${escapeHtml(themeToApply)}</b>`, '主题随动', { escapeHtml: false });
                         }
                         // 无论主题是否变化，都主动应用绑定的背景图
                         const boundBg = themeBackgroundBindings[themeToApply];
                         if (boundBg) {
-                            // 如果主题没变（change事件不会触发），需要主动应用背景
-                            // 如果主题变了，change事件也会尝试应用，但这里再调用一次做兜底保障
                             applyBackgroundDirectly(boundBg);
                         }
                     }
@@ -4410,7 +4590,7 @@
 
                     let newState = null;
                     if (autoThemeSettings.mode === 'system') {
-                        newState = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'day';
+                        newState = getSystemThemeMode();
                     } else if (autoThemeSettings.mode === 'time') {
                         const now = new Date();
                         const currentTime = now.getHours() * 60 + now.getMinutes();
@@ -4436,6 +4616,39 @@
                     }
                 });
 
+                // 针对 Tauri / TauriTavern 宿主环境的 IPC 主题监听
+                const setupTauriThemeListener = () => {
+                    const tauri = window.__TAURI__ || window.parent?.__TAURI__ || window.top?.__TAURI__;
+                    if (tauri && tauri.event && typeof tauri.event.listen === 'function') {
+                        try {
+                            tauri.event.listen('tauri://theme-changed', (event) => {
+                                if (autoThemeSettings.enabled && autoThemeSettings.mode === 'system') {
+                                    const themePayload = typeof event.payload === 'string' ? event.payload : (event.payload?.theme || '');
+                                    const newState = themePayload.includes('dark') ? 'night' : 'day';
+                                    currentAutoThemeState = null;
+                                    performAutoThemeSwitch(newState);
+                                }
+                            });
+                            console.log('[Theme Manager] 已成功注册 Tauri 原生主题监听事件 (tauri://theme-changed)');
+                        } catch (e) {
+                            console.warn('[Theme Manager] 注册 Tauri 主题监听事件失败:', e);
+                        }
+                    }
+                };
+                setupTauriThemeListener();
+
+                // 监听窗口恢复焦点与可见性变化，解决桌面 App 最小化/休眠恢复后的同步滞后问题
+                window.addEventListener('focus', () => {
+                    if (autoThemeSettings.enabled) {
+                        checkAutoTheme();
+                    }
+                });
+                document.addEventListener('visibilitychange', () => {
+                    if (!document.hidden && autoThemeSettings.enabled) {
+                        checkAutoTheme();
+                    }
+                });
+
                 function applyAutoThemeLoop() {
                     if (autoThemeCheckInterval) clearInterval(autoThemeCheckInterval);
                     if (autoThemeSettings.enabled) {
@@ -4449,10 +4662,168 @@
                 const closeAutoThemeModalBtn = managerPanel.querySelector('#close-auto-theme-modal');
                 const saveAutoThemeBtn = managerPanel.querySelector('#save-auto-theme-btn');
 
+                let currentTargetThemeForPair = null;
+
+                function updateThemeItemDayNightState(themeName) {
+                    const item = themeItemMap.get(themeName);
+                    if (!item) return;
+                    const buttonsDiv = item.children[1];
+                    const linkDaynightBtn = buttonsDiv.children[2];
+                    const pair = getPairForTheme(themeName);
+                    if (pair) {
+                        linkDaynightBtn.classList.add('daynight-linked');
+                        const otherTheme = pair.dayTheme === themeName ? pair.nightTheme : pair.dayTheme;
+                        linkDaynightBtn.title = `已绑定日夜组合 (对应美化: ${otherTheme || '未指定'})`;
+                    } else {
+                        linkDaynightBtn.classList.remove('daynight-linked');
+                        linkDaynightBtn.title = '绑定日夜美化';
+                    }
+                }
+
+                function openDayNightPairModal(themeName) {
+                    currentTargetThemeForPair = themeName;
+                    const pairModal = managerPanel.querySelector('#tm-daynight-pair-modal');
+                    const titleSpan = managerPanel.querySelector('#tm-daynight-current-name');
+                    const nightSelect = managerPanel.querySelector('#tm-daynight-night-select');
+                    const daySelect = managerPanel.querySelector('#tm-daynight-day-select');
+
+                    titleSpan.textContent = themeName;
+
+                    if ($(nightSelect).data('select2')) $(nightSelect).select2('destroy');
+                    if ($(daySelect).data('select2')) $(daySelect).select2('destroy');
+
+                    let optionsHtml = '<option value="">(未指定/不关联)</option>';
+                    allParsedThemes.forEach(t => {
+                        optionsHtml += `<option value="${escapeHtml(t.value)}">${escapeHtml(t.display)}</option>`;
+                    });
+                    nightSelect.innerHTML = optionsHtml;
+                    daySelect.innerHTML = optionsHtml;
+
+                    const existingPair = getPairForTheme(themeName);
+                    if (existingPair) {
+                        daySelect.value = existingPair.dayTheme || '';
+                        nightSelect.value = existingPair.nightTheme || '';
+                    } else {
+                        const isNightName = /(深色|暗色|黑色|Dark|Night|黑)/i.test(themeName);
+                        if (isNightName) {
+                            nightSelect.value = themeName;
+                            daySelect.value = '';
+                        } else {
+                            daySelect.value = themeName;
+                            nightSelect.value = '';
+                        }
+                    }
+
+                    pairModal.style.display = 'flex';
+
+                    // 初始化 Select2 增加可搜索能力
+                    setTimeout(() => {
+                        $([nightSelect, daySelect]).select2({
+                            dropdownParent: $(pairModal).find('.tm-modal-content'),
+                            width: '100%'
+                        });
+                    }, 0);
+                }
+
+                function populateAutoThemePairsList() {
+                    const pairsContainer = managerPanel.querySelector('#tm-pairs-list-container');
+                    if (!pairsContainer) return;
+
+                    if (!Array.isArray(themeDayNightPairs) || themeDayNightPairs.length === 0) {
+                        pairsContainer.innerHTML = '<div style="opacity:0.7; font-style:italic; text-align:center; padding:10px;">暂无独立日夜组（可在各个美化卡片上点击 <i class="fa-solid fa-circle-half-stroke"></i> 进行关联绑定）</div>';
+                        return;
+                    }
+
+                    let html = '<div style="display:flex; flex-direction:column; gap:6px;">';
+                    themeDayNightPairs.forEach((pair, index) => {
+                        html += `<div style="display:flex; align-items:center; justify-content:space-between; background:rgba(0,0,0,0.15); padding:6px 10px; border-radius:4px;">
+                            <div style="font-size:12px;">
+                                <span style="color:#fadb14;"><i class="fa-solid fa-sun"></i> ${escapeHtml(pair.dayTheme || '未指定')}</span>
+                                <span style="margin: 0 8px; opacity:0.7;">⇄</span>
+                                <span style="color:#fa8c16;"><i class="fa-solid fa-moon"></i> ${escapeHtml(pair.nightTheme || '未指定')}</span>
+                            </div>
+                            <button class="tm-remove-pair-btn menu_button" data-index="${index}" style="padding:1px 6px; font-size:11px; margin:0; width:auto;"><i class="fa-solid fa-xmark"></i></button>
+                        </div>`;
+                    });
+                    html += '</div>';
+                    pairsContainer.innerHTML = html;
+
+                    pairsContainer.querySelectorAll('.tm-remove-pair-btn').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            const idx = parseInt(e.currentTarget.dataset.index);
+                            if (!isNaN(idx) && themeDayNightPairs[idx]) {
+                                const removed = themeDayNightPairs.splice(idx, 1)[0];
+                                saveThemeDayNightPairs(themeDayNightPairs);
+                                if (removed?.dayTheme) updateThemeItemDayNightState(removed.dayTheme);
+                                if (removed?.nightTheme) updateThemeItemDayNightState(removed.nightTheme);
+                                populateAutoThemePairsList();
+                            }
+                        });
+                    });
+                }
+
+                const daynightModal = managerPanel.querySelector('#tm-daynight-pair-modal');
+                const closeTmDaynightBtn = managerPanel.querySelector('#close-tm-daynight-modal');
+                const saveTmDaynightBtn = managerPanel.querySelector('#save-tm-daynight-btn');
+                const clearTmDaynightBtn = managerPanel.querySelector('#clear-tm-daynight-btn');
+
+                closeTmDaynightBtn.addEventListener('click', () => {
+                    daynightModal.style.display = 'none';
+                });
+
+                saveTmDaynightBtn.addEventListener('click', () => {
+                    if (!currentTargetThemeForPair) return;
+                    const nightVal = managerPanel.querySelector('#tm-daynight-night-select').value;
+                    const dayVal = managerPanel.querySelector('#tm-daynight-day-select').value;
+
+                    // 移除包含涉及美化的旧组合
+                    themeDayNightPairs = themeDayNightPairs.filter(p => {
+                        if (!p) return false;
+                        if (p.dayTheme === currentTargetThemeForPair || p.nightTheme === currentTargetThemeForPair) return false;
+                        if (dayVal && (p.dayTheme === dayVal || p.nightTheme === dayVal)) return false;
+                        if (nightVal && (p.dayTheme === nightVal || p.nightTheme === nightVal)) return false;
+                        return true;
+                    });
+
+                    if (dayVal || nightVal) {
+                        const finalDay = dayVal || currentTargetThemeForPair;
+                        const finalNight = nightVal || currentTargetThemeForPair;
+                        themeDayNightPairs.push({
+                            dayTheme: finalDay,
+                            nightTheme: finalNight
+                        });
+                    }
+
+                    saveThemeDayNightPairs(themeDayNightPairs);
+                    
+                    if (dayVal) updateThemeItemDayNightState(dayVal);
+                    if (nightVal) updateThemeItemDayNightState(nightVal);
+                    updateThemeItemDayNightState(currentTargetThemeForPair);
+
+                    toastr.success(`已更新美化日夜组合绑定！`);
+                    daynightModal.style.display = 'none';
+                });
+
+                clearTmDaynightBtn.addEventListener('click', () => {
+                    if (!currentTargetThemeForPair) return;
+                    const pair = getPairForTheme(currentTargetThemeForPair);
+                    if (pair) {
+                        themeDayNightPairs = themeDayNightPairs.filter(p => p !== pair);
+                        saveThemeDayNightPairs(themeDayNightPairs);
+                        if (pair.dayTheme) updateThemeItemDayNightState(pair.dayTheme);
+                        if (pair.nightTheme) updateThemeItemDayNightState(pair.nightTheme);
+                        toastr.info(`已解除该美化的日夜组合关联。`);
+                    }
+                    daynightModal.style.display = 'none';
+                });
+
                 function populateAutoThemeDropdowns() {
                     const dayTarget = managerPanel.querySelector('#auto-theme-day-target');
                     const nightTarget = managerPanel.querySelector('#auto-theme-night-target');
                     const tags = loadThemeTags();
+
+                    if ($(dayTarget).data('select2')) $(dayTarget).select2('destroy');
+                    if ($(nightTarget).data('select2')) $(nightTarget).select2('destroy');
 
                     let optionsHtml = '<option value="">(不改变)</option>';
                     if (tags.length > 0) {
@@ -4473,16 +4844,13 @@
                     dayTarget.value = autoThemeSettings.dayTarget;
                     nightTarget.value = autoThemeSettings.nightTarget;
 
-                    // 初始化 Select2 并配置防自动聚焦
+                    populateAutoThemePairsList();
+
+                    // 初始化 Select2 提高检索效率
                     setTimeout(() => {
                         $([dayTarget, nightTarget]).select2({
                             dropdownParent: $(autoThemeModal).find('.tm-modal-content'),
                             width: '100%'
-                        }).on('select2:open', () => {
-                            setTimeout(() => {
-                                const searchField = document.querySelector('.select2-search__field');
-                                if (searchField) searchField.blur();
-                            }, 0);
                         });
                     }, 0);
                 }
