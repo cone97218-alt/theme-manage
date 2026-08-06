@@ -664,8 +664,10 @@
                     };
 
                     // 核心优化: 更新选中值并同步触发表单变更
-                    originalSelect.value = themeName;
-                    triggerSelectChange(originalSelect);
+                    if (originalSelect) {
+                        originalSelect.value = themeName;
+                        triggerSelectChange(originalSelect);
+                    }
                     scheduleAsyncProtection();
                 }
 
