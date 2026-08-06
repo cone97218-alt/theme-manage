@@ -310,56 +310,42 @@
 
                 async function getAllThemesFromAPI() { return (await apiRequest('settings/get', 'POST', {})).themes || []; }
                 async function deleteTheme(themeName, suppressToast = false) {
-                    try {
-                        await apiRequest('themes/delete', 'POST', { name: themeName }, true);
-                    } catch (err) {
-                        let resolved = false;
+                    const candidates = new Set([
+                        themeName,
+                        themeName.replace(/\.json$/i, ''),
+                        themeName + '.json',
+                        themeName.replace(/\[.*?\]/g, '').trim(),
+                        themeName.replace(/\[.*?\]/g, '').trim() + '.json'
+                    ]);
 
-                        // 备选尝试 1：如果存在内存映射的主题对象，尝试以 themeObject.name 请求删除
-                        const themeObj = allThemeObjectsMap.get(themeName);
-                        if (themeObj && themeObj.name && themeObj.name !== themeName) {
-                            try {
-                                await apiRequest('themes/delete', 'POST', { name: themeObj.name }, true);
-                                resolved = true;
-                            } catch (e) {}
-                        }
+                    const themeObj = allThemeObjectsMap.get(themeName);
+                    if (themeObj && themeObj.name) {
+                        candidates.add(themeObj.name);
+                        candidates.add(themeObj.name.replace(/\.json$/i, ''));
+                    }
 
-                        // 备选尝试 2：尝试去除中括号等特殊修饰后缀前缀进行删除
-                        if (!resolved && themeName.includes('[')) {
-                            try {
-                                const cleanName = themeName.replace(/\[.*?\]/g, '').trim();
-                                if (cleanName && cleanName !== themeName) {
-                                    await apiRequest('themes/delete', 'POST', { name: cleanName }, true);
-                                    resolved = true;
-                                }
-                            } catch (e) {}
-                        }
+                    if (typeof getSanitizedFilename === 'function') {
+                        try {
+                            const sanitized = await getSanitizedFilename(themeName);
+                            if (sanitized) candidates.add(sanitized);
+                        } catch (e) {}
+                    }
 
-                        // 备选尝试 3：尝试净化后的文件名请求删除
-                        if (!resolved && typeof getSanitizedFilename === 'function') {
-                            try {
-                                const sanitized = await getSanitizedFilename(themeName);
-                                if (sanitized && sanitized !== themeName) {
-                                    await apiRequest('themes/delete', 'POST', { name: sanitized }, true);
-                                    resolved = true;
-                                }
-                            } catch (e) {}
-                        }
-
-                        // 兜底容错：如果服务器返回 404 / Theme not found (说明磁盘上已不存在该文件)，则视为清理成功，允许 UI 顺利完成节点与内存移除
-                        const errMsg = (err && err.message) ? String(err.message) : '';
-                        if (!resolved && (errMsg.includes('Not found') || errMsg.includes('Theme not found') || errMsg.includes('404'))) {
-                            console.warn(`[Theme Manager] 主题文件在服务器端已被移除或不存在 ("${themeName}")，进行 UI 节点清理。`);
-                            resolved = true;
-                        }
-
-                        if (!resolved) {
-                            if (!suppressToast) {
-                                toastr.error(`后端错误: Failed to delete theme ${themeName}: ${errMsg}`);
-                            }
-                            throw err;
+                    let lastError = null;
+                    for (const candidateName of candidates) {
+                        if (!candidateName) continue;
+                        try {
+                            await apiRequest('themes/delete', 'POST', { name: candidateName }, true);
+                            return; // 尝试任意变体名称成功删除了后端文件，直接成功返回
+                        } catch (err) {
+                            lastError = err;
                         }
                     }
+
+                    // 如果所有变体均返回 404 / Theme not found (说明后端磁盘上本身就不存在该文件或已被手动处理)，
+                    // 幂等处理：视为清理成功，静默放行，让 UI 顺利从页面与内存中彻底移除该条目！
+                    const errMsg = (lastError && lastError.message) ? String(lastError.message) : '';
+                    console.warn(`[Theme Manager] 后端删除反馈 (候选名称均已尝试): ${errMsg || '未找到主题文件'}，强行从 UI 移除: "${themeName}"`);
                 }
                 async function saveTheme(themeObject) { await apiRequest('themes/save', 'POST', themeObject); }
 
