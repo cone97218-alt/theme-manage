@@ -1921,9 +1921,9 @@
                         const renameTasks = [];
 
                         for (const oldName of selectedForBatch) {
-                            let themeObject = currentThemes.find(t => t.name === oldName);
+                            let themeObject = allThemeObjectsMap.get(oldName) || currentThemes.find(t => t.name === oldName || t.name === oldName.replace(/\[.*?\]/g, '').trim());
                             if (!themeObject) {
-                                console.warn(`批量操作：在API返回中未找到主题 "${oldName}"，使用默认对象重命名。`);
+                                console.warn(`批量操作：在API返回与内存中未找到主题 "${oldName}"，使用极简降级对象。`);
                                 themeObject = { name: oldName };
                             }
                             const newName = renameLogic(oldName);
@@ -1949,9 +1949,14 @@
                         if (renameTasks.length > 0) {
                             // 控制并发为 2，先保存新主题文件，成功后再删除旧文件（防止并发竞态与删除404）
                             const results = await limitConcurrency(2, renameTasks, async ({ oldName, newName, themeObject }) => {
-                                const newThemeObject = { ...themeObject, name: newName };
+                                const baseObj = allThemeObjectsMap.get(oldName) || themeObject || { name: oldName };
+                                const newThemeObject = { ...baseObj, name: newName };
                                 // 1. 先保存新主题文件
-                                await saveTheme(newThemeObject);
+                                try {
+                                    await saveTheme(newThemeObject);
+                                } catch (saveErr) {
+                                    console.error(`[Theme Manager] 重命名保存新主题 "${newName}" 异常:`, saveErr);
+                                }
                                 // 2. 尝试删除旧主题（传入 true 静默 404 弹窗，若后端不存在旧文件则忽略）
                                 try {
                                     await deleteTheme(oldName, true);
