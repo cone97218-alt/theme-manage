@@ -319,22 +319,23 @@
                         exactNames.add(themeObj.name.replace(/\.json$/i, ''));
                     }
 
-                    // 1. 静默尝试清除后端独立 .json 文件 (绝不向外抛出 404 异常以防中断流程)
+                    // 1. 使用原生 XMLHttpRequest 静默尝试清理后端独立 .json 文件 (彻底绕过 ST 拦截器的 toastr 报错弹窗)
                     for (const nameToDelete of exactNames) {
                         if (!nameToDelete) continue;
                         try {
-                            const headers = getRequestHeaders();
-                            await fetch('/api/themes/delete', {
-                                method: 'POST',
-                                headers,
-                                body: JSON.stringify({ name: nameToDelete })
+                            await new Promise((resolve) => {
+                                const xhr = new XMLHttpRequest();
+                                xhr.open('POST', '/api/themes/delete', true);
+                                const headers = getRequestHeaders();
+                                Object.keys(headers).forEach(k => xhr.setRequestHeader(k, headers[k]));
+                                xhr.onload = () => resolve();
+                                xhr.onerror = () => resolve();
+                                xhr.send(JSON.stringify({ name: nameToDelete }));
                             });
-                        } catch (e) {
-                            console.warn(`[Theme Manager] 清理后端主题文件 "${nameToDelete}" 提示:`, e);
-                        }
+                        } catch (e) {}
                     }
 
-                    // 2. 从 ST 内存 themes 数组及 settings.json 中精确清除并落盘固化
+                    // 2. 从 ST 所有内存 themes 数组（包括 power_user.themes）中彻底精准清除，并立刻写回 settings.json
                     updateSTThemeMemory({ name: themeName }, 'delete');
                 }
                 async function saveTheme(themeObject) { await apiRequest('themes/save', 'POST', themeObject); }
@@ -603,37 +604,80 @@
                     try {
                         let updated = false;
 
-                        // 1. 同步 ST getContext 内存数组
+                        const purgeFromArray = (arr) => {
+                            if (!Array.isArray(arr)) return false;
+                            let changed = false;
+                            for (let i = arr.length - 1; i >= 0; i--) {
+                                if (isMatch(arr[i])) {
+                                    arr.splice(i, 1);
+                                    changed = true;
+                                }
+                            }
+                            return changed;
+                        };
+
+                        // 1. 同步 ST getContext 内存数组 (包括 ctx.themes 以及 ctx.power_user.themes)
                         if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
                             const ctx = SillyTavern.getContext();
-                            if (ctx && Array.isArray(ctx.themes)) {
+                            if (ctx) {
                                 if (action === 'delete') {
-                                    const initialLen = ctx.themes.length;
-                                    ctx.themes = ctx.themes.filter(t => !isMatch(t));
-                                    if (ctx.themes.length !== initialLen) updated = true;
+                                    if (purgeFromArray(ctx.themes)) updated = true;
+                                    if (ctx.power_user && purgeFromArray(ctx.power_user.themes)) updated = true;
                                 } else if (action === 'rename' && oldName) {
-                                    const idx = ctx.themes.findIndex(t => isMatch(t));
-                                    if (idx !== -1) ctx.themes[idx] = themeObject;
-                                    else ctx.themes.push(themeObject);
-                                    updated = true;
+                                    if (Array.isArray(ctx.themes)) {
+                                        const idx = ctx.themes.findIndex(t => isMatch(t));
+                                        if (idx !== -1) ctx.themes[idx] = themeObject;
+                                        else ctx.themes.push(themeObject);
+                                        updated = true;
+                                    }
+                                    if (ctx.power_user && Array.isArray(ctx.power_user.themes)) {
+                                        const idx = ctx.power_user.themes.findIndex(t => isMatch(t));
+                                        if (idx !== -1) ctx.power_user.themes[idx] = themeObject;
+                                        else ctx.power_user.themes.push(themeObject);
+                                        updated = true;
+                                    }
                                 } else if (action === 'add' || action === 'save') {
-                                    const idx = ctx.themes.findIndex(t => isMatch(t));
-                                    if (idx !== -1) ctx.themes[idx] = themeObject;
-                                    else ctx.themes.push(themeObject);
+                                    if (Array.isArray(ctx.themes)) {
+                                        const idx = ctx.themes.findIndex(t => isMatch(t));
+                                        if (idx !== -1) ctx.themes[idx] = themeObject;
+                                        else ctx.themes.push(themeObject);
+                                        updated = true;
+                                    }
+                                    if (ctx.power_user && Array.isArray(ctx.power_user.themes)) {
+                                        const idx = ctx.power_user.themes.findIndex(t => isMatch(t));
+                                        if (idx !== -1) ctx.power_user.themes[idx] = themeObject;
+                                        else ctx.power_user.themes.push(themeObject);
+                                        updated = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. 同步全局 power_user 对象的 themes 数组
+                        if (typeof power_user !== 'undefined' && power_user) {
+                            if (action === 'delete') {
+                                if (purgeFromArray(power_user.themes)) updated = true;
+                            } else if (action === 'rename' && oldName) {
+                                if (Array.isArray(power_user.themes)) {
+                                    const idx = power_user.themes.findIndex(t => isMatch(t));
+                                    if (idx !== -1) power_user.themes[idx] = themeObject;
+                                    else power_user.themes.push(themeObject);
+                                    updated = true;
+                                }
+                            } else if (action === 'add' || action === 'save') {
+                                if (Array.isArray(power_user.themes)) {
+                                    const idx = power_user.themes.findIndex(t => isMatch(t));
+                                    if (idx !== -1) power_user.themes[idx] = themeObject;
+                                    else power_user.themes.push(themeObject);
                                     updated = true;
                                 }
                             }
                         }
 
-                        // 2. 同步全局 themes 数组 (针对旧版与手机端全局变量)
+                        // 3. 同步全局 themes 数组 (针对旧版与手机端全局变量)
                         if (typeof themes !== 'undefined' && Array.isArray(themes)) {
                             if (action === 'delete') {
-                                for (let i = themes.length - 1; i >= 0; i--) {
-                                    if (isMatch(themes[i])) {
-                                        themes.splice(i, 1);
-                                        updated = true;
-                                    }
-                                }
+                                if (purgeFromArray(themes)) updated = true;
                             } else if (action === 'rename' && oldName) {
                                 const idx = themes.findIndex(t => isMatch(t));
                                 if (idx !== -1) themes[idx] = themeObject;
@@ -646,8 +690,13 @@
                                 updated = true;
                             }
                         }
+                        if (typeof window !== 'undefined' && Array.isArray(window.themes)) {
+                            if (action === 'delete') {
+                                if (purgeFromArray(window.themes)) updated = true;
+                            }
+                        }
 
-                        // 3. 固化写入磁盘 settings.json 文件
+                        // 4. 固化持久写入磁盘 settings.json 文件
                         if (updated || action === 'delete') {
                             if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
                                 const ctx = SillyTavern.getContext();
