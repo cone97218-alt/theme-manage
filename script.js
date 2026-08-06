@@ -310,12 +310,12 @@
 
                 async function getAllThemesFromAPI() { return (await apiRequest('settings/get', 'POST', {})).themes || []; }
                 async function deleteTheme(themeName, suppressToast = false) {
+                    const cleanName = themeName.replace(/\[.*?\]/g, '').trim();
                     const candidates = new Set([
                         themeName,
+                        cleanName,
                         themeName.replace(/\.json$/i, ''),
-                        themeName + '.json',
-                        themeName.replace(/\[.*?\]/g, '').trim(),
-                        themeName.replace(/\[.*?\]/g, '').trim() + '.json'
+                        cleanName.replace(/\.json$/i, '')
                     ]);
 
                     const themeObj = allThemeObjectsMap.get(themeName);
@@ -324,28 +324,21 @@
                         candidates.add(themeObj.name.replace(/\.json$/i, ''));
                     }
 
-                    if (typeof getSanitizedFilename === 'function') {
-                        try {
-                            const sanitized = await getSanitizedFilename(themeName);
-                            if (sanitized) candidates.add(sanitized);
-                        } catch (e) {}
-                    }
-
-                    let lastError = null;
+                    // 1. 静默发送原生 fetch 清除后端 data/default-user/themes/ 目录下可能的独立 .json 文件 (绝不弹出 toastr)
                     for (const candidateName of candidates) {
                         if (!candidateName) continue;
                         try {
-                            await apiRequest('themes/delete', 'POST', { name: candidateName }, true);
-                            return; // 尝试任意变体名称成功删除了后端文件，直接成功返回
-                        } catch (err) {
-                            lastError = err;
-                        }
+                            const headers = getRequestHeaders();
+                            await fetch('/api/themes/delete', {
+                                method: 'POST',
+                                headers,
+                                body: JSON.stringify({ name: candidateName })
+                            });
+                        } catch (e) {}
                     }
 
-                    // 如果所有变体均返回 404 / Theme not found (说明后端磁盘上本身就不存在该文件或已被手动处理)，
-                    // 幂等处理：视为清理成功，静默放行，让 UI 顺利从页面与内存中彻底移除该条目！
-                    const errMsg = (lastError && lastError.message) ? String(lastError.message) : '';
-                    console.warn(`[Theme Manager] 后端删除反馈 (候选名称均已尝试): ${errMsg || '未找到主题文件'}，强行从 UI 移除: "${themeName}"`);
+                    // 2. 核心固化：彻底从 ST 内存 ctx.themes / global themes 中剔除该主题，并立刻写回 settings.json 到磁盘
+                    updateSTThemeMemory({ name: themeName }, 'delete');
                 }
                 async function saveTheme(themeObject) { await apiRequest('themes/save', 'POST', themeObject); }
 
@@ -490,9 +483,14 @@
                             }
                             stKnownThemes.add(newName);
                         } else if (action === 'delete') {
-                            const optionToDelete = findOptionByValue(originalSelect, oldName);
-                            if (optionToDelete) optionToDelete.remove();
+                            const cleanName = oldName ? oldName.replace(/\[.*?\]/g, '').trim() : '';
+                            Array.from(originalSelect.options).forEach(opt => {
+                                if (opt.value === oldName || opt.value === cleanName || opt.textContent === oldName || opt.textContent === cleanName) {
+                                    opt.remove();
+                                }
+                            });
                             stKnownThemes.delete(oldName);
+                            if (cleanName) stKnownThemes.delete(cleanName);
                         } else if (action === 'rename') {
                             const optionToRename = findOptionByValue(originalSelect, oldName);
                             if (optionToRename) {
@@ -593,42 +591,70 @@
                 // === ST 内部内存同步助手（实现真正的热更新） ===
                 function updateSTThemeMemory(themeObject, action = 'add', oldName = null) {
                     const tName = themeObject ? themeObject.name : oldName;
-                    console.log(`[Theme Manager] updateSTThemeMemory 执行: action=${action}, name=${tName}`);
+                    if (!tName) return;
+
+                    const cleanName = tName.replace(/\[.*?\]/g, '').trim();
+                    const namesToMatch = new Set([tName, cleanName]);
+                    if (themeObject && themeObject.name) namesToMatch.add(themeObject.name);
+
+                    console.log(`[Theme Manager] updateSTThemeMemory 执行: action=${action}, names=`, Array.from(namesToMatch));
                     try {
-                        const contexts = [];
-                        if (typeof power_user !== 'undefined') contexts.push(power_user);
+                        let updated = false;
+
+                        // 1. 同步 ST getContext 内存数组
                         if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
                             const ctx = SillyTavern.getContext();
-                            contexts.push(ctx);
                             if (ctx && Array.isArray(ctx.themes)) {
                                 if (action === 'delete') {
-                                    const idx = ctx.themes.findIndex(t => t.name === tName);
-                                    if (idx !== -1) ctx.themes.splice(idx, 1);
+                                    const initialLen = ctx.themes.length;
+                                    ctx.themes = ctx.themes.filter(t => !namesToMatch.has(t.name));
+                                    if (ctx.themes.length !== initialLen) updated = true;
                                 } else if (action === 'rename' && oldName) {
-                                    const idx = ctx.themes.findIndex(t => t.name === oldName);
+                                    const idx = ctx.themes.findIndex(t => namesToMatch.has(t.name));
                                     if (idx !== -1) ctx.themes[idx] = themeObject;
                                     else ctx.themes.push(themeObject);
+                                    updated = true;
                                 } else if (action === 'add' || action === 'save') {
                                     const idx = ctx.themes.findIndex(t => t.name === themeObject.name);
                                     if (idx !== -1) ctx.themes[idx] = themeObject;
                                     else ctx.themes.push(themeObject);
+                                    updated = true;
                                 }
                             }
                         }
-                        
-                        // 显式更新全局 themes (针对某些版本的 ST 和手机端)
+
+                        // 2. 同步全局 themes 数组 (针对旧版与手机端全局变量)
                         if (typeof themes !== 'undefined' && Array.isArray(themes)) {
                             if (action === 'delete') {
-                                const idx = themes.findIndex(t => t.name === tName);
-                                if (idx !== -1) themes.splice(idx, 1);
+                                for (let i = themes.length - 1; i >= 0; i--) {
+                                    if (namesToMatch.has(themes[i].name)) {
+                                        themes.splice(i, 1);
+                                        updated = true;
+                                    }
+                                }
                             } else if (action === 'rename' && oldName) {
-                                const idx = themes.findIndex(t => t.name === oldName);
+                                const idx = themes.findIndex(t => namesToMatch.has(t.name));
                                 if (idx !== -1) themes[idx] = themeObject;
                                 else themes.push(themeObject);
+                                updated = true;
                             } else if (action === 'add' || action === 'save') {
                                 const idx = themes.findIndex(t => t.name === themeObject.name);
                                 if (idx !== -1) themes[idx] = themeObject;
                                 else themes.push(themeObject);
+                                updated = true;
+                            }
+                        }
+
+                        // 3. 极重要：固化持久化写入磁盘 settings.json 文件
+                        if (updated || action === 'delete') {
+                            if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                                const ctx = SillyTavern.getContext();
+                                if (ctx.saveSettingsDebounced) ctx.saveSettingsDebounced();
+                                else if (ctx.saveSettings) ctx.saveSettings();
+                            } else if (typeof saveSettingsDebounced === 'function') {
+                                saveSettingsDebounced();
+                            } else if (typeof saveSettings === 'function') {
+                                saveSettings();
                             }
                         }
                     } catch (e) {
