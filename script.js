@@ -1565,6 +1565,14 @@
                 function softRefreshUI(changedThemeNames = null) {
                     const cachedTags = loadThemeTags();
                     buildThemeTagIndex(cachedTags);
+
+                    // 1. 极致性能优化：若受影响主题集合为空（如刚新建一个空标签），仅更新顶部标签栏，直接 0ms 返回！
+                    if (Array.isArray(changedThemeNames) && changedThemeNames.length === 0) {
+                        renderTagsUI(cachedTags);
+                        updateTagChipsActiveState();
+                        return;
+                    }
+
                     const tagsById = new Map(cachedTags.map(t => [t.id, t])); // O(1) 标签查找，避免内层循环 Array.find
 
                     // 同步 allParsedThemes 的标签数据（精准 or 全量）
@@ -3203,13 +3211,15 @@
                                         e.stopPropagation();
                                         const id = e.currentTarget.dataset.id;
                                         if (confirm('确定删除此标签吗？(不会删除主题本身)')) {
+                                            const targetTag = tags.find(t => t.id === id);
+                                            const affectedThemes = targetTag && targetTag.themes ? [...targetTag.themes] : [];
                                             tags.forEach(t => {
                                                 if (t.parentId === id) t.parentId = null;
                                             });
                                             tags = tags.filter(t => t.id !== id);
                                             saveThemeTags(tags);
                                             renderList();
-                                            softRefreshUI();
+                                            softRefreshUI(affectedThemes);
                                         }
                                     });
                                 });
@@ -3226,7 +3236,7 @@
                                             tag.name = newName.trim();
                                             saveThemeTags(tags);
                                             renderList();
-                                            softRefreshUI();
+                                            softRefreshUI(tag.themes || []);
                                         }
                                     });
                                 });
@@ -3267,7 +3277,7 @@
                                             tags.push({ id: Date.now().toString(), name: name, parentId: parentId, themes: [], keywords: [] });
                                             saveThemeTags(tags);
                                             renderList();
-                                            softRefreshUI();
+                                            softRefreshUI([]);
                                         }
                                     });
                                 });
@@ -3282,7 +3292,7 @@
                                             tag.parentId = null;
                                             saveThemeTags(tags);
                                             renderList();
-                                            softRefreshUI();
+                                            softRefreshUI([]);
                                             toastr.success(`已将「${tag.name}」升为一级标签`);
                                         }
                                     });
@@ -3322,6 +3332,12 @@
                                             wide: true,
                                             onOpen: (subPopup) => {
                                                 const subDlg = subPopup.dlg;
+                                                subDlg.querySelectorAll('.target-l1-label').forEach(lbl => {
+                                                    lbl.addEventListener('click', () => {
+                                                        const rad = lbl.querySelector('input[type="radio"]');
+                                                        if (rad) rad.checked = true;
+                                                    });
+                                                });
                                                 const okBtn = subDlg ? subDlg.querySelector('.popup-button-ok') : null;
                                                 if (okBtn) {
                                                     okBtn.addEventListener('click', () => {
