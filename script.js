@@ -31,7 +31,13 @@
 
         let newState = null;
         if (settings.mode === 'system') {
-            newState = (document.documentElement.classList.contains('dark') || document.body.classList.contains('dark') || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) ? 'night' : 'day';
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                newState = 'night';
+            } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+                newState = 'day';
+            } else {
+                newState = (document.documentElement.dataset.theme === 'dark' || document.body.dataset.theme === 'dark') ? 'night' : 'day';
+            }
         } else if (settings.mode === 'time') {
             const now = new Date();
             const currentTime = now.getHours() * 60 + now.getMinutes();
@@ -4537,15 +4543,22 @@
 
 
                 function getSystemThemeMode() {
-                    if (document.documentElement.classList.contains('dark') || document.body.classList.contains('dark')) {
-                        return 'night';
+                    // 优先从 OS 原生媒体查询 prefers-color-scheme 读取系统真实的日夜模式
+                    if (window.matchMedia) {
+                        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                            return 'night';
+                        }
+                        if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+                            return 'day';
+                        }
                     }
-                    if (document.documentElement.classList.contains('light') || document.body.classList.contains('light')) {
-                        return 'day';
-                    }
-                    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-                        return 'night';
-                    }
+                    // 兜底：检测 html 或 body 上由宿主 APP (如 TauriTavern) 显式注入的 data-theme 属性
+                    const rootEl = document.documentElement;
+                    const bodyEl = document.body;
+                    const themeAttr = rootEl.getAttribute('data-theme') || bodyEl.getAttribute('data-theme') || '';
+                    if (themeAttr === 'dark') return 'night';
+                    if (themeAttr === 'light') return 'day';
+
                     return 'day';
                 }
 
@@ -4608,13 +4621,20 @@
                     if (newState) performAutoThemeSwitch(newState);
                 }
 
-                window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-                    if (autoThemeSettings.enabled && autoThemeSettings.mode === 'system') {
-                        // 系统深色模式实际发生了变化，重置状态以确保强制重新应用主题和背景
-                        currentAutoThemeState = null;
-                        performAutoThemeSwitch(e.matches ? 'night' : 'day');
+                if (window.matchMedia) {
+                    const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+                    const handleColorSchemeChange = e => {
+                        if (autoThemeSettings.enabled && autoThemeSettings.mode === 'system') {
+                            currentAutoThemeState = null;
+                            performAutoThemeSwitch(e.matches ? 'night' : 'day');
+                        }
+                    };
+                    if (typeof colorSchemeQuery.addEventListener === 'function') {
+                        colorSchemeQuery.addEventListener('change', handleColorSchemeChange);
+                    } else if (typeof colorSchemeQuery.addListener === 'function') {
+                        colorSchemeQuery.addListener(handleColorSchemeChange);
                     }
-                });
+                }
 
                 // 针对 Tauri / TauriTavern 宿主环境的 IPC 主题监听
                 const setupTauriThemeListener = () => {
@@ -4637,23 +4657,18 @@
                 };
                 setupTauriThemeListener();
 
-                // 监听窗口恢复焦点与可见性变化，解决桌面 App 最小化/休眠恢复后的同步滞后问题
-                window.addEventListener('focus', () => {
-                    if (autoThemeSettings.enabled) {
-                        checkAutoTheme();
-                    }
-                });
-                document.addEventListener('visibilitychange', () => {
-                    if (!document.hidden && autoThemeSettings.enabled) {
-                        checkAutoTheme();
-                    }
-                });
+                // 监听移动端与桌面端恢复焦点、可见性、手势触摸与屏幕旋转事件，解决 Android WebView 状态更新滞后问题
+                window.addEventListener('focus', () => { if (autoThemeSettings.enabled) checkAutoTheme(); });
+                document.addEventListener('visibilitychange', () => { if (!document.hidden && autoThemeSettings.enabled) checkAutoTheme(); });
+                window.addEventListener('orientationchange', () => { if (autoThemeSettings.enabled) checkAutoTheme(); });
+                document.addEventListener('touchstart', () => { if (autoThemeSettings.enabled) checkAutoTheme(); }, { passive: true });
 
                 function applyAutoThemeLoop() {
                     if (autoThemeCheckInterval) clearInterval(autoThemeCheckInterval);
                     if (autoThemeSettings.enabled) {
                         checkAutoTheme();
-                        autoThemeCheckInterval = setInterval(checkAutoTheme, 60000);
+                        // 2000ms 快速轮询，确保移动端/WebView 下切换系统黑夜模式后 2 秒内无缝跟随
+                        autoThemeCheckInterval = setInterval(checkAutoTheme, 2000);
                     }
                 }
 
