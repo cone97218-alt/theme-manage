@@ -312,16 +312,30 @@
                 async function deleteTheme(themeName) {
                     if (!themeName) return;
 
-                    const exactNames = new Set([themeName, themeName.replace(/\.json$/i, '')]);
+                    const cleanName = themeName.replace(/\[.*?\]/g, '').trim();
+                    const candidates = new Set([
+                        themeName,
+                        cleanName,
+                        themeName.replace(/\.json$/i, ''),
+                        cleanName.replace(/\.json$/i, '')
+                    ]);
+
                     const themeObj = allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
-                    if (themeObj && themeObj.name) {
-                        exactNames.add(themeObj.name);
-                        exactNames.add(themeObj.name.replace(/\.json$/i, ''));
+                    if (themeObj) {
+                        if (themeObj.name) {
+                            candidates.add(themeObj.name);
+                            candidates.add(themeObj.name.replace(/\.json$/i, ''));
+                        }
+                        if (themeObj.value) {
+                            candidates.add(themeObj.value);
+                            candidates.add(themeObj.value.replace(/\.json$/i, ''));
+                        }
                     }
 
-                    // 1. 使用原生 XMLHttpRequest 静默尝试清理后端独立 .json 文件 (彻底绕过 ST 拦截器的 toastr 报错弹窗)
-                    for (const nameToDelete of exactNames) {
-                        if (!nameToDelete) continue;
+                    // 1. 使用原生 XMLHttpRequest 静默向后端尝试所有候选文件名（完全绕过 ST 拦截器的 toastr 报错弹窗）
+                    // 无论磁盘上的物理文件是以 "[Pad专区]美化名.json" 还是 "美化名.json" 存储在 themes/ 目录下，都能被精准擦除！
+                    for (const candidateName of candidates) {
+                        if (!candidateName) continue;
                         try {
                             await new Promise((resolve) => {
                                 const xhr = new XMLHttpRequest();
@@ -330,13 +344,13 @@
                                 Object.keys(headers).forEach(k => xhr.setRequestHeader(k, headers[k]));
                                 xhr.onload = () => resolve();
                                 xhr.onerror = () => resolve();
-                                xhr.send(JSON.stringify({ name: nameToDelete }));
+                                xhr.send(JSON.stringify({ name: candidateName }));
                             });
                         } catch (e) {}
                     }
 
-                    // 2. 从 ST 所有内存 themes 数组（包括 power_user.themes）中彻底精准清除，并立刻写回 settings.json
-                    updateSTThemeMemory({ name: themeName }, 'delete');
+                    // 2. 从 ST 所有内存 themes 数组（包括 power_user.themes）中彻底精确定位清除，并立刻写回 settings.json
+                    updateSTThemeMemory({ name: themeName }, 'delete', themeName);
                 }
                 async function saveTheme(themeObject) { await apiRequest('themes/save', 'POST', themeObject); }
 
@@ -591,9 +605,14 @@
                     const targetName = themeObject ? (themeObject.name || themeObject.value) : oldName;
                     if (!targetName) return;
 
+                    const cleanName = String(targetName).replace(/\[.*?\]/g, '').trim();
                     const exactNames = new Set([String(targetName)]);
+                    if (cleanName) exactNames.add(cleanName);
                     if (themeObject && themeObject.name) exactNames.add(String(themeObject.name));
-                    if (oldName) exactNames.add(String(oldName));
+                    if (oldName) {
+                        exactNames.add(String(oldName));
+                        exactNames.add(String(oldName).replace(/\[.*?\]/g, '').trim());
+                    }
 
                     const isMatch = (item) => {
                         if (!item) return false;
