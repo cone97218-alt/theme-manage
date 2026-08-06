@@ -309,35 +309,32 @@
                 }
 
                 async function getAllThemesFromAPI() { return (await apiRequest('settings/get', 'POST', {})).themes || []; }
-                async function deleteTheme(themeName, suppressToast = false) {
-                    const cleanName = themeName.replace(/\[.*?\]/g, '').trim();
-                    const candidates = new Set([
-                        themeName,
-                        cleanName,
-                        themeName.replace(/\.json$/i, ''),
-                        cleanName.replace(/\.json$/i, '')
-                    ]);
+                async function deleteTheme(themeName) {
+                    if (!themeName) return;
 
-                    const themeObj = allThemeObjectsMap.get(themeName);
+                    const exactNames = new Set([themeName, themeName.replace(/\.json$/i, '')]);
+                    const themeObj = allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
                     if (themeObj && themeObj.name) {
-                        candidates.add(themeObj.name);
-                        candidates.add(themeObj.name.replace(/\.json$/i, ''));
+                        exactNames.add(themeObj.name);
+                        exactNames.add(themeObj.name.replace(/\.json$/i, ''));
                     }
 
-                    // 1. 静默发送原生 fetch 清除后端 data/default-user/themes/ 目录下可能的独立 .json 文件 (绝不弹出 toastr)
-                    for (const candidateName of candidates) {
-                        if (!candidateName) continue;
+                    // 1. 静默尝试清除后端独立 .json 文件 (绝不向外抛出 404 异常以防中断流程)
+                    for (const nameToDelete of exactNames) {
+                        if (!nameToDelete) continue;
                         try {
                             const headers = getRequestHeaders();
                             await fetch('/api/themes/delete', {
                                 method: 'POST',
                                 headers,
-                                body: JSON.stringify({ name: candidateName })
+                                body: JSON.stringify({ name: nameToDelete })
                             });
-                        } catch (e) {}
+                        } catch (e) {
+                            console.warn(`[Theme Manager] 清理后端主题文件 "${nameToDelete}" 提示:`, e);
+                        }
                     }
 
-                    // 2. 核心固化：彻底从 ST 内存 ctx.themes / global themes 中剔除该主题，并立刻写回 settings.json 到磁盘
+                    // 2. 从 ST 内存 themes 数组及 settings.json 中精确清除并落盘固化
                     updateSTThemeMemory({ name: themeName }, 'delete');
                 }
                 async function saveTheme(themeObject) { await apiRequest('themes/save', 'POST', themeObject); }
@@ -588,34 +585,23 @@
                     style.innerHTML = cssVal;
                 }
 
-                // 强大的名称归一化（去除中括号、下划线、空格、横杠及点，忽略大小写）
-                function normalizeThemeKey(str) {
-                    if (!str) return '';
-                    return String(str)
-                        .toLowerCase()
-                        .replace(/\[.*?\]/g, '')
-                        .replace(/[\s_\-\.\(\)]/g, '');
-                }
-
                 // === ST 内部内存同步助手（实现真正的热更新与落盘固化） ===
                 function updateSTThemeMemory(themeObject, action = 'add', oldName = null) {
                     const targetName = themeObject ? (themeObject.name || themeObject.value) : oldName;
                     if (!targetName) return;
 
-                    const targetNorm = normalizeThemeKey(targetName);
-                    const rawName = String(targetName);
-                    console.log(`[Theme Manager] updateSTThemeMemory: action=${action}, rawName="${rawName}", norm="${targetNorm}"`);
+                    const exactNames = new Set([String(targetName)]);
+                    if (themeObject && themeObject.name) exactNames.add(String(themeObject.name));
+                    if (oldName) exactNames.add(String(oldName));
+
+                    const isMatch = (item) => {
+                        if (!item) return false;
+                        const itemStr = typeof item === 'string' ? item : (item.name || item.value || '');
+                        return exactNames.has(String(itemStr));
+                    };
 
                     try {
                         let updated = false;
-
-                        const isMatch = (item) => {
-                            if (!item) return false;
-                            const itemStr = typeof item === 'string' ? item : (item.name || item.value || '');
-                            if (itemStr === rawName) return true;
-                            if (targetNorm && normalizeThemeKey(itemStr) === targetNorm) return true;
-                            return false;
-                        };
 
                         // 1. 同步 ST getContext 内存数组
                         if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
@@ -1700,30 +1686,21 @@
 
                 // 增量删除，避免刷新 DOM
                 function softDeleteThemeUI(themeName) {
-                    const normTarget = normalizeThemeKey(themeName);
-                    const isMatch = (val) => val === themeName || (normTarget && normalizeThemeKey(val) === normTarget);
-
-                    // 1. DOM 节点移除
-                    for (const [key, item] of themeItemMap.entries()) {
-                        if (isMatch(key)) {
-                            item.remove();
-                            themeItemMap.delete(key);
-                        }
+                    const item = themeItemMap.get(themeName);
+                    if (item) {
+                        item.remove();
+                        themeItemMap.delete(themeName);
                     }
 
-                    // 2. 内存数组/Map 清理
-                    for (let i = allParsedThemes.length - 1; i >= 0; i--) {
-                        if (isMatch(allParsedThemes[i].value)) {
-                            allParsedThemesMap.delete(allParsedThemes[i].value);
-                            allParsedThemes.splice(i, 1);
-                        }
+                    const idx = allParsedThemes.findIndex(t => t.value === themeName);
+                    if (idx > -1) {
+                        allParsedThemes.splice(idx, 1);
+                        allParsedThemesMap.delete(themeName);
                     }
 
-                    for (let i = allThemeObjects.length - 1; i >= 0; i--) {
-                        if (isMatch(allThemeObjects[i].name)) {
-                            allThemeObjectsMap.delete(allThemeObjects[i].name);
-                            allThemeObjects.splice(i, 1);
-                        }
+                    const objIndex = allThemeObjects.findIndex(t => t.name === themeName);
+                    if (objIndex > -1) {
+                        allThemeObjects.splice(objIndex, 1);
                     }
                     allThemeObjectsMap.delete(themeName);
                     stKnownThemes.delete(themeName);
@@ -4301,70 +4278,76 @@
                         }
                         else if (button && button.classList.contains('delete-btn')) {
                             if (confirm(`确定要删除主题 "${themeItem.querySelector('.theme-item-name-text').textContent}" 吗？`)) {
-                                const isCurrentlyActive = originalSelect.value === themeName;
-                                await deleteTheme(themeName);
-                                manualUpdateOriginalSelect('delete', themeName);
-                                updateSTThemeMemory({ name: themeName }, 'delete');
-                                softDeleteThemeUI(themeName);
+                                try {
+                                    const isCurrentlyActive = originalSelect.value === themeName;
+                                    await deleteTheme(themeName);
+                                    manualUpdateOriginalSelect('delete', themeName);
+                                    updateSTThemeMemory({ name: themeName }, 'delete');
+                                    softDeleteThemeUI(themeName);
 
-                                if (themeBackgroundBindings[themeName]) {
-                                    delete themeBackgroundBindings[themeName];
-                                    localStorage.setItem(THEME_BACKGROUND_BINDINGS_KEY, JSON.stringify(themeBackgroundBindings));
-                                }
-
-                                // 清理收藏
-                                updateFavorites(favorites.filter(f => f !== themeName));
-
-                                // 清理标签数据
-                                let tagsToUpdate = loadThemeTags();
-                                tagsToUpdate.forEach(tag => {
-                                    if (tag.themes) {
-                                        const idx = tag.themes.indexOf(themeName);
-                                        if (idx > -1) tag.themes.splice(idx, 1);
+                                    if (themeBackgroundBindings[themeName]) {
+                                        delete themeBackgroundBindings[themeName];
+                                        localStorage.setItem(THEME_BACKGROUND_BINDINGS_KEY, JSON.stringify(themeBackgroundBindings));
                                     }
-                                });
-                                saveThemeTags(tagsToUpdate);
 
-                                // 清理角色绑定的主题
-                                let charBindings = JSON.parse(localStorage.getItem(CHARACTER_THEME_BINDINGS_KEY)) || {};
-                                let charBindingsChanged = false;
-                                Object.keys(charBindings).forEach(chid => {
-                                    if (charBindings[chid] === themeName) {
-                                        delete charBindings[chid];
-                                        charBindingsChanged = true;
+                                    // 清理收藏
+                                    updateFavorites(favorites.filter(f => f !== themeName));
+
+                                    // 清理标签数据
+                                    let tagsToUpdate = loadThemeTags();
+                                    tagsToUpdate.forEach(tag => {
+                                        if (tag.themes) {
+                                            const idx = tag.themes.indexOf(themeName);
+                                            if (idx > -1) tag.themes.splice(idx, 1);
+                                        }
+                                    });
+                                    saveThemeTags(tagsToUpdate);
+
+                                    // 清理角色绑定的主题
+                                    let charBindings = JSON.parse(localStorage.getItem(CHARACTER_THEME_BINDINGS_KEY)) || {};
+                                    let charBindingsChanged = false;
+                                    Object.keys(charBindings).forEach(chid => {
+                                        if (charBindings[chid] === themeName) {
+                                            delete charBindings[chid];
+                                            charBindingsChanged = true;
+                                        }
+                                    });
+                                    if (charBindingsChanged) {
+                                        localStorage.setItem(CHARACTER_THEME_BINDINGS_KEY, JSON.stringify(charBindings));
                                     }
-                                });
-                                if (charBindingsChanged) {
-                                    localStorage.setItem(CHARACTER_THEME_BINDINGS_KEY, JSON.stringify(charBindings));
-                                }
 
-                                // 清理自动切换主题设置的选中主题与独立日夜对
-                                let autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || {};
-                                let autoThemeChanged = false;
-                                if (autoThemeSettings.dayTarget === themeName) {
-                                    autoThemeSettings.dayTarget = '';
-                                    autoThemeChanged = true;
-                                }
-                                if (autoThemeSettings.nightTarget === themeName) {
-                                    autoThemeSettings.nightTarget = '';
-                                    autoThemeChanged = true;
-                                }
-                                if (autoThemeChanged) {
-                                    localStorage.setItem(AUTO_THEME_KEY, JSON.stringify(autoThemeSettings));
-                                }
+                                    // 清理自动切换主题设置的选中主题与独立日夜对
+                                    let autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || {};
+                                    let autoThemeChanged = false;
+                                    if (autoThemeSettings.dayTarget === themeName) {
+                                        autoThemeSettings.dayTarget = '';
+                                        autoThemeChanged = true;
+                                    }
+                                    if (autoThemeSettings.nightTarget === themeName) {
+                                        autoThemeSettings.nightTarget = '';
+                                        autoThemeChanged = true;
+                                    }
+                                    if (autoThemeChanged) {
+                                        localStorage.setItem(AUTO_THEME_KEY, JSON.stringify(autoThemeSettings));
+                                    }
 
-                                if (Array.isArray(themeDayNightPairs)) {
-                                    themeDayNightPairs = themeDayNightPairs.filter(p => p && p.dayTheme !== themeName && p.nightTheme !== themeName);
-                                    saveThemeDayNightPairs(themeDayNightPairs);
-                                }
+                                    if (Array.isArray(themeDayNightPairs)) {
+                                        themeDayNightPairs = themeDayNightPairs.filter(p => p && p.dayTheme !== themeName && p.nightTheme !== themeName);
+                                        saveThemeDayNightPairs(themeDayNightPairs);
+                                    }
 
-                                if (isCurrentlyActive) {
-                                    const azureOption = findOptionByValue(originalSelect, 'Azure');
-                                    originalSelect.value = azureOption ? 'Azure' : (originalSelect.options[0]?.value || '');
-                                    triggerSelectChange(originalSelect);
+                                    if (isCurrentlyActive) {
+                                        const azureOption = findOptionByValue(originalSelect, 'Azure');
+                                        originalSelect.value = azureOption ? 'Azure' : (originalSelect.options[0]?.value || '');
+                                        triggerSelectChange(originalSelect);
+                                    }
+                                    invalidateThemesCache();
+                                    updateActiveState();
+                                    toastr.success(`主题 "${themeName}" 已成功删除！`);
+                                } catch (err) {
+                                    console.error('[Theme Manager Delete Error]:', err);
+                                    toastr.error('删除美化时发生异常，请查看控制台。');
                                 }
-                                invalidateThemesCache();
-                                updateActiveState();
                             }
                         } else {
                             applyThemeDirect(themeName);
