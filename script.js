@@ -644,21 +644,23 @@
                     syncStKnownThemes();
 
                     const themeObj = allThemeObjectsMap.get(themeName);
+                    const targetCss = (themeObj && themeObj.custom_css) ? themeObj.custom_css : '';
 
                     if (themeObj) {
                         updateSTThemeMemory(themeObj, 'add');
-                        syncCustomCssToST(themeObj.custom_css);
                         applyThemeColors(themeObj);
                     }
 
+                    // 必定同步更新或清空 Custom CSS，彻底消除上一个美化遗留的样式污染
+                    syncCustomCssToST(targetCss);
+
                     // 防范 ST 原生 loadTheme 异步写回导致 custom_css 偏移的静默守护
                     const scheduleAsyncProtection = () => {
-                        if (!themeObj || !themeObj.custom_css) return;
                         setTimeout(() => {
                             const curCss = (typeof power_user !== 'undefined' && power_user.custom_css) || '';
-                            if (curCss !== themeObj.custom_css) {
-                                console.log(`[Theme Manager] 静默纠偏补回主题 "${themeName}" 的 Custom CSS`);
-                                syncCustomCssToST(themeObj.custom_css);
+                            if (curCss !== targetCss) {
+                                console.log(`[Theme Manager] 静默纠偏同步主题 "${themeName}" 的 Custom CSS`);
+                                syncCustomCssToST(targetCss);
                             }
                         }, 250);
                     };
