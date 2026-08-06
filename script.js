@@ -588,18 +588,34 @@
                     style.innerHTML = cssVal;
                 }
 
-                // === ST 内部内存同步助手（实现真正的热更新） ===
+                // 强大的名称归一化（去除中括号、下划线、空格、横杠及点，忽略大小写）
+                function normalizeThemeKey(str) {
+                    if (!str) return '';
+                    return String(str)
+                        .toLowerCase()
+                        .replace(/\[.*?\]/g, '')
+                        .replace(/[\s_\-\.\(\)]/g, '');
+                }
+
+                // === ST 内部内存同步助手（实现真正的热更新与落盘固化） ===
                 function updateSTThemeMemory(themeObject, action = 'add', oldName = null) {
-                    const tName = themeObject ? themeObject.name : oldName;
-                    if (!tName) return;
+                    const targetName = themeObject ? (themeObject.name || themeObject.value) : oldName;
+                    if (!targetName) return;
 
-                    const cleanName = tName.replace(/\[.*?\]/g, '').trim();
-                    const namesToMatch = new Set([tName, cleanName]);
-                    if (themeObject && themeObject.name) namesToMatch.add(themeObject.name);
+                    const targetNorm = normalizeThemeKey(targetName);
+                    const rawName = String(targetName);
+                    console.log(`[Theme Manager] updateSTThemeMemory: action=${action}, rawName="${rawName}", norm="${targetNorm}"`);
 
-                    console.log(`[Theme Manager] updateSTThemeMemory 执行: action=${action}, names=`, Array.from(namesToMatch));
                     try {
                         let updated = false;
+
+                        const isMatch = (item) => {
+                            if (!item) return false;
+                            const itemStr = typeof item === 'string' ? item : (item.name || item.value || '');
+                            if (itemStr === rawName) return true;
+                            if (targetNorm && normalizeThemeKey(itemStr) === targetNorm) return true;
+                            return false;
+                        };
 
                         // 1. 同步 ST getContext 内存数组
                         if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
@@ -607,15 +623,15 @@
                             if (ctx && Array.isArray(ctx.themes)) {
                                 if (action === 'delete') {
                                     const initialLen = ctx.themes.length;
-                                    ctx.themes = ctx.themes.filter(t => !namesToMatch.has(t.name));
+                                    ctx.themes = ctx.themes.filter(t => !isMatch(t));
                                     if (ctx.themes.length !== initialLen) updated = true;
                                 } else if (action === 'rename' && oldName) {
-                                    const idx = ctx.themes.findIndex(t => namesToMatch.has(t.name));
+                                    const idx = ctx.themes.findIndex(t => isMatch(t));
                                     if (idx !== -1) ctx.themes[idx] = themeObject;
                                     else ctx.themes.push(themeObject);
                                     updated = true;
                                 } else if (action === 'add' || action === 'save') {
-                                    const idx = ctx.themes.findIndex(t => t.name === themeObject.name);
+                                    const idx = ctx.themes.findIndex(t => isMatch(t));
                                     if (idx !== -1) ctx.themes[idx] = themeObject;
                                     else ctx.themes.push(themeObject);
                                     updated = true;
@@ -627,25 +643,25 @@
                         if (typeof themes !== 'undefined' && Array.isArray(themes)) {
                             if (action === 'delete') {
                                 for (let i = themes.length - 1; i >= 0; i--) {
-                                    if (namesToMatch.has(themes[i].name)) {
+                                    if (isMatch(themes[i])) {
                                         themes.splice(i, 1);
                                         updated = true;
                                     }
                                 }
                             } else if (action === 'rename' && oldName) {
-                                const idx = themes.findIndex(t => namesToMatch.has(t.name));
+                                const idx = themes.findIndex(t => isMatch(t));
                                 if (idx !== -1) themes[idx] = themeObject;
                                 else themes.push(themeObject);
                                 updated = true;
                             } else if (action === 'add' || action === 'save') {
-                                const idx = themes.findIndex(t => t.name === themeObject.name);
+                                const idx = themes.findIndex(t => isMatch(t));
                                 if (idx !== -1) themes[idx] = themeObject;
                                 else themes.push(themeObject);
                                 updated = true;
                             }
                         }
 
-                        // 3. 极重要：固化持久化写入磁盘 settings.json 文件
+                        // 3. 固化写入磁盘 settings.json 文件
                         if (updated || action === 'delete') {
                             if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
                                 const ctx = SillyTavern.getContext();
@@ -1684,24 +1700,33 @@
 
                 // 增量删除，避免刷新 DOM
                 function softDeleteThemeUI(themeName) {
-                    const item = themeItemMap.get(themeName);
-                    if (item) {
-                        item.remove();
-                        themeItemMap.delete(themeName);
+                    const normTarget = normalizeThemeKey(themeName);
+                    const isMatch = (val) => val === themeName || (normTarget && normalizeThemeKey(val) === normTarget);
+
+                    // 1. DOM 节点移除
+                    for (const [key, item] of themeItemMap.entries()) {
+                        if (isMatch(key)) {
+                            item.remove();
+                            themeItemMap.delete(key);
+                        }
                     }
-                    
-                    const idx = allParsedThemes.findIndex(t => t.value === themeName);
-                    if (idx > -1) {
-                        allParsedThemes.splice(idx, 1);
-                        allParsedThemesMap.delete(themeName);
+
+                    // 2. 内存数组/Map 清理
+                    for (let i = allParsedThemes.length - 1; i >= 0; i--) {
+                        if (isMatch(allParsedThemes[i].value)) {
+                            allParsedThemesMap.delete(allParsedThemes[i].value);
+                            allParsedThemes.splice(i, 1);
+                        }
                     }
-                    
-                    const objIndex = allThemeObjects.findIndex(t => t.name === themeName);
-                    if (objIndex > -1) {
-                        allThemeObjects.splice(objIndex, 1);
+
+                    for (let i = allThemeObjects.length - 1; i >= 0; i--) {
+                        if (isMatch(allThemeObjects[i].name)) {
+                            allThemeObjectsMap.delete(allThemeObjects[i].name);
+                            allThemeObjects.splice(i, 1);
+                        }
                     }
                     allThemeObjectsMap.delete(themeName);
-                    stKnownThemes.delete(themeName); // 彻底删除，从 ST 认识列表移除
+                    stKnownThemes.delete(themeName);
                 }
 
                 // 增量添加主题项到 UI，避免全量重建 DOM（批量导入时调用）
