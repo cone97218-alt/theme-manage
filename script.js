@@ -895,6 +895,9 @@
                         </div>
 
                         <div id="batch-actions-bar" style="display:none;" data-mode="theme">
+                            <button id="batch-select-all-btn" class="menu_button" title="全选当前列表中的所有美化"><i class="fa-solid fa-square-check"></i> 全选</button>
+                            <button id="batch-select-range-btn" class="menu_button" title="连选：选中首尾勾选项之间的全部美化"><i class="fa-solid fa-list-check"></i> 连选</button>
+                            <button id="batch-invert-select-btn" class="menu_button" title="反选当前列表中的美化"><i class="fa-solid fa-arrow-rotate-left"></i> 反选</button>
                             <button id="batch-add-tag-btn" class="menu_button"><i class="fa-solid fa-tags"></i> 加标签</button>
                             <button id="batch-remove-tag-btn" class="menu_button"><i class="fa-solid fa-tag"></i> 删标签</button>
                             <button id="batch-rename-btn" class="menu_button"><i class="fa-solid fa-i-cursor"></i> 重命名</button>
@@ -3953,6 +3956,87 @@
                 }
 
                 document.querySelector('#batch-delete-btn').addEventListener('click', performBatchDelete);
+
+                // --- 全选按钮 (Select All) ---
+                const batchSelectAllBtn = managerPanel.querySelector('#batch-select-all-btn');
+                if (batchSelectAllBtn) {
+                    batchSelectAllBtn.addEventListener('click', () => {
+                        const items = Array.from(contentWrapper.querySelectorAll('.theme-item')).filter(item => item.style.display !== 'none');
+                        if (items.length === 0) {
+                            toastr.info('当前列表中没有可选择的美化。');
+                            return;
+                        }
+                        items.forEach(item => {
+                            const val = item.dataset.value;
+                            if (val) {
+                                selectedForBatch.add(val);
+                                item.classList.add('selected-for-batch');
+                            }
+                        });
+                        toastr.info(`已全选当前列表中的 ${items.length} 个美化！`);
+                    });
+                }
+
+                // --- 连选按钮 (Range / Connect Select) ---
+                const batchSelectRangeBtn = managerPanel.querySelector('#batch-select-range-btn');
+                if (batchSelectRangeBtn) {
+                    batchSelectRangeBtn.addEventListener('click', () => {
+                        const items = Array.from(contentWrapper.querySelectorAll('.theme-item')).filter(item => item.style.display !== 'none');
+                        const selectedIndices = [];
+                        items.forEach((item, index) => {
+                            const val = item.dataset.value;
+                            if (val && selectedForBatch.has(val)) {
+                                selectedIndices.push(index);
+                            }
+                        });
+
+                        if (selectedIndices.length < 2) {
+                            toastr.info('请先至少手动点击/勾选 2 个美化卡片作为“起始”和“结束”项。');
+                            return;
+                        }
+
+                        const start = selectedIndices[0];
+                        const end = selectedIndices[selectedIndices.length - 1];
+
+                        for (let i = start; i <= end; i++) {
+                            const item = items[i];
+                            const val = item.dataset.value;
+                            if (val) {
+                                selectedForBatch.add(val);
+                                item.classList.add('selected-for-batch');
+                            }
+                        }
+
+                        toastr.info(`连选成功！已覆盖区间内的 ${end - start + 1} 个美化。`);
+                    });
+                }
+
+                // --- 反选按钮 (Invert Select) ---
+                const batchInvertSelectBtn = managerPanel.querySelector('#batch-invert-select-btn');
+                if (batchInvertSelectBtn) {
+                    batchInvertSelectBtn.addEventListener('click', () => {
+                        const items = Array.from(contentWrapper.querySelectorAll('.theme-item')).filter(item => item.style.display !== 'none');
+                        if (items.length === 0) {
+                            toastr.info('当前列表中没有可选择的美化。');
+                            return;
+                        }
+
+                        items.forEach(item => {
+                            const val = item.dataset.value;
+                            if (val) {
+                                if (selectedForBatch.has(val)) {
+                                    selectedForBatch.delete(val);
+                                    item.classList.remove('selected-for-batch');
+                                } else {
+                                    selectedForBatch.add(val);
+                                    item.classList.add('selected-for-batch');
+                                }
+                            }
+                        });
+
+                        toastr.info(`反选成功！当前已选中 ${selectedForBatch.size} 项。`);
+                    });
+                }
 
                 contentWrapper.addEventListener('click', async (event) => {
                     if (preventNextClick) {
