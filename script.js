@@ -652,19 +652,22 @@
                         applyThemeColors(themeObj);
                     }
 
-                    // 防范 ST 原生 loadTheme 异步清空 custom_css 的条件保护
+                    // 防范 ST 原生 loadTheme / saveSettings 异步写回导致 CSS 被冲刷或覆盖的精准校验防护
                     const scheduleAsyncProtection = () => {
                         if (!themeObj || !themeObj.custom_css) return;
-                        setTimeout(() => {
-                            const curCss = (typeof power_user !== 'undefined' && power_user.custom_css) || '';
-                            const styleEl = document.getElementById('custom-style');
-                            const curStyleContent = styleEl ? styleEl.innerHTML : '';
-
-                            if (!curCss || !curStyleContent) {
-                                console.log(`[Theme Manager] 检测到原生 loadTheme 冲刷 Custom CSS，已补回主题 "${themeName}" 的样式`);
-                                syncCustomCssToST(themeObj.custom_css);
-                            }
-                        }, 200);
+                        // 覆盖 ST 异步 Save/Reload 的时间窗口 (100ms, 300ms, 600ms, 1000ms)
+                        [100, 300, 600, 1000].forEach(delay => {
+                            setTimeout(() => {
+                                const styleEl = document.getElementById('custom-style');
+                                const curCss = (typeof power_user !== 'undefined' && power_user.custom_css) || '';
+                                
+                                // 精准匹配判断：如果 DOM 节点样式或 power_user 内存与目标主题的 custom_css 不一致，立刻重新纠偏补回
+                                if (!styleEl || styleEl.innerHTML !== themeObj.custom_css || curCss !== themeObj.custom_css) {
+                                    console.log(`[Theme Manager] 检测到 Custom CSS 样式偏移(延迟 ${delay}ms)，精准补回主题 "${themeName}" 的 CSS`);
+                                    syncCustomCssToST(themeObj.custom_css);
+                                }
+                            }, delay);
+                        });
                     };
 
                     // 核心优化: 更新选中值并同步触发表单变更
