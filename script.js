@@ -419,7 +419,7 @@
                     const cssVal = customCss !== undefined && customCss !== null ? customCss : '';
                     console.log(`[Theme Manager] syncCustomCssToST 触发, 目标 CSS 字节数: ${cssVal.length}`);
 
-                    // 1. 同步 ST 全局与 power_user 数据结构
+                    // 1. 写入 ST 官方权威单一数据源 power_user.custom_css
                     try {
                         if (typeof power_user !== 'undefined') {
                             power_user.custom_css = cssVal;
@@ -434,29 +434,30 @@
                         console.error('[Theme Manager Error] 同步 power_user.custom_css 失败:', e);
                     }
 
-                    // 2. 同步酒馆原生 Custom CSS 文本框元素 DOM
+                    // 2. 优先直接使用酒馆原生的 applyCustomCSS 官方渲染管道
+                    try {
+                        if (typeof applyCustomCSS === 'function') {
+                            applyCustomCSS();
+                        }
+                    } catch (e) {}
+
+                    // 3. 兜底同步酒馆原生 Custom CSS 文本框元素 DOM 与 CodeMirror 编辑器
                     const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style') || document.querySelector('#style_custom');
                     if (editorEl) {
                         if (editorEl.value !== cssVal) {
-                            console.log('[Theme Manager] 找到 Custom CSS 编辑器 DOM 节点:', editorEl.id || editorEl.tagName);
                             editorEl.value = cssVal;
                             editorEl.dispatchEvent(new Event('input', { bubbles: true }));
                             editorEl.dispatchEvent(new Event('change', { bubbles: true }));
                         }
 
-                        // 3. 同步 CodeMirror 编辑器实例 (若 ST 或插件挂载了 CodeMirror)
                         if (editorEl.CodeMirror && editorEl.CodeMirror.getValue() !== cssVal) {
-                            console.log('[Theme Manager] 找到 editorEl.CodeMirror 实例, 执行 setValue');
                             editorEl.CodeMirror.setValue(cssVal);
                         } else if (window.jQuery && $(editorEl).data('codemirror')) {
                             const cm = $(editorEl).data('codemirror');
                             if (cm && cm.getValue() !== cssVal) {
-                                console.log('[Theme Manager] 找到 $(editorEl).data("codemirror") 实例, 执行 setValue');
                                 cm.setValue(cssVal);
                             }
                         }
-                    } else {
-                        console.warn('[Theme Manager] 未在当前页面找到 Custom CSS 文本框 DOM 节点 (#style_custom_content)');
                     }
 
                     // 4. 全局 CodeMirror DOM 实例兜底同步
@@ -469,9 +470,7 @@
                                 }
                             });
                         }
-                    } catch (e) {
-                        console.error('[Theme Manager Error] 全局 CodeMirror 实例同步失败:', e);
-                    }
+                    } catch (e) {}
 
                     // 5. 确保原生 <style id="custom-style"> 标签节点同步刷新
                     let style = document.getElementById('custom-style');
