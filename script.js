@@ -1141,7 +1141,7 @@
                     <div id="theme-manager-header">
                         <h4 style="display:flex; align-items:center; gap:6px;">
                             <span><i class="fa-solid fa-palette"></i> 主题美化管理</span>
-                            <button id="tm-quick-manual-toggle-btn" class="menu_button" style="display:none; padding:2px 8px; font-size:11px; margin-left:4px; height:24px; min-height:24px; line-height:1;" title="手动快捷切换日夜主题"><i class="fa-solid fa-circle-half-stroke"></i> 切换日夜</button>
+                            <button id="tm-quick-manual-toggle-btn" style="display:none;" title="快捷切换日夜美化"><i class="fa-solid fa-circle-half-stroke"></i></button>
                         </h4>
                         <div id="native-buttons-container"></div>
                         <div id="theme-manager-toggle-icon" class="fa-solid fa-chevron-down"></div>

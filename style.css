@@ -88,27 +88,25 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 4px;
-    padding: 3px 8px !important;
-    font-size: 11px !important;
+    padding: 2px 4px !important;
+    font-size: 13px !important;
     line-height: 1 !important;
-    min-height: 24px !important;
-    height: 24px !important;
     margin-left: 6px !important;
     vertical-align: middle;
-    background: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, 0.2)) !important;
-    border: 1px solid var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.3)) !important;
-    border-radius: 4px !important;
-    color: var(--SmartThemeBodyColor, #fff) !important;
+    background: transparent !important;
+    border: none !important;
+    outline: none !important;
     box-shadow: none !important;
-    text-shadow: none !important;
-    transition: all 0.2s ease;
+    color: var(--SmartThemeBodyColor, inherit) !important;
+    cursor: pointer;
+    opacity: 0.8;
+    transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
 #tm-quick-manual-toggle-btn:hover {
-    background: var(--SmartThemeQuoteColor, rgba(0, 123, 255, 0.35)) !important;
-    border-color: var(--SmartThemeQuoteColor, rgba(0, 123, 255, 0.6)) !important;
-    color: #ffffff !important;
+    background: transparent !important;
+    opacity: 1;
+    transform: scale(1.15);
 }
 
 #theme-manager-toggle-icon {
