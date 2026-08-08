@@ -198,7 +198,9 @@
                 const ENABLE_COLOR_TRANSFER_KEY = 'themeManager_enableColorTransfer';
                 const ENABLE_DAYNIGHT_BINDING_KEY = 'themeManager_enableDayNightBinding';
                 const ENABLE_REPLACE_AVATAR_BTN_KEY = 'themeManager_enableReplaceAvatarBtn';
+                const TWO_LINE_LAYOUT_KEY = 'themeManager_twoLineLayout';
 
+                let isTwoLineLayout = localStorage.getItem(TWO_LINE_LAYOUT_KEY) === 'true';
                 let themeDayNightPairs = loadThemeDayNightPairs();
                 let enableDayNightBinding = localStorage.getItem(ENABLE_DAYNIGHT_BINDING_KEY) !== 'false'; // 默认开启 (true)
 
@@ -1304,6 +1306,9 @@
                 const batchEditBtn = managerPanel.querySelector('#batch-edit-btn');
                 const batchActionsBar = managerPanel.querySelector('#batch-actions-bar');
                 const contentWrapper = managerPanel.querySelector('.theme-content');
+                if (contentWrapper) {
+                    contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
+                }
                 const searchBox = managerPanel.querySelector('#theme-search-box');
                 const randomBtn = managerPanel.querySelector('#random-theme-btn');
                 const batchImportBtn = managerPanel.querySelector('#batch-import-btn');
@@ -2716,7 +2721,8 @@
                     USAGE_COUNT_KEY,
                     SHOW_USAGE_COUNT_KEY,
                     ENABLE_AVATAR_HELPER_KEY,
-                    ENABLE_COLOR_TRANSFER_KEY
+                    ENABLE_COLOR_TRANSFER_KEY,
+                    TWO_LINE_LAYOUT_KEY
                 ];
 
                 function exportSettings() {
@@ -2782,6 +2788,15 @@
                 const autoGroupBtn = managerPanel.querySelector('#tm-auto-group-btn');
                 if (autoGroupBtn) {
                     autoGroupBtn.addEventListener('click', () => openAutoGroupWizard());
+                }
+
+                const twoLineChk = managerPanel.querySelector('#tm-twoline-layout-chk');
+                if (twoLineChk) {
+                    twoLineChk.addEventListener('change', () => {
+                        isTwoLineLayout = twoLineChk.checked;
+                        localStorage.setItem(TWO_LINE_LAYOUT_KEY, isTwoLineLayout ? 'true' : 'false');
+                        if (contentWrapper) contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
+                    });
                 }
 
                 // ---------- 功能结束 ----------
@@ -3707,6 +3722,7 @@
                 }
 
                 // === 超强分词与停止词过滤 (解决 700+ 超量美化在移动端卡顿) ===
+                // === 超强分词与停止词过滤 (解决 700+ 超量美化在移动端卡顿) ===
                 const AUTO_GROUP_STOPWORDS = new Set([
                     'json', 'theme', 'themes', 'preset', 'presets', 'copy', 'new', 'fixed', 'final',
                     '360px', '1080p', '720p', 'v1', 'v2', 'v3', 'v4', 'v5', 'mode', 'ui', 'dark', 'light',
@@ -3714,24 +3730,30 @@
                     '美化', '主题', '预设', '整合', '重置', '修改', '修复', '最终', '完整', '通用', '版本', '备份', '副本'
                 ]);
 
-                function extractCandidateThemeGroups(themePool, minMatch = 2) {
+                function extractCandidateThemeGroups(themePool, minMatch = 2, targetLevel = 'l1', parentId = null) {
                     const list = themePool || allParsedThemes || [];
                     const candidateMap = new Map(); // kw -> Set(themeName)
 
-                    // 1. 匹配各类括号里面的独立标记词（如 【黑金】 [Cyberpunk] (v2) 《动漫》 <Lite>）
-                    const bracketRegex = /[\[【（(《<](.+?)[\]】）)》>]/g;
+                    // 0. 收集同级已存在的标签名，若已存在同名标签则自动跳过
+                    const existingTags = loadThemeTags();
+                    const existingTagNamesAtLevel = new Set(
+                        existingTags
+                            .filter(t => (targetLevel === 'l2' ? t.parentId === parentId : (!t.parentId || !existingTags.some(p => p.id === t.parentId))))
+                            .map(t => t.name.trim().toLowerCase())
+                    );
 
+                    // 1. 匹配各类括号里面的独立标记词（如 【黑金】 [Cyberpunk] (v2) 《动漫》 <Lite>）
                     list.forEach(t => {
                         const name = t.display || t.value;
                         if (!name) return;
 
                         // A. 括号内标签提取
                         let match;
-                        bracketRegex.lastIndex = 0;
-                        while ((match = bracketRegex.exec(name)) !== null) {
+                        const bRegex = /[\[【（(《<](.+?)[\]】）)》>]/g;
+                        while ((match = bRegex.exec(name)) !== null) {
                             const kw = match[1].trim();
                             const kwLower = kw.toLowerCase();
-                            if (kw.length >= 1 && kw.length <= 20 && !AUTO_GROUP_STOPWORDS.has(kwLower)) {
+                            if (kw.length >= 1 && kw.length <= 20 && !AUTO_GROUP_STOPWORDS.has(kwLower) && !existingTagNamesAtLevel.has(kwLower)) {
                                 if (!candidateMap.has(kw)) candidateMap.set(kw, new Set());
                                 candidateMap.get(kw).add(t.value);
                             }
@@ -3744,7 +3766,7 @@
                         tokens.forEach(token => {
                             const tokenLower = token.toLowerCase();
                             if (token.length >= 2 && token.length <= 15) {
-                                if (!/^\d+$/.test(token) && !AUTO_GROUP_STOPWORDS.has(tokenLower)) {
+                                if (!/^\d+$/.test(token) && !AUTO_GROUP_STOPWORDS.has(tokenLower) && !existingTagNamesAtLevel.has(tokenLower)) {
                                     if (!candidateMap.has(token)) candidateMap.set(token, new Set());
                                     candidateMap.get(token).add(t.value);
                                 }
@@ -3752,7 +3774,7 @@
                         });
                     });
 
-                    // 2. 转换为数组并筛选
+                    // 2. 转换为数组并按门槛筛选
                     const result = [];
                     candidateMap.forEach((themesSet, kw) => {
                         if (themesSet.size >= minMatch) {
@@ -3763,9 +3785,35 @@
                         }
                     });
 
+                    // 3. 最大公约词归并提取 (Longest Common Prefix Subsumption)
+                    // 按照关键词字符串长度升序排序（短词优先）
+                    result.sort((a, b) => a.keyword.length - b.keyword.length);
+                    const prunedCandidates = [];
+
+                    for (const item of result) {
+                        const kwLower = item.keyword.toLowerCase();
+                        // 检测当前关键词是否为已有较短候选词的衍生词（例如 "12345" 包含了短词 "1234"）
+                        const isSubsumed = prunedCandidates.some(parent => {
+                            const parentKwLower = parent.keyword.toLowerCase();
+                            if (kwLower.includes(parentKwLower)) {
+                                const parentSet = new Set(parent.themes);
+                                const overlapCount = item.themes.filter(tName => parentSet.has(tName)).length;
+                                // 若当前词 75% 以上的美化已被短词包含，则直接取最大公约词，剔除衍生冗余长词
+                                if (overlapCount / item.themes.length >= 0.75) {
+                                    return true;
+                                }
+                            }
+                            return false;
+                        });
+
+                        if (!isSubsumed) {
+                            prunedCandidates.push(item);
+                        }
+                    }
+
                     // 按包含的美化数量降序排列，截取前 80 个最热门候选
-                    result.sort((a, b) => b.themes.length - a.themes.length);
-                    return result.slice(0, 80);
+                    prunedCandidates.sort((a, b) => b.themes.length - a.themes.length);
+                    return prunedCandidates.slice(0, 80);
                 }
 
                 // === 分组向导 Step 1: 设置基数范围、目标层级与门槛 ===
@@ -3793,30 +3841,30 @@
                     const scopeFilteredLabel = selectedCount > 0 ? `当前批量勾选的美化 (共 ${selectedCount} 个)` : `当前界面已筛选的美化 (共 ${filteredCount} 个)`;
 
                     const setupHtml = `
-                        <div style="padding:4px;">
+                        <div style="padding:4px; height:100%; display:flex; flex-direction:column; box-sizing:border-box;">
                             <h4 style="margin:0 0 10px 0; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
                                 <i class="fa-solid fa-wand-magic-sparkles" style="color:#ffc107;"></i> 智能美化分组向导
                             </h4>
-                            <div style="background:rgba(255,255,255,0.04); border-radius:6px; padding:12px; margin-bottom:14px; display:flex; flex-direction:column; gap:12px;">
+                            <div style="background:rgba(255,255,255,0.04); border-radius:6px; padding:16px; flex:1; display:flex; flex-direction:column; gap:16px; overflow-y:auto;">
                                 <div>
-                                    <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:5px;">
+                                    <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
                                         <i class="fa-solid fa-layer-group"></i> 1. 选择分析的美化基数范围：
                                     </div>
-                                    <div style="display:flex; flex-direction:column; gap:6px; padding-left:8px;">
-                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
+                                    <div style="display:flex; flex-direction:column; gap:8px; padding-left:12px;">
+                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
                                             <input type="radio" name="tm-auto-scope" value="all" checked style="margin:0;">
                                             <span>全部美化主题 (共 <b>${allParsedThemes.length}</b> 个)</span>
                                         </label>
-                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
+                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
                                             <input type="radio" name="tm-auto-scope" value="filtered" style="margin:0;">
                                             <span>${scopeFilteredLabel}</span>
                                         </label>
-                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
+                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
                                             <input type="radio" name="tm-auto-scope" value="tag" style="margin:0;">
                                             <span>特定标签下的美化</span>
                                         </label>
                                         <div id="tm-auto-scope-tag-container" style="margin-left:24px; display:none;">
-                                            <select id="tm-auto-scope-tag-select" class="text_pole" style="font-size:12px; height:28px; padding:2px 8px; width:100%; max-width:240px;">
+                                            <select id="tm-auto-scope-tag-select" class="text_pole" style="font-size:12px; height:30px; padding:2px 8px; width:100%; max-width:280px;">
                                                 ${allTagsSelectOptionsHtml}
                                             </select>
                                         </div>
@@ -3824,20 +3872,20 @@
                                 </div>
                                 <hr style="border:0; border-top:1px solid rgba(128,128,128,0.2); margin:0;">
                                 <div>
-                                    <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:5px;">
+                                    <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
                                         <i class="fa-solid fa-sitemap"></i> 2. 选择生成标签的目标层级：
                                     </div>
-                                    <div style="display:flex; flex-direction:column; gap:6px; padding-left:8px;">
-                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
+                                    <div style="display:flex; flex-direction:column; gap:8px; padding-left:12px;">
+                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
                                             <input type="radio" name="tm-auto-level" value="l1" checked style="margin:0;">
                                             <span>创建为 <b>一级主标签/分类</b></span>
                                         </label>
-                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
+                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
                                             <input type="radio" name="tm-auto-level" value="l2" style="margin:0;">
-                                            <span>创建为 <b>二级子标签</b> (归属于选定的主分类)</span>
+                                            <span>创建为 <b>二级子标签</b> (支持向归属主分类融合/合并)</span>
                                         </label>
                                         <div id="tm-auto-parent-container" style="margin-left:24px; display:none;">
-                                            <select id="tm-auto-parent-select" class="text_pole" style="font-size:12px; height:28px; padding:2px 8px; width:100%; max-width:240px;">
+                                            <select id="tm-auto-parent-select" class="text_pole" style="font-size:12px; height:30px; padding:2px 8px; width:100%; max-width:280px;">
                                                 ${l1SelectOptionsHtml}
                                             </select>
                                         </div>
@@ -3845,12 +3893,12 @@
                                 </div>
                                 <hr style="border:0; border-top:1px solid rgba(128,128,128,0.2); margin:0;">
                                 <div>
-                                    <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:5px;">
+                                    <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
                                         <i class="fa-solid fa-filter"></i> 3. 提取门槛：
                                     </div>
-                                    <div style="display:inline-flex; align-items:center; gap:8px; font-size:12px; padding-left:8px;">
+                                    <div style="display:inline-flex; align-items:center; gap:8px; font-size:13px; padding-left:12px;">
                                         <span>至少重合包含：</span>
-                                        <input type="number" id="tm-auto-min-match" class="text_pole" value="2" min="2" max="50" style="width:55px; text-align:center; height:26px; padding:0; margin:0;">
+                                        <input type="number" id="tm-auto-min-match" class="text_pole" value="2" min="2" max="50" style="width:60px; text-align:center; height:28px; padding:0; margin:0;">
                                         <span>个美化主题</span>
                                     </div>
                                 </div>
@@ -3865,14 +3913,18 @@
 
                     const popupRes = await callGenericPopup(setupHtml, 'confirm', null, {
                         title: '分组提取设置',
-                        okButton: '开始分析提取',
-                        cancelButton: '取消',
-                        wide: false,
+                        okButton: '<i class="fa-solid fa-play"></i> 开始分析提取',
+                        cancelButton: '<i class="fa-solid fa-xmark"></i> 取消',
+                        wide: true,
                         onOpen: (popup) => {
                             const dlg = popup.dlg;
                             if (dlg) {
-                                dlg.style.width = '90%';
-                                dlg.style.maxWidth = '460px';
+                                dlg.style.width = '80vw';
+                                dlg.style.height = '80vh';
+                                dlg.style.maxWidth = '900px';
+                                dlg.style.maxHeight = '80vh';
+                                dlg.style.display = 'flex';
+                                dlg.style.flexDirection = 'column';
                             }
 
                             const scopeRadios = dlg.querySelectorAll('input[name="tm-auto-scope"]');
@@ -3935,11 +3987,11 @@
                                 pool = allParsedThemes;
                             }
 
-                            const candidates = extractCandidateThemeGroups(pool, minMatch);
+                            const candidates = extractCandidateThemeGroups(pool, minMatch, selectedLevel, parentId);
                             hideLoader();
 
                             if (candidates.length === 0) {
-                                toastr.info(`在选定的 ${pool.length} 个美化中，未分析到重合数 ≥ ${minMatch} 的词组分类。`);
+                                toastr.info(`在选定的 ${pool.length} 个美化中，未分析到重合数 ≥ ${minMatch} 且未重复的词组分类。`);
                                 return;
                             }
 
@@ -3953,10 +4005,9 @@
                     }, 150);
                 }
 
-                // === 分组向导 Step 2: 逐个审核通过/不通过（支持中途停止、撤销回溯、静默更新） ===
+                // === 分组向导 Step 2: 逐个审核通过/不通过（支持 80% 大屏幕、最大公约数提取与子标签合并） ===
                 async function runAutoGroupReviewStep(candidates, currentIndex, level, parentId, createdTagsCount, assignedThemesCount, historyStack = []) {
                     if (currentIndex >= candidates.length) {
-                        // 整体向导彻底结束后，仅执行一次 UI 刷排
                         renderTagsUI();
                         updateActiveState();
                         toastr.success(`🎉 分组向导已完成！共创建/更新了 ${createdTagsCount} 个标签分类。`);
@@ -3970,31 +4021,31 @@
                     const remainingThemes = candidate.themes.slice(MAX_INITIAL_THEMES);
 
                     const wizardHtml = `
-                        <div style="padding:4px;">
+                        <div style="padding:4px; height:100%; display:flex; flex-direction:column; box-sizing:border-box;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid rgba(128,128,128,0.2); padding-bottom:8px;">
-                                <span style="font-weight:bold; font-size:13px; color:var(--SmartThemeQuoteColor, #4a90e2); display:inline-flex; align-items:center; gap:6px;">
-                                    <i class="fa-solid fa-list-check" style="color:#ffc107;"></i> 分组向导审核 (${currentIndex + 1} / ${candidates.length})
+                                <span style="font-weight:bold; font-size:14px; color:var(--SmartThemeQuoteColor, #4a90e2); display:inline-flex; align-items:center; gap:6px;">
+                                    <i class="fa-solid fa-list-check" style="color:#ffc107;"></i> 审核分组向导 (${currentIndex + 1} / ${candidates.length})
                                 </span>
-                                <span style="font-size:11px; padding:2px 8px; border-radius:10px; background:rgba(0,123,255,0.18); color:#4dabf7; font-weight:bold;">
+                                <span style="font-size:12px; padding:3px 10px; border-radius:12px; background:rgba(0,123,255,0.18); color:#4dabf7; font-weight:bold;">
                                     <i class="fa-solid fa-sitemap" style="margin-right:4px;"></i>${targetLevelLabel}
                                 </span>
                             </div>
-                            <div style="background:rgba(255,255,255,0.04); padding:10px; border-radius:6px; margin-bottom:10px;">
-                                <div style="font-size:13px; font-weight:bold; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
+                            <div style="background:rgba(255,255,255,0.04); padding:12px; border-radius:6px; margin-bottom:10px; flex:1; display:flex; flex-direction:column; min-height:0;">
+                                <div style="font-size:14px; font-weight:bold; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
                                     <span style="display:inline-flex; align-items:center; gap:6px;">
                                         <i class="fa-solid fa-tag" style="color:#ffc107;"></i> 标签名称：
-                                        <input type="text" id="wizard-tag-name-input" class="text_pole" value="${escapeHtml(candidate.keyword)}" style="display:inline-block; width:160px; height:26px; padding:2px 6px; font-size:13px; margin:0;">
+                                        <input type="text" id="wizard-tag-name-input" class="text_pole" value="${escapeHtml(candidate.keyword)}" style="display:inline-block; width:200px; height:28px; padding:2px 8px; font-size:13px; margin:0;">
                                     </span>
                                     <span style="font-size:12px; font-weight:normal; opacity:0.8;">
-                                        <i class="fa-solid fa-layer-group" style="margin-right:3px;"></i> 匹配 <b>${candidate.themes.length}</b> 个美化
+                                        <i class="fa-solid fa-layer-group" style="margin-right:4px;"></i> 匹配 <b>${candidate.themes.length}</b> 个美化
                                     </span>
                                 </div>
-                                <div style="font-size:11px; opacity:0.7; margin-bottom:6px; display:flex; align-items:center; gap:4px;">
-                                    <i class="fa-solid fa-tags"></i> 勾选需加入该标签的美化（支持多标签）：
+                                <div style="font-size:12px; opacity:0.75; margin-bottom:6px; display:flex; align-items:center; gap:4px;">
+                                    <i class="fa-solid fa-tags"></i> 勾选需加入该标签的美化（支持多标签与已存在同名分类合并）：
                                 </div>
-                                <div id="wizard-themes-container" style="max-height:160px; overflow-y:auto; background:rgba(0,0,0,0.15); padding:6px; border-radius:4px; display:flex; flex-direction:column; gap:4px;">
+                                <div id="wizard-themes-container" style="flex:1; max-height:calc(80vh - 180px); overflow-y:auto; background:rgba(0,0,0,0.15); padding:8px; border-radius:4px; display:flex; flex-direction:column; gap:4px;">
                                     ${initialThemes.map(tName => `
-                                        <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 6px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none;">
+                                        <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:4px 8px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none;">
                                             <input type="checkbox" class="wizard-theme-chk" value="${escapeHtml(tName)}" checked style="margin:0;">
                                             <span style="word-break:break-all;">${escapeHtml(tName)}</span>
                                         </label>
@@ -4020,14 +4071,18 @@
 
                     const popupRes = await callGenericPopup(wizardHtml, 'confirm', null, {
                         title: `美化分组审核 (${currentIndex + 1}/${candidates.length})`,
-                        okButton: '✅ 通过并创建标签',
-                        cancelButton: '❌ 不通过 / 跳过',
+                        okButton: '<i class="fa-solid fa-check"></i> 通过并创建/合并',
+                        cancelButton: '<i class="fa-solid fa-xmark"></i> 不通过 / 跳过',
                         wide: true,
                         onOpen: (popup) => {
                             const dlg = popup.dlg;
                             if (dlg) {
-                                dlg.style.width = '90%';
-                                dlg.style.maxWidth = '480px';
+                                dlg.style.width = '80vw';
+                                dlg.style.height = '80vh';
+                                dlg.style.maxWidth = '900px';
+                                dlg.style.maxHeight = '80vh';
+                                dlg.style.display = 'flex';
+                                dlg.style.flexDirection = 'column';
                             }
 
                             const loadMoreBtn = dlg.querySelector('#wizard-load-more-btn');
@@ -4039,7 +4094,7 @@
                                     const frag = document.createDocumentFragment();
                                     remainingThemes.forEach(tName => {
                                         const lbl = document.createElement('label');
-                                        lbl.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 6px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none;';
+                                        lbl.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:4px 8px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none;';
                                         lbl.innerHTML = `<input type="checkbox" class="wizard-theme-chk" value="${escapeHtml(tName)}" checked style="margin:0;"><span style="word-break:break-all;">${escapeHtml(tName)}</span>`;
                                         frag.appendChild(lbl);
                                     });
@@ -4076,13 +4131,14 @@
                         }
                     });
 
-                    // 辅助函数：保存/更新标签但不重刷全量 DOM
+                    // 辅助函数：保存/更新/合并二级与一级标签但不重刷全量 DOM
                     const createTagAndSaveSilent = (cItem, tagName, themesList) => {
                         if (!themesList || themesList.length === 0) return { success: false, isNew: false };
                         let tags = loadThemeTags();
 
                         let isNew = false;
-                        let tagObj = tags.find(t => t.name.toLowerCase() === tagName.toLowerCase());
+                        // 支持同级标签合并：匹配同级别且同名的已有标签
+                        let tagObj = tags.find(t => t.name.toLowerCase() === tagName.toLowerCase() && (parentId ? t.parentId === parentId : (!t.parentId || !tags.some(p => p.id === t.parentId))));
                         if (!tagObj) {
                             isNew = true;
                             tagObj = {
@@ -4125,7 +4181,7 @@
                             const lastStep = historyStack.pop();
                             if (lastStep.action === 'approve' && lastStep.addedThemes && lastStep.addedThemes.length > 0) {
                                 let tags = loadThemeTags();
-                                const tagObj = tags.find(t => t.name.toLowerCase() === lastStep.tagName.toLowerCase());
+                                const tagObj = tags.find(t => t.name.toLowerCase() === lastStep.tagName.toLowerCase() && (parentId ? t.parentId === parentId : true));
                                 if (tagObj && tagObj.themes) {
                                     const removeSet = new Set(lastStep.addedThemes);
                                     tagObj.themes = tagObj.themes.filter(tn => !removeSet.has(tn));
@@ -4168,7 +4224,7 @@
 
                     // 4. 标准用户按键分支 (通过 vs 跳过)
                     if (popupRes) {
-                        // 用户点击了 '✅ 通过并创建标签'
+                        // 用户点击了 '✅ 通过并创建/合并标签'
                         const tagNameInput = document.querySelector('#wizard-tag-name-input');
                         const tagName = (tagNameInput ? tagNameInput.value : candidate.keyword).trim() || candidate.keyword;
                         const checkedThemes = Array.from(document.querySelectorAll('.wizard-theme-chk:checked')).map(cb => cb.value);

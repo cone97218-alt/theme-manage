@@ -817,6 +817,34 @@
     box-sizing: border-box !important;
 }
 
+/* 换行排版模式（美化名单独一行，标签和操作按钮另起一行） */
+.theme-item.two-line-layout,
+.two-line-layout .theme-item {
+    flex-wrap: wrap !important;
+    padding: 8px 10px !important;
+    gap: 6px 10px !important;
+}
+
+.theme-item.two-line-layout .theme-item-name,
+.two-line-layout .theme-item-name {
+    width: 100% !important;
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    margin-bottom: 2px !important;
+}
+
+.theme-item.two-line-layout .theme-item-buttons,
+.two-line-layout .theme-item-buttons {
+    width: 100% !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    margin-left: 0 !important;
+}
+
 
 
 
