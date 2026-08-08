@@ -2217,8 +2217,6 @@
                         const usedNewNames = new Set();
 
                         for (const oldName of selectedForBatch) {
-                            let themeObject = findThemeObject(oldName) || { name: oldName };
-
                             const newName = renameLogic(oldName);
                             if (!newName || !newName.trim()) {
                                 skippedCount++;
@@ -2237,23 +2235,26 @@
                                 continue;
                             }
 
+                            // ⚠️ 在入队时立刻快照完整对象，避免并发 task 互相清除内存后找不到
+                            const fullThemeObj = findThemeObject(oldName);
+                            if (!fullThemeObj) {
+                                console.error(`[Theme Manager Batch Rename] 无法读取主题 "${oldName}" 的完整数据，跳过此项`);
+                                errorCount++;
+                                continue;
+                            }
+
                             usedNewNames.add(newName);
-                            renameTasks.push({ oldName, newName, themeObject });
+                            renameTasks.push({ oldName, newName, fullThemeObj });
                         }
 
                         if (renameTasks.length > 0) {
-                            const results = await limitConcurrency(10, renameTasks, async ({ oldName, newName }) => {
-                                // 从 ST 内存读取完整主题数据
-                                const fullThemeObj = findThemeObject(oldName);
-                                if (!fullThemeObj) {
-                                    throw new Error(`无法从 ST 内存读取主题 "${oldName}" 的完整数据`);
-                                }
+                            const results = await limitConcurrency(10, renameTasks, async ({ oldName, newName, fullThemeObj }) => {
                                 const objectToSave = { ...fullThemeObj, name: newName };
 
                                 // 1. 写入新文件
                                 await saveTheme(objectToSave);
 
-                                // 2. 擦除旧文件
+                                // 2. 擦除旧文件（传入已快照的 fullThemeObj，不依赖 ST 内存）
                                 try {
                                     await deleteTheme(oldName, fullThemeObj);
                                 } catch (delErr) {
@@ -4542,9 +4543,10 @@
                                     toastr.warning(`主题 "${finalNewName}" 已存在，请使用其他名称。`);
                                     return;
                                 }
-                                let themeObject = findThemeObject(oldName) || { name: oldName };
+                                // ⚠️ 在清内存前先快照完整数据（后台异步块需要用它写盘，届时内存已清）
+                                const fullThemeObj = findThemeObject(oldName) || { name: oldName };
                                 const isActive = originalSelect.value === oldName;
-                                const newThemeObject = { ...themeObject, name: finalNewName };
+                                const newThemeObject = { ...fullThemeObj, name: finalNewName };
 
                                 // 0ms 乐观 UI 重命名：在后台写入物理文件的同时，立刻增量更新本地 DOM、下拉框与关系数据
                                 manualUpdateOriginalSelect('rename', oldName, finalNewName);
@@ -4623,28 +4625,22 @@
                                 toastr.success(`已将「${oldName}」重命名为「${finalNewName}」`);
                                 updateActiveState();
 
-                                // 后台异步：先从 ST 内存读原主题完整数据，写新文件，成功后删旧文件
+                                // 后台异步：写新文件，再删旧文件（使用上面已快照的 fullThemeObj，不重新查内存）
                                 (async () => {
                                     console.log(`[Theme Manager Rename] ══════════════════`);
                                     console.log(`[Theme Manager Rename] "${oldName}" → "${finalNewName}"`);
                                     try {
-                                        // Step 1: 从 ST 内存获取完整主题数据
-                                        const fullThemeObj = findThemeObject(oldName);
-                                        if (!fullThemeObj) {
-                                            console.error(`[Theme Manager Rename] ❌ 无法从 ST 内存找到主题 "${oldName}" 的完整数据，重命名中止！`);
-                                            toastr.error(`重命名失败：无法读取主题 "${oldName}" 的数据`);
-                                            return;
+                                        if (!fullThemeObj.main_text_color && !fullThemeObj.custom_css) {
+                                            console.warn(`[Theme Manager Rename] ⚠️ 快照数据可能不完整，字段数: ${Object.keys(fullThemeObj).length}`);
                                         }
-                                        console.log(`[Theme Manager Rename] Step 1 ✅ 读取到完整数据 (字段数: ${Object.keys(fullThemeObj).length})`);
-
-                                        // Step 2: 用新名字写入新文件
+                                        // Step 1: 用新名字写入新文件
                                         const objectToSave = { ...fullThemeObj, name: finalNewName };
                                         await saveTheme(objectToSave);
-                                        console.log(`[Theme Manager Rename] Step 2 ✅ 新文件写入成功: "${finalNewName}.json"`);
+                                        console.log(`[Theme Manager Rename] Step 1 ✅ 新文件写入成功: "${finalNewName}.json"`);
 
-                                        // Step 3: 删除旧文件（用原始完整对象辅助定位磁盘文件名）
+                                        // Step 2: 删除旧文件
                                         await deleteTheme(oldName, fullThemeObj);
-                                        console.log(`[Theme Manager Rename] Step 3 ✅ 旧文件已清除: "${oldName}"`);
+                                        console.log(`[Theme Manager Rename] Step 2 ✅ 旧文件已清除: "${oldName}"`);
                                     } catch (e) {
                                         console.error(`[Theme Manager Rename] ❌ 重命名磁盘操作失败:`, e);
                                         toastr.error(`重命名磁盘操作失败: ${e.message || e}`);
