@@ -3427,6 +3427,7 @@
                 });
                 userWandMenu.appendChild(btn);
             }
+        }
     }
 
     // 移除替换卡图按键
