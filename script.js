@@ -318,7 +318,7 @@
                     if (!themeName) return false;
 
                     console.log(`[Theme Manager Delete] ══════════════════════════════════════`);
-                    console.log(`[Theme Manager Delete] 🗑️ 使用 ST 原生接口擦除美化主题: "${themeName}"`);
+                    console.log(`[Theme Manager Delete] 🗑️ 开始擦除美化主题: "${themeName}"`);
 
                     const candidateSet = new Set();
                     const addNameVariants = (str) => {
@@ -326,15 +326,24 @@
                         const raw = str.trim();
                         if (!raw) return;
 
-                        // 彻底剥离 ASCII 方括号 [xxx]、中文全角方括号 【xxx】、中文/英文圆括号 (xxx) （xxx）、书名号 《xxx》 等标签前缀
-                        const clean = raw.replace(/([\[【（(《<].*?[\]】）)》>])/g, '').trim();
+                        const baseList = new Set();
+                        baseList.add(raw);
 
-                        const baseList = [raw, clean];
-                        if (clean.includes(' ')) {
-                            const parts = clean.split(/\s+/).filter(Boolean);
-                            if (parts.length > 1) {
-                                baseList.push(parts[parts.length - 1]);
-                            }
+                        // 变体 A: 剥离括号符号，但保留括号内部的完整字符文本 (例如: "【Miao & Game】 360px" -> "Miao & Game 360px")
+                        const unbracketed = raw.replace(/[\[\]【】（）()《》<>]/g, ' ').replace(/\s+/g, ' ').trim();
+                        if (unbracketed) baseList.add(unbracketed);
+
+                        // 变体 B: 剥离括号及其内部内容 (例如: "【Miao & Game】 360px" -> "360px")
+                        const cleanOuter = raw.replace(/([\[【（(《<].*?[\]】）)》>])/g, '').trim();
+                        if (cleanOuter) baseList.add(cleanOuter);
+
+                        // 变体 C: 提取括号内部的单独文本 (例如: "【Miao & Game】 360px" -> "Miao & Game")
+                        const bracketMatches = raw.match(/([\[【（(《<].*?[\]】）)》>])/g);
+                        if (bracketMatches) {
+                            bracketMatches.forEach(bm => {
+                                const inner = bm.replace(/[\[\]【】（）()《》<>]/g, '').trim();
+                                if (inner) baseList.add(inner);
+                            });
                         }
 
                         baseList.forEach(v => {
@@ -347,6 +356,8 @@
                             if (noExt.includes('&')) {
                                 candidateSet.add(noExt.replace(/&/g, 'and'));
                                 candidateSet.add(noExt.replace(/&/g, ' '));
+                                candidateSet.add(noExt.replace(/\s*&\s*/g, '_&_'));
+                                candidateSet.add(noExt.replace(/\s*&\s*/g, '_and_'));
                             }
                             if (noExt.includes(' ') || noExt.includes('_')) {
                                 candidateSet.add(noExt.replace(/\s+/g, '_'));
@@ -361,7 +372,7 @@
 
                     let themeObj = themeObjParam || allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
                     if (!themeObj && Array.isArray(allThemeObjects)) {
-                        const cleanReqName = themeName.replace(/([\[【（(《<].*?[\]】）)》>])/g, '').trim();
+                        const cleanReqName = themeName.replace(/[\[\]【】（）()《》<>]/g, '').trim();
                         themeObj = allThemeObjects.find(t => t && (
                             t.name === themeName || t.name === cleanReqName ||
                             t.value === themeName || t.value === cleanReqName
@@ -375,35 +386,29 @@
                     addNameVariants(themeName);
 
                     const candidates = Array.from(candidateSet).filter(Boolean);
-                    console.log(`[Theme Manager Delete] 📋 试探物理文件名列表:`, candidates);
+                    console.log(`[Theme Manager Delete] 📋 生成的所有试探物理文件名 (${candidates.length} 个):`, candidates);
 
                     if (candidates.length === 0) return false;
 
                     let isDeletedOnDisk = false;
 
-                    // 直接采用 SillyTavern 原生主题删除接口 fetch('/api/themes/delete')
+                    // 使用 apiRequest 并传入 suppressToast=true，静默向后端 API 发送擦除请求（防止未选中的候选试探触发 404 红框弹窗）
                     await Promise.all(candidates.map(async candidateName => {
                         try {
-                            const response = await fetch('/api/themes/delete', {
-                                method: 'POST',
-                                headers: getRequestHeaders(),
-                                body: JSON.stringify({ name: candidateName }),
-                            });
-                            if (response.ok) {
+                            const res = await apiRequest('themes/delete', 'POST', { name: candidateName }, true);
+                            if (res && res.status !== 'error') {
                                 isDeletedOnDisk = true;
-                                console.log(`[Theme Manager Delete] ✅ ST 原生接口成功擦除磁盘文件: "${candidateName}.json"`);
-                            } else {
-                                console.warn(`[Theme Manager Delete] ⚠️ 候选名 "${candidateName}" 返回 HTTP ${response.status}`);
+                                console.log(`[Theme Manager Delete] ✅ 成功擦除磁盘物理文件: "${candidateName}.json"`);
                             }
                         } catch (err) {
-                            console.error(`[Theme Manager Delete] ❌ 候选名 "${candidateName}" 请求网络错误:`, err);
+                            console.warn(`[Theme Manager Delete] 试探候选名 "${candidateName}" 未命中磁盘物理文件。`);
                         }
                     }));
 
                     if (isDeletedOnDisk) {
                         console.log(`[Theme Manager Delete] 🎉 主题 "${themeName}" 磁盘物理文件擦除确认成功！`);
                     } else {
-                        console.error(`[Theme Manager Delete ERROR] ❌ 主题 "${themeName}" 物理磁盘擦除失败！所有候选名均未能删除。`);
+                        console.error(`[Theme Manager Delete ERROR] ❌ 主题 "${themeName}" 物理磁盘擦除失败！所有试探名均未能命中磁盘文件。试过的候选名:`, candidates);
                     }
 
                     // 同步清理内存与界面数据
