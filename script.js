@@ -318,100 +318,48 @@
                     if (!themeName) return false;
 
                     console.log(`[Theme Manager Delete] ══════════════════════════════════════`);
-                    console.log(`[Theme Manager Delete] 🗑️ 开始擦除美化主题: "${themeName}"`);
+                    console.log(`[Theme Manager Delete] 开始删除: "${themeName}"`);
 
+                    // 核心原则：ST 保存主题时，磁盘文件名 = sanitize(themeObj.name) + ".json"
+                    // 所以最优先的候选就是 themeObj.name（从 ST 内存读取的原始 name）
                     const candidateSet = new Set();
-                    const addNameVariants = (str) => {
-                        if (!str || typeof str !== 'string') return;
-                        const raw = str.trim();
-                        if (!raw) return;
 
-                        const baseList = new Set();
-                        baseList.add(raw);
-
-                        // 变体 A: 剥离括号符号，但保留括号内部的完整字符文本 (例如: "【Miao & Game】 360px" -> "Miao & Game 360px")
-                        const unbracketed = raw.replace(/[\[\]【】（）()《》<>]/g, ' ').replace(/\s+/g, ' ').trim();
-                        if (unbracketed) baseList.add(unbracketed);
-
-                        // 变体 B: 剥离括号及其内部内容 (例如: "【Miao & Game】 360px" -> "360px")
-                        const cleanOuter = raw.replace(/([\[【（(《<].*?[\]】）)》>])/g, '').trim();
-                        if (cleanOuter) baseList.add(cleanOuter);
-
-                        // 变体 C: 提取括号内部的单独文本 (例如: "【Miao & Game】 360px" -> "Miao & Game")
-                        const bracketMatches = raw.match(/([\[【（(《<].*?[\]】）)》>])/g);
-                        if (bracketMatches) {
-                            bracketMatches.forEach(bm => {
-                                const inner = bm.replace(/[\[\]【】（）()《》<>]/g, '').trim();
-                                if (inner) baseList.add(inner);
-                            });
-                        }
-
-                        baseList.forEach(v => {
-                            if (!v) return;
-                            const noExt = v.replace(/\.json$/i, '').trim();
-                            if (!noExt) return;
-
-                            candidateSet.add(noExt);
-                            if (noExt.includes('&amp;')) candidateSet.add(noExt.replace(/&amp;/g, '&'));
-                            if (noExt.includes('&')) {
-                                candidateSet.add(noExt.replace(/&/g, 'and'));
-                                candidateSet.add(noExt.replace(/&/g, ' '));
-                                candidateSet.add(noExt.replace(/\s*&\s*/g, '_&_'));
-                                candidateSet.add(noExt.replace(/\s*&\s*/g, '_and_'));
-                            }
-                            if (noExt.includes(' ') || noExt.includes('_')) {
-                                candidateSet.add(noExt.replace(/\s+/g, '_'));
-                                candidateSet.add(noExt.replace(/_/g, ' '));
-                            }
-                            if (noExt.includes(' ') || noExt.includes('-')) {
-                                candidateSet.add(noExt.replace(/\s+/g, '-'));
-                                candidateSet.add(noExt.replace(/-/g, ' '));
-                            }
-                        });
-                    };
-
-                    let themeObj = themeObjParam || allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
-                    if (!themeObj && Array.isArray(allThemeObjects)) {
-                        const cleanReqName = themeName.replace(/[\[\]【】（）()《》<>]/g, '').trim();
-                        themeObj = allThemeObjects.find(t => t && (
-                            t.name === themeName || t.name === cleanReqName ||
-                            t.value === themeName || t.value === cleanReqName
-                        ));
+                    // 1. 最高优先：调用方传入的 themeObjParam.name（从 ST 内存取得的准确 name）
+                    if (themeObjParam && themeObjParam.name) {
+                        candidateSet.add(String(themeObjParam.name).trim());
                     }
 
-                    if (themeObj) {
-                        if (themeObj.name) addNameVariants(themeObj.name);
-                        if (themeObj.value) addNameVariants(themeObj.value);
+                    // 2. 从 ST 内存里查找该主题的准确 name
+                    const stObj = findThemeObject(themeName);
+                    if (stObj && stObj.name) {
+                        candidateSet.add(String(stObj.name).trim());
                     }
-                    addNameVariants(themeName);
+
+                    // 3. themeName 本身（对于标准主题，磁盘名 = UI 显示名）
+                    candidateSet.add(String(themeName).trim());
 
                     const candidates = Array.from(candidateSet).filter(Boolean);
-                    console.log(`[Theme Manager Delete] 📋 生成的所有试探物理文件名 (${candidates.length} 个):`, candidates);
-
-                    if (candidates.length === 0) return false;
+                    console.log(`[Theme Manager Delete] 候选磁盘文件名:`, candidates);
 
                     let isDeletedOnDisk = false;
 
-                    // 使用 apiRequest 并传入 suppressToast=true，静默向后端 API 发送擦除请求（防止未选中的候选试探触发 404 红框弹窗）
-                    await Promise.all(candidates.map(async candidateName => {
+                    for (const candidateName of candidates) {
                         try {
-                            const res = await apiRequest('themes/delete', 'POST', { name: candidateName }, true);
-                            if (res && res.status !== 'error') {
-                                isDeletedOnDisk = true;
-                                console.log(`[Theme Manager Delete] ✅ 成功擦除磁盘物理文件: "${candidateName}.json"`);
-                            }
+                            await apiRequest('themes/delete', 'POST', { name: candidateName }, true);
+                            // apiRequest 不抛错即代表后端返回 200，删除成功
+                            isDeletedOnDisk = true;
+                            console.log(`[Theme Manager Delete] ✅ 成功删除磁盘文件: "${candidateName}.json"`);
+                            break; // 命中后立即停止，不继续试探
                         } catch (err) {
-                            console.warn(`[Theme Manager Delete] 试探候选名 "${candidateName}" 未命中磁盘物理文件。`);
+                            console.warn(`[Theme Manager Delete] 候选名 "${candidateName}" 未命中磁盘文件`);
                         }
-                    }));
-
-                    if (isDeletedOnDisk) {
-                        console.log(`[Theme Manager Delete] 🎉 主题 "${themeName}" 磁盘物理文件擦除确认成功！`);
-                    } else {
-                        console.error(`[Theme Manager Delete ERROR] ❌ 主题 "${themeName}" 物理磁盘擦除失败！所有试探名均未能命中磁盘文件。试过的候选名:`, candidates);
                     }
 
-                    // 同步清理内存与界面数据
+                    if (!isDeletedOnDisk) {
+                        console.error(`[Theme Manager Delete] ❌ 所有候选名均未命中磁盘文件，删除失败！候选名:`, candidates);
+                    }
+
+                    // 同步清理 ST 内存
                     updateSTThemeMemory({ name: themeName }, 'delete', themeName);
                     console.log(`[Theme Manager Delete] ══════════════════════════════════════`);
                     return isDeletedOnDisk;
@@ -2394,6 +2342,13 @@
                     const deletedThemes = Array.from(selectedForBatch);
                     const successSet = new Set(deletedThemes);
 
+                    // ⚠️ 必须在清内存前先快照每个主题的完整对象（deleteTheme 需要 name 字段来定位磁盘文件）
+                    const themeObjSnapshots = new Map();
+                    deletedThemes.forEach(name => {
+                        const obj = findThemeObject(name);
+                        if (obj) themeObjSnapshots.set(name, obj);
+                    });
+
                     // 0ms 乐观 UI 更新：立刻清除选择状态与视口 DOM 节点
                     selectedForBatch.clear();
                     lastClickedThemeName = null;
@@ -2487,11 +2442,11 @@
                     updateActiveState();
                     toastr.success(`已成功批量删除 ${deleteCount} 个美化主题！`);
 
-                    // 后台高并发 (25) 异步执行物理磁盘文件擦除
+                    // 后台高并发 (25) 异步执行物理磁盘文件擦除（使用提前快照的 themeObj，此时 ST 内存已清除）
                     (async () => {
                         try {
                             await limitConcurrency(25, deletedThemes, name => {
-                                const themeObj = allThemeObjectsMap.get(name) || allParsedThemesMap.get(name) || allThemeObjects.find(t => t && (t.name === name || t.value === name));
+                                const themeObj = themeObjSnapshots.get(name) || null;
                                 return deleteTheme(name, themeObj);
                             });
 
@@ -4704,9 +4659,10 @@
                             if (confirmed) {
                                 try {
                                     const isCurrentlyActive = originalSelect.value === themeName;
-                                    const targetThemeObj = allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
+                                    // ⚠️ 必须在清内存前先取完整对象快照（deleteTheme 需要用 name 字段定位磁盘文件）
+                                    const targetThemeObj = findThemeObject(themeName);
 
-                                    // 先发起物理磁盘擦除（保留完整 [分类前缀] 候选文件名）
+                                    // 先发起物理磁盘擦除（此时 ST 内存尚未清除，findThemeObject 可以找到准确数据）
                                     const deleteTask = deleteTheme(themeName, targetThemeObj);
 
                                     // 0ms 乐观 UI 删除：立刻从视口移除 DOM 节点并清除数据及关系映射
