@@ -4332,53 +4332,57 @@
                     const remainingThemes = candidate.themes.slice(MAX_INITIAL_THEMES);
 
                     const wizardHtml = `
-                        <div style="padding:4px; height:100%; display:flex; flex-direction:column; box-sizing:border-box;">
-                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid rgba(128,128,128,0.2); padding-bottom:8px;">
-                                <span style="font-weight:bold; font-size:14px; color:var(--SmartThemeQuoteColor, #4a90e2); display:inline-flex; align-items:center; gap:6px;">
+                        <div class="tm-wizard-container" style="padding:4px; height:100%; display:flex; flex-direction:column; box-sizing:border-box; writing-mode:horizontal-tb !important;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid rgba(128,128,128,0.2); padding-bottom:8px; flex-wrap:nowrap; writing-mode:horizontal-tb !important;">
+                                <span style="font-weight:bold; font-size:14px; color:var(--SmartThemeQuoteColor, #4a90e2); display:inline-flex; align-items:center; gap:6px; white-space:nowrap; writing-mode:horizontal-tb !important;">
                                     <i class="fa-solid fa-list-check" style="color:#ffc107;"></i> 审核分组向导 (${currentIndex + 1} / ${candidates.length})
                                 </span>
-                                <span style="font-size:12px; padding:3px 10px; border-radius:12px; background:rgba(0,123,255,0.18); color:#4dabf7; font-weight:bold;">
+                                <span style="font-size:12px; padding:3px 10px; border-radius:12px; background:rgba(0,123,255,0.18); color:#4dabf7; font-weight:bold; white-space:nowrap; writing-mode:horizontal-tb !important;">
                                     <i class="fa-solid fa-sitemap" style="margin-right:4px;"></i>${targetLevelLabel}
                                 </span>
                             </div>
-                            <div style="background:rgba(255,255,255,0.04); padding:12px; border-radius:6px; margin-bottom:10px; flex:1; display:flex; flex-direction:column; min-height:0;">
-                                <div style="font-size:14px; font-weight:bold; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
-                                    <span style="display:inline-flex; align-items:center; gap:6px;">
-                                        <i class="fa-solid fa-tag" style="color:#ffc107;"></i> 标签名称：
-                                        <input type="text" id="wizard-tag-name-input" class="text_pole" value="${escapeHtml(candidate.keyword)}" style="display:inline-block; width:200px; height:28px; padding:2px 8px; font-size:13px; margin:0;">
-                                    </span>
-                                    <span style="font-size:12px; font-weight:normal; opacity:0.8;">
+                            <div style="background:rgba(255,255,255,0.04); padding:12px; border-radius:6px; margin-bottom:10px; flex:1; display:flex; flex-direction:column; min-height:0; writing-mode:horizontal-tb !important;">
+                                <div style="font-size:13px; font-weight:bold; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; flex-wrap:nowrap; gap:10px; writing-mode:horizontal-tb !important;">
+                                    <label style="display:inline-flex; align-items:center; gap:6px; white-space:nowrap; writing-mode:horizontal-tb !important; margin:0; cursor:pointer;">
+                                        <i class="fa-solid fa-tag" style="color:#ffc107;"></i>
+                                        <span style="white-space:nowrap; writing-mode:horizontal-tb !important;">标签名称：</span>
+                                        <input type="text" id="wizard-tag-name-input" class="text_pole" value="${escapeHtml(candidate.keyword)}" style="display:inline-block; width:220px; max-width:50vw; height:28px; padding:2px 8px; font-size:13px; margin:0; writing-mode:horizontal-tb !important;">
+                                    </label>
+                                    <span style="font-size:12px; font-weight:normal; opacity:0.85; white-space:nowrap; writing-mode:horizontal-tb !important; flex-shrink:0;">
                                         <i class="fa-solid fa-layer-group" style="margin-right:4px;"></i> 匹配 <b>${candidate.themes.length}</b> 个美化
                                     </span>
                                 </div>
-                                <div style="font-size:12px; opacity:0.75; margin-bottom:6px; display:flex; align-items:center; gap:4px;">
-                                    <i class="fa-solid fa-tags"></i> 勾选需加入该标签的美化（支持多标签与已存在同名分类合并）：
+                                <div style="font-size:12px; opacity:0.8; margin-bottom:8px; display:flex; align-items:center; gap:4px; white-space:nowrap; writing-mode:horizontal-tb !important;">
+                                    <i class="fa-solid fa-tags"></i>
+                                    <span style="white-space:nowrap; writing-mode:horizontal-tb !important;">勾选需加入该标签的美化（支持多标签与已存在同名分类合并）：</span>
                                 </div>
-                                <div id="wizard-themes-container" style="flex:1; max-height:calc(80vh - 180px); overflow-y:auto; background:rgba(0,0,0,0.15); padding:8px; border-radius:4px; display:flex; flex-direction:column; gap:4px;">
+                                <div id="wizard-themes-container" style="flex:1; max-height:calc(80vh - 180px); overflow-y:auto; background:rgba(0,0,0,0.15); padding:8px; border-radius:4px; display:flex; flex-direction:column; gap:4px; writing-mode:horizontal-tb !important;">
                                     ${initialThemes.map(tName => `
-                                        <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:4px 8px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none;">
+                                        <label style="display:flex; flex-direction:row; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:4px 8px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none; white-space:nowrap; writing-mode:horizontal-tb !important;">
                                             <input type="checkbox" class="wizard-theme-chk" value="${escapeHtml(tName)}" checked style="margin:0;">
-                                            <span style="word-break:break-all;">${escapeHtml(tName)}</span>
+                                            <span style="word-break:break-all; writing-mode:horizontal-tb !important;">${escapeHtml(tName)}</span>
                                         </label>
                                     `).join('')}
                                     ${remainingThemes.length > 0 ? `
-                                        <button id="wizard-load-more-btn" class="menu_button" style="margin:6px 0 0 0; font-size:11px; width:100%; justify-content:center; background:rgba(255,255,255,0.06);"><i class="fa-solid fa-chevron-down"></i> 展开余下 ${remainingThemes.length} 个美化...</button>
+                                        <button id="wizard-load-more-btn" class="menu_button" style="margin:6px 0 0 0; font-size:11px; width:100%; justify-content:center; background:rgba(255,255,255,0.06); white-space:nowrap;"><i class="fa-solid fa-chevron-down"></i> 展开余下 ${remainingThemes.length} 个美化...</button>
                                     ` : ''}
                                 </div>
                             </div>
-                            <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap; margin-top:6px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:nowrap; margin-top:6px; writing-mode:horizontal-tb !important;">
                                 <div style="display:flex; gap:6px;">
                                     ${historyStack.length > 0 ? `
-                                        <button id="wizard-undo-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px; background:rgba(255,193,7,0.2) !important; color:#ffc107 !important;" title="撤销上一步操作并重写上个卡片"><i class="fa-solid fa-rotate-left"></i> 上一步</button>
+                                        <button id="wizard-undo-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px; background:rgba(255,193,7,0.2) !important; color:#ffc107 !important; white-space:nowrap;" title="撤销上一步操作并重写上个卡片"><i class="fa-solid fa-rotate-left"></i> 上一步</button>
                                     ` : ''}
-                                    <button id="wizard-stop-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px; background:rgba(220,53,69,0.2) !important; color:#ff8888 !important;" title="结束向导并保存当前已建立的分组"><i class="fa-solid fa-circle-stop"></i> 结束向导</button>
+                                    <button id="wizard-stop-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px; background:rgba(220,53,69,0.2) !important; color:#ff8888 !important; white-space:nowrap;" title="结束向导并保存当前已建立的分组"><i class="fa-solid fa-circle-stop"></i> 结束向导</button>
                                 </div>
-                                <button id="wizard-pass-all-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px; background:rgba(0,123,255,0.2) !important; color:#4dabf7 !important;" title="将其余候选全自动通过"><i class="fa-solid fa-forward-fast"></i> 全部剩余通过</button>
+                                <button id="wizard-pass-all-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px; background:rgba(0,123,255,0.2) !important; color:#4dabf7 !important; white-space:nowrap;" title="将其余候选全自动通过"><i class="fa-solid fa-forward-fast"></i> 全部剩余通过</button>
                             </div>
                         </div>
                     `;
 
                     let actionTaken = 'standard';
+                    let currentTagName = candidate.keyword;
+                    let currentCheckedThemes = [...initialThemes];
 
                     const popupRes = await callGenericPopup(wizardHtml, 'confirm', null, {
                         title: `美化分组审核 (${currentIndex + 1}/${candidates.length})`,
@@ -4396,7 +4400,37 @@
                                 dlg.style.flexDirection = 'column';
                             }
 
-                            const loadMoreBtn = dlg.querySelector('#wizard-load-more-btn');
+                            const updateWizardState = () => {
+                                if (!dlg) return;
+                                const inp = dlg.querySelector('#wizard-tag-name-input');
+                                if (inp) {
+                                    const val = inp.value.trim();
+                                    if (val) currentTagName = val;
+                                }
+                                const chks = dlg.querySelectorAll('.wizard-theme-chk:checked');
+                                if (chks.length > 0) {
+                                    currentCheckedThemes = Array.from(chks).map(cb => cb.value);
+                                }
+                            };
+
+                            const nameInput = dlg ? dlg.querySelector('#wizard-tag-name-input') : null;
+                            if (nameInput) {
+                                nameInput.addEventListener('input', updateWizardState);
+                                nameInput.addEventListener('change', updateWizardState);
+                                nameInput.addEventListener('blur', updateWizardState);
+                            }
+
+                            const themesContainer = dlg ? dlg.querySelector('#wizard-themes-container') : null;
+                            if (themesContainer) {
+                                themesContainer.addEventListener('change', updateWizardState);
+                            }
+
+                            const okBtn = dlg ? dlg.querySelector('.popup-button-ok') : null;
+                            if (okBtn) {
+                                okBtn.addEventListener('click', updateWizardState);
+                            }
+
+                            const loadMoreBtn = dlg ? dlg.querySelector('#wizard-load-more-btn') : null;
                             if (loadMoreBtn) {
                                 loadMoreBtn.addEventListener('click', (e) => {
                                     e.preventDefault();
@@ -4405,15 +4439,16 @@
                                     const frag = document.createDocumentFragment();
                                     remainingThemes.forEach(tName => {
                                         const lbl = document.createElement('label');
-                                        lbl.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:4px 8px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none;';
-                                        lbl.innerHTML = `<input type="checkbox" class="wizard-theme-chk" value="${escapeHtml(tName)}" checked style="margin:0;"><span style="word-break:break-all;">${escapeHtml(tName)}</span>`;
+                                        lbl.style.cssText = 'display:flex; flex-direction:row; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:4px 8px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none; white-space:nowrap; writing-mode:horizontal-tb !important;';
+                                        lbl.innerHTML = `<input type="checkbox" class="wizard-theme-chk" value="${escapeHtml(tName)}" checked style="margin:0;"><span style="word-break:break-all; writing-mode:horizontal-tb !important;">${escapeHtml(tName)}</span>`;
                                         frag.appendChild(lbl);
                                     });
                                     container.appendChild(frag);
+                                    updateWizardState();
                                 });
                             }
 
-                            const undoBtn = dlg.querySelector('#wizard-undo-btn');
+                            const undoBtn = dlg ? dlg.querySelector('#wizard-undo-btn') : null;
                             if (undoBtn) {
                                 undoBtn.addEventListener('click', (e) => {
                                     e.preventDefault();
@@ -4422,7 +4457,7 @@
                                 });
                             }
 
-                            const stopBtn = dlg.querySelector('#wizard-stop-btn');
+                            const stopBtn = dlg ? dlg.querySelector('#wizard-stop-btn') : null;
                             if (stopBtn) {
                                 stopBtn.addEventListener('click', (e) => {
                                     e.preventDefault();
@@ -4431,7 +4466,7 @@
                                 });
                             }
 
-                            const passAllBtn = dlg.querySelector('#wizard-pass-all-btn');
+                            const passAllBtn = dlg ? dlg.querySelector('#wizard-pass-all-btn') : null;
                             if (passAllBtn) {
                                 passAllBtn.addEventListener('click', (e) => {
                                     e.preventDefault();
@@ -4536,10 +4571,8 @@
                     // 4. 标准用户按键分支 (通过 vs 跳过)
                     if (popupRes) {
                         // 用户点击了 '✅ 通过并创建/合并标签'
-                        const tagNameInput = document.querySelector('#wizard-tag-name-input');
-                        const tagName = (tagNameInput ? tagNameInput.value : candidate.keyword).trim() || candidate.keyword;
-                        const checkedThemes = Array.from(document.querySelectorAll('.wizard-theme-chk:checked')).map(cb => cb.value);
-                        const finalThemes = checkedThemes.length > 0 ? checkedThemes : candidate.themes;
+                        const tagName = currentTagName.trim() || candidate.keyword;
+                        const finalThemes = (currentCheckedThemes && currentCheckedThemes.length > 0) ? currentCheckedThemes : candidate.themes;
 
                         const saveRes = createTagAndSaveSilent(candidate, tagName, finalThemes);
 

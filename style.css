@@ -1057,5 +1057,11 @@
     margin-left: auto !important;
 }
 
+/* 分组审核向导强制横向文字排列 */
+.tm-wizard-container,
+.tm-wizard-container * {
+    writing-mode: horizontal-tb !important;
+}
+
 
 
