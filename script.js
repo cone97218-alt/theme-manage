@@ -1459,7 +1459,7 @@
                     }
                 }
 
-                // === 强行重新对照磁盘并同步 ST 原生下拉框与全量 UI 缓存 ===
+                // === 强行重新对照磁盘并同步 ST 原生下拉框与全量 UI 缓存 (带同名重叠修复与自动落盘规范对齐) ===
                 async function hardResyncThemes(showToast = true) {
                     console.log('[Theme Manager] 🔄 开始重新对照磁盘并全量同步...');
                     showLoader();
@@ -1470,9 +1470,47 @@
                         invalidateThemesCache();
 
                         // 2. 从后端直接全量重新拉取磁盘上的所有主题文件数据
-                        const freshThemes = await getAllThemesFromAPI();
+                        let freshThemes = await getAllThemesFromAPI();
 
-                        // 3. 全量更新 ST getContext / power_user 内存
+                        // 3. 自动检测并解除重名冲突（当磁盘上多个 JSON 内写了相同的 name 时）
+                        let fixedCount = 0;
+                        const usedNames = new Set();
+                        for (let i = 0; i < freshThemes.length; i++) {
+                            const t = freshThemes[i];
+                            if (!t || typeof t !== 'object') continue;
+                            const origName = (t.name || t.value || '未命名主题').trim();
+
+                            if (usedNames.has(origName)) {
+                                // 发现同名冲突，自动添加后缀区别并规范落盘
+                                let suffixIndex = 2;
+                                let newUniqueName = `${origName} (${suffixIndex})`;
+                                while (usedNames.has(newUniqueName)) {
+                                    suffixIndex++;
+                                    newUniqueName = `${origName} (${suffixIndex})`;
+                                }
+                                console.warn(`[Theme Manager Resync] ⚠️ 发现同名主题 "${origName}"，自动重命名对齐为 "${newUniqueName}"`);
+                                t.name = newUniqueName;
+                                t.value = newUniqueName;
+                                fixedCount++;
+
+                                // 保存落盘新规范文件
+                                try {
+                                    const { mtime: _m, ...cleanObj } = t;
+                                    await apiRequest('themes/save', 'POST', cleanObj, true);
+                                } catch (e) {
+                                    console.warn('[Theme Manager Resync] 重新落盘失败:', e);
+                                }
+                            }
+                            usedNames.add(t.name || t.value);
+                        }
+
+                        if (fixedCount > 0) {
+                            // 若有重名修复，再次刷新最新列表
+                            invalidateThemesCache();
+                            freshThemes = await getAllThemesFromAPI();
+                        }
+
+                        // 4. 全量更新 ST getContext / power_user 内存
                         if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
                             const ctx = SillyTavern.getContext();
                             if (ctx) ctx.themes = freshThemes;
@@ -1485,7 +1523,7 @@
                             themes.push(...freshThemes);
                         }
 
-                        // 4. 重构原生 #themes 下拉框 (<select id="themes">)
+                        // 5. 重构原生 #themes 下拉框 (<select id="themes">)
                         const selectEl = originalSelect || document.querySelector('#themes');
                         if (selectEl) {
                             const currentVal = selectEl.value;
@@ -1512,7 +1550,7 @@
                             }
                         }
 
-                        // 5. 校验清理孤儿标签与收藏（剔除已被从磁盘删掉的主题名）
+                        // 6. 校验清理孤儿标签与收藏（剔除已被从磁盘删掉的主题名）
                         const validThemeNames = new Set(freshThemes.map(t => t.name || t.value).filter(Boolean));
 
                         favorites = favorites.filter(f => validThemeNames.has(f));
@@ -1529,7 +1567,7 @@
                         });
                         if (tagsChanged) saveThemeTags(tagsToUpdate);
 
-                        // 6. 重建 DOM 与视口界面
+                        // 7. 重建 DOM 与视口界面
                         allParsedThemes = [];
                         allParsedThemesMap.clear();
                         themeItemMap.clear();
@@ -1538,7 +1576,9 @@
                         await buildThemeUI();
 
                         if (showToast) {
-                            toastr.success(`已成功与磁盘对照同步！共读取到 ${freshThemes.length} 个物理美化主题。`);
+                            let msg = `已成功与磁盘对照同步！共读取到 ${freshThemes.length} 个美化主题。`;
+                            if (fixedCount > 0) msg += `（自动检测并解除了 ${fixedCount} 个命名重叠加重）`;
+                            toastr.success(msg);
                         }
                     } catch (err) {
                         console.error('[Theme Manager] 重新对照磁盘失败:', err);
