@@ -4296,9 +4296,10 @@ function getPopupContainer(popup) {
 function normalizeTagHierarchy(tags) {
     if (!Array.isArray(tags)) return [];
     tags.forEach((t, idx) => {
-        if (!t.id) t.id = 'tag_' + Date.now() + '_' + idx;
+        if (!t.id) t.id = 'tag_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
     });
     const validIds = new Set(tags.map(t => String(t.id)));
+    // 自动修复孤立子标签：若 parentId 指向的父级标签不存在，则自动提升为一级主标签
     tags.forEach(t => {
         if (t.parentId && (!validIds.has(String(t.parentId)) || String(t.parentId) === String(t.id))) {
             t.parentId = null;
@@ -4391,7 +4392,12 @@ async function openManageTagsPopup() {
                                     });
                                 } else {
                                     let html = '<div class="tm-subtags-tree">';
-                                    const l1Tags = tags.filter(t => !t.parentId);
+                                    let l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
+                                    // 容错兜底：若开启了二级目录模式但所有标签均为孤立状态，强行修正为一级主标签展示，绝不漏显任何标签
+                                    if (l1Tags.length === 0 && tags.length > 0) {
+                                        tags.forEach(t => { t.parentId = null; });
+                                        l1Tags = tags;
+                                    }
 
                                     l1Tags.forEach((l1Tag, l1Idx) => {
                                         const kwCount = l1Tag.keywords ? l1Tag.keywords.length : 0;
