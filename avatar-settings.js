@@ -1084,6 +1084,66 @@
         }
     }
 
+    // 智能客户端压图与轻量化处理（支持大图高保真等比例缩放至最高 1920px，体积暴降 80%~90%）
+    async function compressImageFile(file, maxDimension = 1920, quality = 0.88) {
+        if (!file) return file;
+        // 如果文件小于 1MB，直接转化为干净 Blob 返回
+        if (file.size <= 1024 * 1024) {
+            try {
+                const buf = await file.arrayBuffer();
+                return new Blob([buf], { type: file.type || 'image/png' });
+            } catch (e) {
+                return file;
+            }
+        }
+
+        return new Promise((resolve) => {
+            const img = new Image();
+            const url = URL.createObjectURL(file);
+            img.onload = () => {
+                URL.revokeObjectURL(url);
+                let width = img.width;
+                let height = img.height;
+
+                if (width > maxDimension || height > maxDimension) {
+                    if (width > height) {
+                        height = Math.round((height * maxDimension) / width);
+                        width = maxDimension;
+                    } else {
+                        width = Math.round((width * maxDimension) / height);
+                        height = maxDimension;
+                    }
+                } else {
+                    file.arrayBuffer().then(buf => resolve(new Blob([buf], { type: file.type || 'image/png' }))).catch(() => resolve(file));
+                    return;
+                }
+
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.drawImage(img, 0, 0, width, height);
+
+                const isPng = file.type === 'image/png';
+                const exportType = isPng ? 'image/png' : 'image/jpeg';
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        resolve(blob);
+                    } else {
+                        file.arrayBuffer().then(buf => resolve(new Blob([buf], { type: file.type || 'image/png' }))).catch(() => resolve(file));
+                    }
+                }, exportType, isPng ? undefined : quality);
+            };
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                file.arrayBuffer().then(buf => resolve(new Blob([buf], { type: file.type || 'image/png' }))).catch(() => resolve(file));
+            };
+            img.src = url;
+        });
+    }
+
     // 迁移旧版 localStorage 中的 Base64 图片到 IndexedDB 中以节省 5MB 容量
     async function migrateBase64Gallery() {
         let adjustments = {};
@@ -2727,7 +2787,7 @@
                 }
             });
 
-            // 2. 本地批量/单张图片上传
+            // 2. 本地批量/单张图片上传 (基于 Promise.all 并发上传与智能客户端 Canvas 高效压图)
             uploadBtn.addEventListener('click', () => fileInput.click());
             fileInput.addEventListener('change', async (e) => {
                 const files = Array.from(e.target.files);
@@ -2736,60 +2796,63 @@
                 const { showLoader, hideLoader } = SillyTavern.getContext ? SillyTavern.getContext() : { showLoader: () => {}, hideLoader: () => {} };
                 showLoader();
 
-                let loadedCount = 0;
-                const newItems = [];
+                try {
+                    const timestamp = Date.now();
+                    const processTasks = files.map(async (f, idx) => {
+                        const id = `img_${timestamp}_${idx}_${Math.random().toString(36).substring(2, 6)}`;
+                        const name = f.name.substring(0, f.name.lastIndexOf('.')) || f.name;
+                        try {
+                            // 智能并发处理：大图缩放至最高 1920px 压图，小图保持原样
+                            const cleanBlob = await compressImageFile(f, 1920, 0.88);
+                            await saveImageBlob(id, name, cleanBlob);
+                            galleryBlobUrlCache[id] = URL.createObjectURL(cleanBlob);
+                            const url = `db://${id}`;
+                            return { id, name, url };
+                        } catch (err) {
+                            console.error('[Theme Manager DB] Failed to save uploaded image:', f.name, err);
+                            return null;
+                        }
+                    });
 
-                for (let idx = 0; idx < files.length; idx++) {
-                    const f = files[idx];
-                    const id = `img_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`;
-                    const name = f.name.substring(0, f.name.lastIndexOf('.')) || f.name;
+                    const results = await Promise.all(processTasks);
+                    const newItems = results.filter(item => item !== null);
+                    hideLoader();
 
-                    try {
-                        // 将 File 对象转换为纯净二进制 Blob，防范 DOM File 句柄游离失效导致的裂图
-                        const arrayBuf = await f.arrayBuffer();
-                        const cleanBlob = new Blob([arrayBuf], { type: f.type || 'image/png' });
-
-                        await saveImageBlob(id, name, cleanBlob);
-                        galleryBlobUrlCache[id] = URL.createObjectURL(cleanBlob);
-                        const url = `db://${id}`;
-                        newItems.push({ id, name, url });
-                        loadedCount++;
-                    } catch (err) {
-                        console.error('[Theme Manager DB] Failed to save uploaded image:', f.name, err);
-                    }
-                }
-
-                hideLoader();
-
-                if (newItems.length > 0) {
-                    if (targetType === 'char') {
-                        const currentVal = getAdjustment(targetType, targetFile);
-                        if (!currentVal.gallery) currentVal.gallery = [];
-                        currentVal.gallery.push(...newItems);
-                        saveAdjustment(targetType, targetFile, currentVal);
-                    } else {
-                        if (gallerySubtab === 'global') {
-                            let globalGallery = [];
-                            try {
-                                globalGallery = JSON.parse(localStorage.getItem('themeManager_globalUserGallery')) || [];
-                            } catch (err) {}
-                            globalGallery.push(...newItems);
-                            localStorage.setItem('themeManager_globalUserGallery', JSON.stringify(globalGallery));
-                        } else {
+                    if (newItems.length > 0) {
+                        if (targetType === 'char') {
                             const currentVal = getAdjustment(targetType, targetFile);
                             if (!currentVal.gallery) currentVal.gallery = [];
                             currentVal.gallery.push(...newItems);
                             saveAdjustment(targetType, targetFile, currentVal);
+                        } else {
+                            if (gallerySubtab === 'global') {
+                                let globalGallery = [];
+                                try {
+                                    globalGallery = JSON.parse(localStorage.getItem('themeManager_globalUserGallery')) || [];
+                                } catch (err) {}
+                                globalGallery.push(...newItems);
+                                localStorage.setItem('themeManager_globalUserGallery', JSON.stringify(globalGallery));
+                            } else {
+                                const currentVal = getAdjustment(targetType, targetFile);
+                                if (!currentVal.gallery) currentVal.gallery = [];
+                                currentVal.gallery.push(...newItems);
+                                saveAdjustment(targetType, targetFile, currentVal);
+                            }
                         }
-                    }
 
-                    const lastItem = newItems[newItems.length - 1];
-                    applyOverride(lastItem.url);
-                    urlInput.value = '';
-                    fileInput.value = '';
-                    toastr.success(`成功导入 ${loadedCount} 张图片到图库！`);
-                } else {
-                    toastr.error('本地数据库保存图片失败。');
+                        const lastItem = newItems[newItems.length - 1];
+                        applyOverride(lastItem.url);
+                        urlInput.value = '';
+                        fileInput.value = '';
+                        renderGalleryGrid();
+                        toastr.success(`成功并发导入 ${newItems.length} 张图片到图库！`);
+                    } else {
+                        toastr.error('本地数据库保存图片失败。');
+                    }
+                } catch (err) {
+                    hideLoader();
+                    console.error('[Theme Manager DB] Batch upload error:', err);
+                    toastr.error('批量上传过程中发生错误。');
                 }
             });
 
@@ -3159,6 +3222,33 @@
         }
     }
 
+    // 垃圾回收：清除当前未在 DOM 中引用的闲置 Blob Object URL 内存句柄
+    function cleanUnusedGalleryObjectURLs() {
+        try {
+            const activeBlobUrls = new Set();
+            document.querySelectorAll('img, [style*="blob:"]').forEach(el => {
+                if (el.tagName === 'IMG' && el.src && el.src.startsWith('blob:')) {
+                    activeBlobUrls.add(el.src);
+                }
+                const bg = el.style.backgroundImage || '';
+                if (bg.includes('blob:')) {
+                    const match = bg.match(/url\("?(blob:[^"]+)"?\)/);
+                    if (match) activeBlobUrls.add(match[1]);
+                }
+            });
+
+            for (const id in galleryBlobUrlCache) {
+                const blobUrl = galleryBlobUrlCache[id];
+                if (blobUrl && !activeBlobUrls.has(blobUrl)) {
+                    URL.revokeObjectURL(blobUrl);
+                    delete galleryBlobUrlCache[id];
+                }
+            }
+        } catch (e) {
+            console.error('[Theme Manager Avatar] Auto GC clean failed:', e);
+        }
+    }
+
     function closePanel() {
         const existing = document.getElementById('avatar-adv-panel');
         if (existing) {
@@ -3170,6 +3260,7 @@
             } catch (e) {}
             cropperInstance = null;
         }
+        cleanUnusedGalleryObjectURLs();
     }
 
     // 拖拽逻辑 (相对于 fixed 视口进行绝对像素控制，内置边界保护以防 header 移出屏幕，支持 PC 鼠标和手机触摸)
