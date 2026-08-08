@@ -321,29 +321,58 @@
                     console.log(`[Theme Manager Delete] 🗑️ 使用 ST 原生接口擦除美化主题: "${themeName}"`);
 
                     const candidateSet = new Set();
-                    const addName = (str) => {
+                    const addNameVariants = (str) => {
                         if (!str || typeof str !== 'string') return;
                         const raw = str.trim();
                         if (!raw) return;
-                        const clean = raw.replace(/\[.*?\]/g, '').trim();
-                        [raw, clean].forEach(v => {
+
+                        // 彻底剥离 ASCII 方括号 [xxx]、中文全角方括号 【xxx】、中文/英文圆括号 (xxx) （xxx）、书名号 《xxx》 等标签前缀
+                        const clean = raw.replace(/([\[【（(《<].*?[\]】）)》>])/g, '').trim();
+
+                        const baseList = [raw, clean];
+                        if (clean.includes(' ')) {
+                            const parts = clean.split(/\s+/).filter(Boolean);
+                            if (parts.length > 1) {
+                                baseList.push(parts[parts.length - 1]);
+                            }
+                        }
+
+                        baseList.forEach(v => {
                             if (!v) return;
                             const noExt = v.replace(/\.json$/i, '').trim();
-                            if (noExt) candidateSet.add(noExt);
+                            if (!noExt) return;
+
+                            candidateSet.add(noExt);
+                            if (noExt.includes('&amp;')) candidateSet.add(noExt.replace(/&amp;/g, '&'));
+                            if (noExt.includes('&')) {
+                                candidateSet.add(noExt.replace(/&/g, 'and'));
+                                candidateSet.add(noExt.replace(/&/g, ' '));
+                            }
+                            if (noExt.includes(' ') || noExt.includes('_')) {
+                                candidateSet.add(noExt.replace(/\s+/g, '_'));
+                                candidateSet.add(noExt.replace(/_/g, ' '));
+                            }
+                            if (noExt.includes(' ') || noExt.includes('-')) {
+                                candidateSet.add(noExt.replace(/\s+/g, '-'));
+                                candidateSet.add(noExt.replace(/-/g, ' '));
+                            }
                         });
                     };
 
                     let themeObj = themeObjParam || allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
                     if (!themeObj && Array.isArray(allThemeObjects)) {
-                        const cleanReqName = themeName.replace(/\[.*?\]/g, '').trim();
-                        themeObj = allThemeObjects.find(t => t && (t.name === themeName || t.name === cleanReqName || t.value === themeName || t.value === cleanReqName));
+                        const cleanReqName = themeName.replace(/([\[【（(《<].*?[\]】）)》>])/g, '').trim();
+                        themeObj = allThemeObjects.find(t => t && (
+                            t.name === themeName || t.name === cleanReqName ||
+                            t.value === themeName || t.value === cleanReqName
+                        ));
                     }
 
                     if (themeObj) {
-                        if (themeObj.name) addName(themeObj.name);
-                        if (themeObj.value) addName(themeObj.value);
+                        if (themeObj.name) addNameVariants(themeObj.name);
+                        if (themeObj.value) addNameVariants(themeObj.value);
                     }
-                    addName(themeName);
+                    addNameVariants(themeName);
 
                     const candidates = Array.from(candidateSet).filter(Boolean);
                     console.log(`[Theme Manager Delete] 📋 试探物理文件名列表:`, candidates);
