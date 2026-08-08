@@ -4278,8 +4278,27 @@
                     }
                 }
 
-                async function openManageTagsPopup() {
-                    let tags = loadThemeTags();
+                
+function normalizeTagHierarchy(tags) {
+    if (!Array.isArray(tags)) return [];
+    const validIds = new Set(tags.map(t => t.id));
+    tags.forEach(t => {
+        if (!t.parentId || !validIds.has(t.parentId) || t.parentId === t.id) {
+            t.parentId = null;
+        }
+    });
+    const l1Ids = new Set(tags.filter(t => !t.parentId).map(t => t.id));
+    tags.forEach(t => {
+        if (t.parentId && !l1Ids.has(t.parentId)) {
+            t.parentId = null;
+        }
+    });
+    return tags;
+}
+
+async function openManageTagsPopup() {
+                    invalidateTagsCache();
+                    let tags = normalizeTagHierarchy(loadThemeTags());
                     let subtagsEnabled = isSubtagsEnabled();
 
                     let popupHtml = `
@@ -4312,14 +4331,8 @@
                                 const listContainer = dlg.querySelector('#tags-management-list');
                                 if (!listContainer) return;
 
-                                tags = loadThemeTags();
-
-                                // 自愈孤立标签：若归属父级已被删除，自动恢复为一级标签，防止标签消失
-                                tags.forEach(t => {
-                                    if (t.parentId && !tags.some(p => p.id === t.parentId)) {
-                                        t.parentId = null;
-                                    }
-                                });
+                                invalidateTagsCache();
+                                tags = normalizeTagHierarchy(loadThemeTags());
 
                                 if (!tags || tags.length === 0) {
                                     listContainer.innerHTML = `<div style="text-align:center; padding:30px 10px; opacity:0.6; font-size:13px; background:rgba(255,255,255,0.02); border-radius:6px; margin:10px 0;">
@@ -4367,7 +4380,7 @@
                                     });
                                 } else {
                                     let html = '<div class="tm-subtags-tree">';
-                                    const l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
+                                    const l1Tags = tags.filter(t => !t.parentId);
 
                                     l1Tags.forEach((l1Tag, l1Idx) => {
                                         const kwCount = l1Tag.keywords ? l1Tag.keywords.length : 0;
