@@ -112,14 +112,112 @@
         }
     }
 
-    // 给 DOM 中的消息 div 贴上发送者名 data-ch-name 属性标签，以实现精准 CSS 选择替换
+    const imageDecodeCache = {};
+
+    function preloadAndDecodeImage(url) {
+        if (!url || imageDecodeCache[url]) return;
+        const img = new Image();
+        img.src = url;
+        if (img.decode) {
+            img.decode().then(() => {
+                imageDecodeCache[url] = img;
+            }).catch(() => {
+                imageDecodeCache[url] = img;
+            });
+        } else {
+            imageDecodeCache[url] = img;
+        }
+    }
+
+    // 通用型头像 img 元素查找辅助函数 (全面兼容各类第三方美化主题如“爱，流浪，幻想”等的 DOM 层级)
+    function findAvatarImgInMessage(messageEl) {
+        if (!messageEl) return null;
+
+        // A. 优先按照各类常见美化主题的头像容器类名层级查找
+        let img = messageEl.querySelector([
+            '.mesAvatarWrapper img',
+            '.avatar img',
+            '.user_avatar img',
+            '.mes_avatar img',
+            '.mes-avatar img',
+            '.profile_avatar img',
+            '[class*="avatar"] img',
+            '[class*="Avatar"] img',
+            'img[class*="avatar"]',
+            'img[class*="Avatar"]'
+        ].join(', '));
+
+        // B. 路径特征回退判定 (匹配带有 /characters/ 或 /User Avatars/ 或 /user/ 或 avatar 的图片)
+        if (!img) {
+            img = messageEl.querySelector('img[src*="/characters/"], img[src*="/User Avatars/"], img[src*="/user/"], img[src*="avatar"]');
+        }
+
+        // C. 终极兜底策略：取 messageEl 内部非按钮、非图标的图片元素
+        if (!img) {
+            const candidates = Array.from(messageEl.querySelectorAll('img')).filter(el => {
+                return !el.closest('.mes_buttons, .extraMesButtons, .gallery-item, .avatar-adv-preview-container');
+            });
+            if (candidates.length > 0) {
+                img = candidates[0];
+            }
+        }
+
+        return img;
+    }
+
+    // 给 DOM 中的消息 div 贴上发送者名 data-ch-name 属性标签，并实时同步更新 img.src，以实现 0 延迟极速视觉替换
     function tagMessageElementsWithCharName(messageEl) {
         if (!messageEl) return;
+        const isUser = messageEl.getAttribute('is_user') === 'true';
         const nameSpan = messageEl.querySelector('.name_text');
+        let name = '';
         if (nameSpan) {
-            const name = nameSpan.textContent.trim();
+            name = nameSpan.textContent.trim();
             if (name) {
                 messageEl.setAttribute('data-ch-name', name);
+            }
+        }
+
+        const img = findAvatarImgInMessage(messageEl);
+        if (!img) return;
+
+        let adjustments = {};
+        try {
+            adjustments = JSON.parse(localStorage.getItem(ADJUSTMENTS_KEY)) || {};
+        } catch (e) {}
+
+        let overrideUrl = '';
+        if (isUser) {
+            const activeChar = getActiveCharacterName();
+            if (activeChar) {
+                const userKey = Object.keys(adjustments).find(k => k.startsWith(`user_char_${activeChar}_`));
+                if (userKey && adjustments[userKey]?.overrideUrl) {
+                    overrideUrl = adjustments[userKey].overrideUrl;
+                }
+            }
+            if (!overrideUrl) {
+                const globalKey = Object.keys(adjustments).find(k => k.startsWith('user_global_'));
+                if (globalKey && adjustments[globalKey]?.overrideUrl) {
+                    overrideUrl = adjustments[globalKey].overrideUrl;
+                }
+            }
+        } else {
+            const charName = name || messageEl.getAttribute('data-ch-name') || messageEl.getAttribute('ch_name') || getActiveCharacterName();
+            if (charName) {
+                const charKey = `char_${charName}`;
+                if (adjustments[charKey]?.overrideUrl) {
+                    overrideUrl = adjustments[charKey].overrideUrl;
+                }
+            }
+        }
+
+        if (overrideUrl) {
+            const resolved = resolveImageUrl(overrideUrl);
+            if (resolved) {
+                preloadAndDecodeImage(resolved);
+                if (img.src !== resolved) {
+                    img.src = resolved;
+                }
             }
         }
     }
@@ -175,10 +273,13 @@
         const style = document.createElement('style');
         style.id = 'avatar-adv-base-css';
         style.textContent = `
-            /* 1. 高清渲染优化与交互判定 (基础设置) */
+            /* 1. 高清渲染优化与交互判定 (基础设置：通用兼容所有美化主题) */
             #chat .mesAvatarWrapper img,
-            #chat .mesAvatarWrapper .avatar img,
-            #chat .mesAvatarWrapper .user_avatar img,
+            #chat .avatar img,
+            #chat .user_avatar img,
+            #chat .mes_avatar img,
+            #chat [class*="avatar"] img,
+            #chat [class*="Avatar"] img,
             #right-nav-panel .character_select img {
                 pointer-events: auto !important;
                 cursor: pointer !important;
@@ -186,8 +287,11 @@
 
             /* 头像缩放高清渲染优化（可选项，基于 tm-avatar-hd-rendering 类触发） */
             body.tm-avatar-hd-rendering #chat .mesAvatarWrapper img,
-            body.tm-avatar-hd-rendering #chat .mesAvatarWrapper .avatar img,
-            body.tm-avatar-hd-rendering #chat .mesAvatarWrapper .user_avatar img,
+            body.tm-avatar-hd-rendering #chat .avatar img,
+            body.tm-avatar-hd-rendering #chat .user_avatar img,
+            body.tm-avatar-hd-rendering #chat .mes_avatar img,
+            body.tm-avatar-hd-rendering #chat [class*="avatar"] img,
+            body.tm-avatar-hd-rendering #chat [class*="Avatar"] img,
             body.tm-avatar-hd-rendering #right-nav-panel .character_select img {
                 image-rendering: -webkit-optimize-contrast !important;
                 image-rendering: crisp-edges !important;
@@ -480,6 +584,23 @@
                 display: block;
                 pointer-events: none;
             }
+            .gallery-item-crop {
+                position: absolute;
+                top: 2px;
+                left: 2px;
+                background: var(--SmartThemeQuoteColor, rgba(13, 110, 253, 0.9));
+                color: #fff;
+                border: none;
+                border-radius: 50%;
+                width: 16px;
+                height: 16px;
+                display: none;
+                align-items: center;
+                justify-content: center;
+                font-size: 8px;
+                cursor: pointer;
+                z-index: 2;
+            }
             .gallery-item-delete {
                 position: absolute;
                 top: 2px;
@@ -497,6 +618,7 @@
                 cursor: pointer;
                 z-index: 2;
             }
+            .gallery-item:hover .gallery-item-crop,
             .gallery-item:hover .gallery-item-delete {
                 display: inline-flex;
             }
@@ -845,6 +967,28 @@
         const isFrameEnabled = localStorage.getItem('themeManager_enableAvatarFrame') === 'true';
         let css = '';
 
+        const UNIVERSAL_AVATAR_IMG_SELECTORS = [
+            '.mesAvatarWrapper img',
+            '.avatar img',
+            '.user_avatar img',
+            '.mes_avatar img',
+            '.mes-avatar img',
+            '[class*="avatar"] img',
+            '[class*="Avatar"] img',
+            'img[class*="avatar"]',
+            'img[class*="Avatar"]'
+        ];
+
+        const UNIVERSAL_AVATAR_PARENT_SELECTORS = [
+            '.mesAvatarWrapper',
+            '.avatar',
+            '.user_avatar',
+            '.mes_avatar',
+            '.mes-avatar',
+            '[class*="avatar"]',
+            '[class*="Avatar"]'
+        ];
+
         Object.keys(adjustments).forEach(key => {
             const adj = adjustments[key];
             if (!adj) return;
@@ -858,33 +1002,36 @@
                 type = 'char';
                 const targetCharName = key.substring(5);
                 
-                // 判断如果是带有常见文件后缀的老版本 Key，采用 src 进行模糊匹配兼容
                 if (targetCharName.match(/\.(png|jpg|jpeg|webp|gif)$/i)) {
-                    imgSelector = `#chat .mes:not([is_user="true"]) .mesAvatarWrapper img[src*="${targetCharName}"]`;
-                    parentSelector = `#chat .mes:not([is_user="true"]):has(img[src*="${targetCharName}"]) .mesAvatarWrapper`;
+                    const prefixes = [`#chat .mes:not([is_user="true"])`];
+                    imgSelector = prefixes.map(p => UNIVERSAL_AVATAR_IMG_SELECTORS.map(s => `${p} ${s}[src*="${targetCharName}"]`).join(', ')).join(', ');
+                    parentSelector = prefixes.map(p => UNIVERSAL_AVATAR_PARENT_SELECTORS.map(s => `${p}:has(img[src*="${targetCharName}"]) ${s}`).join(', ')).join(', ');
                 } else {
-                    // 新版完美的以 data-ch-name 驱动 of the sender CSS 匹配，百分百杜绝对相同头像文件名的角色造成的串台污染
-                    imgSelector = `#chat .mes[data-ch-name="${targetCharName}"]:not([is_user="true"]) .mesAvatarWrapper img`;
-                    parentSelector = `#chat .mes[data-ch-name="${targetCharName}"]:not([is_user="true"]) .mesAvatarWrapper`;
+                    const prefixes = [
+                        `#chat .mes[data-ch-name="${targetCharName}"]:not([is_user="true"])`,
+                        `#chat .mes[ch_name="${targetCharName}"]:not([is_user="true"])`
+                    ];
+                    imgSelector = prefixes.map(p => UNIVERSAL_AVATAR_IMG_SELECTORS.map(s => `${p} ${s}`).join(', ')).join(', ');
+                    parentSelector = prefixes.map(p => UNIVERSAL_AVATAR_PARENT_SELECTORS.map(s => `${p} ${s}`).join(', ')).join(', ');
                 }
             } 
             // 2. 角色绑定的用户头像配置样式
             else if (key.startsWith('user_char_')) {
                 type = 'user';
-                // 格式: user_char_${charName}_${file}
                 const parts = key.substring(10).split('_');
                 const file = parts[parts.length - 1];
                 const targetCharName = parts.slice(0, parts.length - 1).join('_');
 
-                imgSelector = `body[data-active-char="${targetCharName}"] #chat .mes[is_user="true"] .mesAvatarWrapper img[src*="${file}"]`;
-                parentSelector = `body[data-active-char="${targetCharName}"] #chat .mes[is_user="true"]:has(img[src*="${file}"]) .mesAvatarWrapper`;
+                const prefixes = [`body[data-active-char="${targetCharName}"] #chat .mes[is_user="true"]`];
+                imgSelector = prefixes.map(p => UNIVERSAL_AVATAR_IMG_SELECTORS.map(s => `${p} ${s}`).join(', ')).join(', ');
+                parentSelector = prefixes.map(p => UNIVERSAL_AVATAR_PARENT_SELECTORS.map(s => `${p} ${s}`).join(', ')).join(', ');
             } 
-            // 3. 全局用户头像配置样式 (降级兼容)
+            // 3. 全局用户头像配置样式
             else if (key.startsWith('user_global_')) {
                 type = 'user';
-                const file = key.substring(12);
-                imgSelector = `#chat .mes[is_user="true"] .mesAvatarWrapper img[src*="${file}"]`;
-                parentSelector = `#chat .mes[is_user="true"]:has(img[src*="${file}"]) .mesAvatarWrapper`;
+                const prefixes = [`#chat .mes[is_user="true"]`];
+                imgSelector = prefixes.map(p => UNIVERSAL_AVATAR_IMG_SELECTORS.map(s => `${p} ${s}`).join(', ')).join(', ');
+                parentSelector = prefixes.map(p => UNIVERSAL_AVATAR_PARENT_SELECTORS.map(s => `${p} ${s}`).join(', ')).join(', ');
             }
 
             if (!imgSelector) return;
@@ -1212,7 +1359,7 @@
         }
     }
 
-    // 预加载所有 IndexedDB 中的 Blob 并生成临时 Object URL 存入缓存
+    // 预加载所有 IndexedDB 中的 Blob 并生成临时 Object URL 存入缓存，并执行 GPU 显存预解码
     async function loadGalleryBlobsToCache() {
         try {
             const list = await getAllImages();
@@ -1221,10 +1368,12 @@
                     if (galleryBlobUrlCache[item.id]) {
                         URL.revokeObjectURL(galleryBlobUrlCache[item.id]);
                     }
-                    galleryBlobUrlCache[item.id] = URL.createObjectURL(item.blob);
+                    const objectUrl = URL.createObjectURL(item.blob);
+                    galleryBlobUrlCache[item.id] = objectUrl;
+                    preloadAndDecodeImage(objectUrl);
                 }
             });
-            console.log(`[Theme Manager DB] Cached ${list.length} gallery images as Blob Object URLs.`);
+            console.log(`[Theme Manager DB] Cached and pre-decoded ${list.length} gallery images as Blob Object URLs.`);
         } catch (e) {
             console.error('[Theme Manager DB] Failed to load blobs to cache:', e);
         }
@@ -1662,6 +1811,11 @@
             current.overrideUrl = url;
             saveAdjustment(type, file, current);
             
+            const resolved = resolveImageUrl(url);
+            if (resolved) {
+                preloadAndDecodeImage(resolved);
+            }
+            tagAllMessages();
             updatePanelLivePreview(current);
             renderGalleryGrid();
             toastr.success('头像视觉覆盖应用成功！');
@@ -1941,7 +2095,24 @@
                 <div class="gallery-item-orig-badge"><i class="fa-solid fa-rotate-left"></i> 原图</div>
             `;
             if (!isGalleryBatchMode) {
-                origItem.addEventListener('click', () => {
+                const origCropBtn = document.createElement('button');
+                origCropBtn.className = 'gallery-item-crop';
+                origCropBtn.title = '裁剪原图';
+                origCropBtn.innerHTML = '<i class="fa-solid fa-crop-simple"></i>';
+                origItem.appendChild(origCropBtn);
+
+                origCropBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    applyOverride('');
+                    panel.querySelector('#input-gallery-url').value = '';
+                    const tabBtn = panel.querySelector('.avatar-adv-tab-btn[data-tab="adjust"]');
+                    if (tabBtn) tabBtn.click();
+                    const startBtn = panel.querySelector('#btn-start-crop');
+                    if (startBtn) startBtn.click();
+                });
+
+                origItem.addEventListener('click', (e) => {
+                    if (e.target.closest('.gallery-item-crop')) return;
                     applyOverride('');
                     panel.querySelector('#input-gallery-url').value = '';
                 });
@@ -2023,15 +2194,33 @@
                         });
                     } else {
                         item.appendChild(imgEl);
+
+                        const cropBtn = document.createElement('button');
+                        cropBtn.className = 'gallery-item-crop';
+                        cropBtn.title = '裁剪此图片';
+                        cropBtn.innerHTML = '<i class="fa-solid fa-crop-simple"></i>';
+                        item.appendChild(cropBtn);
+
                         const delBtn = document.createElement('button');
                         delBtn.className = 'gallery-item-delete';
                         delBtn.title = '从图库中移除';
                         delBtn.innerHTML = '<i class="fa-solid fa-trash"></i>';
                         item.appendChild(delBtn);
 
+                        // 裁剪图库单项图片
+                        cropBtn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            applyOverride(itemData.url);
+                            panel.querySelector('#input-gallery-url').value = (itemData.url.startsWith('data:') || itemData.url.startsWith('db://')) ? '' : itemData.url;
+                            const tabBtn = panel.querySelector('.avatar-adv-tab-btn[data-tab="adjust"]');
+                            if (tabBtn) tabBtn.click();
+                            const startBtn = panel.querySelector('#btn-start-crop');
+                            if (startBtn) startBtn.click();
+                        });
+
                         // 切换选择
                         item.addEventListener('click', (e) => {
-                            if (e.target.closest('.gallery-item-delete')) return;
+                            if (e.target.closest('.gallery-item-delete') || e.target.closest('.gallery-item-crop')) return;
                             applyOverride(itemData.url);
                             panel.querySelector('#input-gallery-url').value = (itemData.url.startsWith('data:') || itemData.url.startsWith('db://')) ? '' : itemData.url;
                         });
@@ -2357,7 +2546,7 @@
             const cropSection = tabPanel.querySelector('#crop-section');
             const controlGroup = tabPanel.querySelector('.avatar-adv-control-group');
 
-            startCropBtn.addEventListener('click', () => {
+            startCropBtn.addEventListener('click', async () => {
                 if (!window.Cropper) {
                     toastr.warning('酒馆内置 Cropper.js 尚未加载，无法执行裁剪。');
                     return;
@@ -2367,9 +2556,31 @@
                 cropSection.style.display = 'flex';
 
                 const currentVal = getAdjustment(targetType, targetFile);
-                // 优先采用完整无损的原始头像原图作为裁剪源，确保原图永远不丢失且可重复重新裁剪
-                const activeSrc = originalAvatarUrl || resolveImageUrl(currentVal.overrideUrl);
+                let activeSrc = '';
+                if (currentVal.overrideUrl) {
+                    activeSrc = resolveImageUrl(currentVal.overrideUrl);
+                    if (!activeSrc && currentVal.overrideUrl.startsWith('db://')) {
+                        const blobId = currentVal.overrideUrl.substring(5);
+                        try {
+                            const blob = await getImageBlob(blobId);
+                            if (blob) {
+                                activeSrc = URL.createObjectURL(blob);
+                                galleryBlobUrlCache[blobId] = activeSrc;
+                            }
+                        } catch (e) {
+                            console.error('[Theme Manager DB] Failed to fetch crop target blob:', e);
+                        }
+                    }
+                }
+                if (!activeSrc) {
+                    activeSrc = originalAvatarUrl;
+                }
+
                 const cropperImg = tabPanel.querySelector('#cropper-img');
+                if (cropperInstance) {
+                    try { cropperInstance.destroy(); } catch(e) {}
+                    cropperInstance = null;
+                }
                 cropperImg.src = activeSrc;
 
                 cropperInstance = new Cropper(cropperImg, {
@@ -3022,7 +3233,8 @@
                 bindings = JSON.parse(localStorage.getItem(BINDINGS_KEY)) || {};
             } catch (e) {}
             
-            let selectedValue = bindings[targetFile] || '';
+            const charName = getActiveCharacterName();
+            let selectedValue = (charName && bindings[charName]) ? bindings[charName] : (bindings[targetFile] || '');
 
             const stThemesSelect = document.querySelector('#themes');
             const allThemes = [];
@@ -3197,24 +3409,30 @@
                     updatedBindings = JSON.parse(localStorage.getItem(BINDINGS_KEY)) || {};
                 } catch (e) {}
 
+                const charName = getActiveCharacterName();
+
                 if (selectedValue) {
-                    updatedBindings[targetFile] = selectedValue;
+                    if (charName) updatedBindings[charName] = selectedValue;
+                    if (targetFile) updatedBindings[targetFile] = selectedValue;
                     let displayValue = selectedValue;
                     if (selectedValue.startsWith('[Tag] ')) {
                         const tagId = selectedValue.replace('[Tag] ', '');
                         const tag = tags.find(t => t.id === tagId);
                         displayValue = tag ? `标签: ${tag.name} (随机切换)` : selectedValue;
                     }
-                    toastr.success(`已成功将该角色绑定到美化：<b>${displayValue}</b>`, '', { escapeHtml: false });
+                    toastr.success(`已成功将角色「${escapeHtml(charName || targetFile)}」绑定到美化：<b>${displayValue}</b>`, '', { escapeHtml: false });
                 } else {
-                    delete updatedBindings[targetFile];
-                    toastr.info('已取消该角色的美化绑定。');
+                    if (charName) delete updatedBindings[charName];
+                    if (targetFile) delete updatedBindings[targetFile];
+                    toastr.info(`已取消角色「${escapeHtml(charName || targetFile)}」的美化绑定。`);
                 }
                 localStorage.setItem(BINDINGS_KEY, JSON.stringify(updatedBindings));
                 
                 const shouldApplyNow = chkApplyOnBind ? chkApplyOnBind.checked : true;
                 if (shouldApplyNow && window.themeManager && typeof window.themeManager.applyBoundThemeForCharacter === 'function') {
-                    window.themeManager.applyBoundThemeForCharacter(targetFile);
+                    const context = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
+                    const character = (context && context.characters && context.characterId !== undefined) ? context.characters[context.characterId] : null;
+                    window.themeManager.applyBoundThemeForCharacter(character || targetFile);
                 }
             });
 
