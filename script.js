@@ -4111,6 +4111,22 @@
                         });
                     });
 
+                    // 策略 D: 3位及以上纯数字标识/型号/ID提取 (如 "1445", "2024", "8080" 等独立编号)
+                    list.forEach(t => {
+                        const name = t.display || t.value;
+                        if (!name) return;
+
+                        const numMatches = name.match(/\b\d{3,8}\b/g);
+                        if (numMatches) {
+                            numMatches.forEach(numStr => {
+                                if (!AUTO_GROUP_STOPWORDS.has(numStr) && !existingTagNamesAtLevel.has(numStr)) {
+                                    if (!candidateMap.has(numStr)) candidateMap.set(numStr, new Set());
+                                    candidateMap.get(numStr).add(t.value);
+                                }
+                            });
+                        }
+                    });
+
                     // 3. 策略 C: N-Gram 任意位置连续子串滑动提取 (解决无空格中文/复合词位置不同、数字后缀干扰问题，如 "播放器", "聊天框", "莫兰迪")
                     const nGramMap = new Map(); // kw -> Set(themeValue)
 
