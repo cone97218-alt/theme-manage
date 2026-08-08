@@ -2588,19 +2588,12 @@
                 currentVal.x = parseInt(x);
                 currentVal.y = parseInt(y);
                 updatePanelLivePreview(currentVal);
-            };
-
-            const saveChanges = () => {
-                const currentVal = getAdjustment(targetType, targetFile);
-                currentVal.zoom = parseFloat(zoomInput.value);
-                currentVal.x = parseInt(xInput.value);
-                currentVal.y = parseInt(yInput.value);
                 saveAdjustment(targetType, targetFile, currentVal);
             };
 
             [zoomInput, xInput, yInput].forEach(inp => {
                 inp.addEventListener('input', updatePreview);
-                inp.addEventListener('change', saveChanges);
+                inp.addEventListener('change', updatePreview);
             });
 
             // 重置按钮
@@ -4170,16 +4163,20 @@
         .then(() => migrateBase64Gallery())
         .then(() => loadGalleryBlobsToCache())
         .then(() => {
+            updateActiveCharacterAttr();
             if (localStorage.getItem('themeManager_enableAvatarHelper') !== 'false') {
                 applyAvatarStyles();
+                tagAllMessages();
             }
             console.log('[Theme Manager Avatar] Database initialization and asset loading completed successfully.');
         })
         .catch(err => {
             console.error('[Theme Manager Avatar] Database initialization failed:', err);
+            updateActiveCharacterAttr();
             // 降级使用同步样式渲染
             if (localStorage.getItem('themeManager_enableAvatarHelper') !== 'false') {
                 applyAvatarStyles();
+                tagAllMessages();
             }
         });
 
