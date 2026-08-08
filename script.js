@@ -318,87 +318,66 @@
                     if (!themeName) return false;
 
                     console.log(`[Theme Manager Delete] ══════════════════════════════════════`);
-                    console.log(`[Theme Manager Delete] 🗑️ 开始删除请求: themeName="${themeName}"`);
+                    console.log(`[Theme Manager Delete] 🗑️ 使用 ST 原生接口擦除美化主题: "${themeName}"`);
 
-                    const candidates = [];
-                    const added = new Set();
-                    const addCandidate = (str) => {
+                    const candidateSet = new Set();
+                    const addName = (str) => {
                         if (!str || typeof str !== 'string') return;
                         const raw = str.trim();
                         if (!raw) return;
                         const clean = raw.replace(/\[.*?\]/g, '').trim();
-
-                        const baseVariants = new Set([raw, clean]);
-                        baseVariants.forEach(v => {
+                        [raw, clean].forEach(v => {
                             if (!v) return;
                             const noExt = v.replace(/\.json$/i, '').trim();
-                            if (!noExt) return;
-
-                            if (!added.has(noExt)) { added.add(noExt); candidates.push(noExt); }
-                            if (noExt.includes(' ') || noExt.includes('_')) {
-                                const alt1 = noExt.replace(/\s+/g, '_');
-                                const alt2 = noExt.replace(/_/g, ' ');
-                                if (!added.has(alt1)) { added.add(alt1); candidates.push(alt1); }
-                                if (!added.has(alt2)) { added.add(alt2); candidates.push(alt2); }
-                            }
-                            if (noExt.includes(' ') || noExt.includes('-')) {
-                                const alt3 = noExt.replace(/\s+/g, '-');
-                                const alt4 = noExt.replace(/-/g, ' ');
-                                if (!added.has(alt3)) { added.add(alt3); candidates.push(alt3); }
-                                if (!added.has(alt4)) { added.add(alt4); candidates.push(alt4); }
-                            }
+                            if (noExt) candidateSet.add(noExt);
                         });
                     };
 
-                    let themeObj = themeObjParam;
-                    if (!themeObj) {
-                        themeObj = allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
-                    }
+                    let themeObj = themeObjParam || allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
                     if (!themeObj && Array.isArray(allThemeObjects)) {
                         const cleanReqName = themeName.replace(/\[.*?\]/g, '').trim();
                         themeObj = allThemeObjects.find(t => t && (t.name === themeName || t.name === cleanReqName || t.value === themeName || t.value === cleanReqName));
                     }
 
                     if (themeObj) {
-                        console.log(`[Theme Manager Delete] 找到关联的 themeObj:`, themeObj);
-                        if (themeObj.name) addCandidate(themeObj.name);
-                        if (themeObj.value) addCandidate(themeObj.value);
-                    } else {
-                        console.warn(`[Theme Manager Delete] ⚠️ 未能在内存映射中定位到 themeObj，使用 themeName 派生候选名。`);
+                        if (themeObj.name) addName(themeObj.name);
+                        if (themeObj.value) addName(themeObj.value);
                     }
+                    addName(themeName);
 
-                    addCandidate(themeName);
+                    const candidates = Array.from(candidateSet).filter(Boolean);
+                    console.log(`[Theme Manager Delete] 📋 试探物理文件名列表:`, candidates);
 
-                    console.log(`[Theme Manager Delete] 📋 生成的所有物理文件候选名列表 (${candidates.length} 个):`, candidates);
-
-                    if (candidates.length === 0) {
-                        console.error(`[Theme Manager Delete Error] ❌ 无法为主题 "${themeName}" 生成任何有效候选文件名。`);
-                        return false;
-                    }
+                    if (candidates.length === 0) return false;
 
                     let isDeletedOnDisk = false;
-                    const attemptResults = [];
 
-                    // 使用 apiRequest (fetch API，完全兼容移动端浏览器与跨域/CSRF 标头)
+                    // 直接采用 SillyTavern 原生主题删除接口 fetch('/api/themes/delete')
                     await Promise.all(candidates.map(async candidateName => {
                         try {
-                            const res = await apiRequest('themes/delete', 'POST', { name: candidateName }, true);
-                            attemptResults.push({ candidate: candidateName, status: 200, res });
-                            isDeletedOnDisk = true;
-                            console.log(`[Theme Manager Delete] ✅ 成功删除了物理文件! 匹配候选名: "${candidateName}"`);
+                            const response = await fetch('/api/themes/delete', {
+                                method: 'POST',
+                                headers: getRequestHeaders(),
+                                body: JSON.stringify({ name: candidateName }),
+                            });
+                            if (response.ok) {
+                                isDeletedOnDisk = true;
+                                console.log(`[Theme Manager Delete] ✅ ST 原生接口成功擦除磁盘文件: "${candidateName}.json"`);
+                            } else {
+                                console.warn(`[Theme Manager Delete] ⚠️ 候选名 "${candidateName}" 返回 HTTP ${response.status}`);
+                            }
                         } catch (err) {
-                            attemptResults.push({ candidate: candidateName, status: 'error', error: err.message });
-                            console.warn(`[Theme Manager Delete] ⚠️ 候选名 "${candidateName}" 请求失败:`, err.message);
+                            console.error(`[Theme Manager Delete] ❌ 候选名 "${candidateName}" 请求网络错误:`, err);
                         }
                     }));
 
                     if (isDeletedOnDisk) {
                         console.log(`[Theme Manager Delete] 🎉 主题 "${themeName}" 磁盘物理文件擦除确认成功！`);
                     } else {
-                        console.error(`[Theme Manager Delete ERROR] ❌ 主题 "${themeName}" 物理磁盘擦除失败！所有候选文件名均被后端拒绝。详细响应:`, attemptResults);
+                        console.error(`[Theme Manager Delete ERROR] ❌ 主题 "${themeName}" 物理磁盘擦除失败！所有候选名均未能删除。`);
                     }
 
-                    // 从 ST 所有内存 themes 数组中彻底精确定位清除，并立刻写回 settings.json
+                    // 同步清理内存与界面数据
                     updateSTThemeMemory({ name: themeName }, 'delete', themeName);
                     console.log(`[Theme Manager Delete] ══════════════════════════════════════`);
                     return isDeletedOnDisk;
@@ -411,10 +390,10 @@
                         try {
                             const res = await callGenericPopup(`
                                 <div style="text-align:center; padding:10px 5px;">
-                                    <h4 style="margin:0 0 10px 0; color:var(--SmartThemeQuoteColor, #4a90e2);"><i class="fa-solid fa-triangle-exclamation" style="color:#ff8888; margin-right:6px;"></i>确认操作</h4>
-                                    <p style="margin:0; font-size:13px; opacity:0.9;">${escapeHtml(message)}</p>
+                                    <h3 style="margin:0 0 10px 0; color:var(--SmartThemeQuoteColor, #4a90e2);"><i class="fa-solid fa-triangle-exclamation" style="color:#ff8888; margin-right:6px;"></i>确认操作</h3>
+                                    <p style="margin:0; font-size:14px; opacity:0.9;">${escapeHtml(message)}</p>
                                 </div>
-                            `, 'confirm', null, {
+                            `, 2, null, {
                                 okButton: okText,
                                 cancelButton: '取消',
                                 wide: false,
@@ -426,7 +405,8 @@
                                     }
                                 }
                             });
-                            return res === true;
+                            // callGenericPopup 返回 1 (POPUP_RESULT.AFFIRMATIVE) 即代表确认
+                            return res === 1 || res === true || (res && res.result === 1);
                         } catch (e) {
                             console.warn('[Theme Manager] callGenericPopup 异常, 回退至 confirm:', e);
                         }
