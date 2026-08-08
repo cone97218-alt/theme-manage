@@ -3233,8 +3233,7 @@
                 bindings = JSON.parse(localStorage.getItem(BINDINGS_KEY)) || {};
             } catch (e) {}
             
-            const charName = getActiveCharacterName();
-            let selectedValue = (charName && bindings[charName]) ? bindings[charName] : (bindings[targetFile] || '');
+            let selectedValue = bindings[targetFile] || '';
 
             const stThemesSelect = document.querySelector('#themes');
             const allThemes = [];
@@ -3409,30 +3408,24 @@
                     updatedBindings = JSON.parse(localStorage.getItem(BINDINGS_KEY)) || {};
                 } catch (e) {}
 
-                const charName = getActiveCharacterName();
-
                 if (selectedValue) {
-                    if (charName) updatedBindings[charName] = selectedValue;
-                    if (targetFile) updatedBindings[targetFile] = selectedValue;
+                    updatedBindings[targetFile] = selectedValue;
                     let displayValue = selectedValue;
                     if (selectedValue.startsWith('[Tag] ')) {
                         const tagId = selectedValue.replace('[Tag] ', '');
                         const tag = tags.find(t => t.id === tagId);
                         displayValue = tag ? `标签: ${tag.name} (随机切换)` : selectedValue;
                     }
-                    toastr.success(`已成功将角色「${escapeHtml(charName || targetFile)}」绑定到美化：<b>${displayValue}</b>`, '', { escapeHtml: false });
+                    toastr.success(`已成功将该角色绑定到美化：<b>${displayValue}</b>`, '', { escapeHtml: false });
                 } else {
-                    if (charName) delete updatedBindings[charName];
-                    if (targetFile) delete updatedBindings[targetFile];
-                    toastr.info(`已取消角色「${escapeHtml(charName || targetFile)}」的美化绑定。`);
+                    delete updatedBindings[targetFile];
+                    toastr.info('已取消该角色的美化绑定。');
                 }
                 localStorage.setItem(BINDINGS_KEY, JSON.stringify(updatedBindings));
                 
                 const shouldApplyNow = chkApplyOnBind ? chkApplyOnBind.checked : true;
                 if (shouldApplyNow && window.themeManager && typeof window.themeManager.applyBoundThemeForCharacter === 'function') {
-                    const context = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
-                    const character = (context && context.characters && context.characterId !== undefined) ? context.characters[context.characterId] : null;
-                    window.themeManager.applyBoundThemeForCharacter(character || targetFile);
+                    window.themeManager.applyBoundThemeForCharacter(targetFile);
                 }
             });
 

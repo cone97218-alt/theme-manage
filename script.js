@@ -29,10 +29,6 @@
     function applyEarlyAutoTheme(originalSelect, settings) {
         if (!settings || !settings.enabled) return;
 
-        // 核心修复：确保 SillyTavern 原生 power_user 设置已真实载入，防止读取 50ms DOM 默认初始值导致刷新后误判
-        const context = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
-        if (!context || !context.power_user) return false;
-
         let newState = null;
         if (settings.mode === 'system') {
             if (window.matchMedia) {
@@ -157,20 +153,15 @@
     const earlyAutoThemeInterval = setInterval(() => {
         const originalSelect = document.querySelector('#themes');
         if (originalSelect && window.SillyTavern?.getContext) {
+            clearInterval(earlyAutoThemeInterval);
             if (!autoThemeApplied) {
+                autoThemeApplied = true;
                 try {
                     const settings = JSON.parse(localStorage.getItem('themeManager_autoTheme'));
-                    const result = applyEarlyAutoTheme(originalSelect, settings);
-                    if (result !== false) {
-                        autoThemeApplied = true;
-                        clearInterval(earlyAutoThemeInterval);
-                    }
+                    applyEarlyAutoTheme(originalSelect, settings);
                 } catch (e) {
                     console.error('[Theme Manager] 早期读取自动主题配置失败:', e);
-                    clearInterval(earlyAutoThemeInterval);
                 }
-            } else {
-                clearInterval(earlyAutoThemeInterval);
             }
         }
     }, 50);
@@ -4798,44 +4789,6 @@
                 });
                 observer.observe(originalSelect, { childList: true }); // 仅监听 option 增减，移除 characterData 避免文本变化误触发重建
 
-                // 捕获与监听 SillyTavern 原生视觉预设 (#settings_pers_preset) 变更事件，防止预设切换导致美化高亮与实际美化脱节
-                document.addEventListener('change', (e) => {
-                    if (e.target && (e.target.id === 'settings_pers_preset' || e.target.classList.contains('pers_preset_select'))) {
-                        setTimeout(() => {
-                            const activeVal = originalSelect.value;
-                            console.log('[Theme Manager] 检出视觉预设变动，当前美化主题同步识别为: "' + activeVal + '"');
-                            updateActiveState();
-                            if (activeVal && themeBackgroundBindings[activeVal]) {
-                                applyBackgroundDirectly(themeBackgroundBindings[activeVal]);
-                            }
-                        }, 100);
-                    }
-                });
-
-                // 深度拦截 originalSelect.value 的 Setter，确保任何通过原生 JS (如 jQuery.val()) 触发的改值均能实时同步 UI 高亮
-                try {
-                    const selectProto = HTMLSelectElement.prototype;
-                    const valDescriptor = Object.getOwnPropertyDescriptor(selectProto, 'value');
-                    if (valDescriptor && valDescriptor.set) {
-                        const nativeSet = valDescriptor.set;
-                        Object.defineProperty(originalSelect, 'value', {
-                            get() {
-                                return valDescriptor.get.call(this);
-                            },
-                            set(val) {
-                                const oldVal = this.value;
-                                nativeSet.call(this, val);
-                                if (oldVal !== val) {
-                                    setTimeout(() => updateActiveState(), 0);
-                                }
-                            },
-                            configurable: true
-                        });
-                    }
-                } catch (e) {
-                    console.warn('[Theme Manager] 拦截 originalSelect.value 属性失败:', e);
-                }
-
                 const bgMenuContent = document.getElementById('bg_menu_content');
                 const bgCustomContent = document.getElementById('bg_custom_content');
 
@@ -4942,53 +4895,38 @@
                     }
                 }
 
-                // 核心功能：为特定角色或头像应用绑定的值（优先角色唯一名称，避免同名通用头像文件串台）
-                function applyBoundThemeForCharacter(characterOrAvatar) {
-                    if (!characterOrAvatar) return;
-
-                    let charName = '';
-                    let avatarFile = '';
-
-                    if (typeof characterOrAvatar === 'object') {
-                        charName = characterOrAvatar.name || '';
-                        avatarFile = characterOrAvatar.avatar || '';
-                    } else if (typeof characterOrAvatar === 'string') {
-                        avatarFile = characterOrAvatar;
-                    }
-
-                    const cleanAvatar = getAvatarFilename(avatarFile);
-                    if (!charName && !cleanAvatar) return;
+                // 核心功能：为特定头像名应用绑定的值（可能是具体主题，也可能是标签随机）
+                function applyBoundThemeForCharacter(avatarName) {
+                    console.log(`[Theme Manager Debug] applyBoundThemeForCharacter called with:`, avatarName);
+                    if (!avatarName) return;
+                    const cleanName = getAvatarFilename(avatarName);
+                    console.log(`[Theme Manager Debug] cleanName:`, cleanName);
+                    if (!cleanName) return;
 
                     const bindings = JSON.parse(localStorage.getItem(CHARACTER_THEME_BINDINGS_KEY)) || {};
-                    
-                    // 1. 优先采用角色唯一名称 (charName) 精确查询绑定
-                    // 2. 若名称未查到，仅在 cleanAvatar 不是通用默认文件名 (如 avatar.png, default.png) 时才使用文件名兜底
-                    let target = null;
-                    if (charName && bindings[charName]) {
-                        target = bindings[charName];
-                    } else if (cleanAvatar) {
-                        const isGeneric = /^(avatar|default|user|image|card|character|pic|photo)\.(png|jpg|jpeg|webp|gif)$/i.test(cleanAvatar);
-                        if (!isGeneric && bindings[cleanAvatar]) {
-                            target = bindings[cleanAvatar];
-                        }
-                    }
+                    console.log(`[Theme Manager Debug] bindings loaded:`, bindings);
+                    const target = bindings[cleanName];
+                    console.log(`[Theme Manager Debug] target found:`, target);
 
                     if (target) {
                         const themeToApply = getThemeForTarget(target);
+                        console.log(`[Theme Manager Debug] themeToApply:`, themeToApply);
                         if (themeToApply) {
                             const themeSelect = document.querySelector('#themes');
+                            console.log(`[Theme Manager Debug] themeSelect:`, themeSelect ? themeSelect.value : 'not found');
                             if (themeSelect) {
+                                // 1. 如果解析出的具体主题与当前不同，则切换
                                 if (themeSelect.value !== themeToApply) {
-                                    console.log(`[Theme Manager] 角色绑定触发切换: ${themeToApply} (角色: "${charName || cleanAvatar}", 绑定来源: ${target})`);
+                                    console.log(`[Theme Manager] 角色绑定触发切换: ${themeToApply} (来源: ${target})`);
                                     themeSelect.value = themeToApply;
                                     triggerSelectChange(themeSelect);
-                                    toastr.info(`已应用角色「${escapeHtml(charName || cleanAvatar)}」绑定的美化：<b>${escapeHtml(themeToApply)}</b>`, '', { timeOut: 2000, escapeHtml: false });
+                                    toastr.info(`已应用角色绑定的美化：<b>${escapeHtml(themeToApply)}</b>`, '', { timeOut: 2000, escapeHtml: false });
                                 } else {
-                                    console.log(`[Theme Manager Debug] Theme is already active for character "${charName || cleanAvatar}":`, themeToApply);
+                                    console.log(`[Theme Manager Debug] Theme is already active:`, themeToApply);
                                 }
                             }
 
-                            // 强制同步背景图
+                            // 2. 强制同步背景图
                             const boundBg = themeBackgroundBindings[themeToApply];
                             if (boundBg) {
                                 applyBackgroundDirectly(boundBg);
@@ -5008,8 +4946,8 @@
                             const characters = SillyTavern.getContext().characters;
                             const chid = characterBlock.dataset.chid;
                             const character = characters[chid];
-                            if (character) {
-                                applyBoundThemeForCharacter(character);
+                            if (character && character.avatar) {
+                                applyBoundThemeForCharacter(character.avatar);
                             }
                         }, 50);
                     });
@@ -5025,9 +4963,7 @@
                         const characterAvatar = recentChatBlock.dataset.avatar;
                         if (characterAvatar) {
                             setTimeout(() => {
-                                const characters = SillyTavern.getContext().characters;
-                                const character = Array.isArray(characters) ? characters.find(c => c.avatar === characterAvatar) : null;
-                                applyBoundThemeForCharacter(character || characterAvatar);
+                                applyBoundThemeForCharacter(characterAvatar);
                             }, 50);
                         }
                     });
@@ -5628,10 +5564,15 @@
                         });
 
                         eventSource.on(eventTypes.CHARACTER_SELECTED, () => {
+                            console.log(`[Theme Manager Debug] CHARACTER_SELECTED event fired`);
                             const { characters, characterId } = SillyTavern.getContext();
                             const character = characters[characterId];
-                            if (character) {
-                                setTimeout(() => applyBoundThemeForCharacter(character), 100);
+                            if (character && character.avatar) {
+                                console.log(`[Theme Manager Debug] CHARACTER_SELECTED avatar:`, character.avatar);
+                                // 短延时确保上下文就绪
+                                setTimeout(() => applyBoundThemeForCharacter(character.avatar), 100);
+                            } else {
+                                console.log(`[Theme Manager Debug] CHARACTER_SELECTED: no character or avatar. ID:`, characterId);
                             }
                         });
                     } else {
@@ -5642,8 +5583,9 @@
                     try {
                         const { characters, characterId } = SillyTavern.getContext();
                         const character = characters[characterId];
-                        if (character) {
-                            applyBoundThemeForCharacter(character);
+                        console.log(`[Theme Manager Debug] Startup character avatar:`, character ? character.avatar : 'none');
+                        if (character && character.avatar) {
+                            applyBoundThemeForCharacter(character.avatar);
                         }
                     } catch (e) {
                         console.warn('[Theme Manager] 首次载入应用绑定美化失败:', e);
