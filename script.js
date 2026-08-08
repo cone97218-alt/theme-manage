@@ -6802,8 +6802,13 @@
 
                 const autoThemeBtn = managerPanel.querySelector('#auto-theme-settings-btn');
                 const autoThemeModal = managerPanel.querySelector('#auto-theme-modal');
-                const closeAutoThemeModalBtn = managerPanel.querySelector('#close-auto-theme-modal');
-                const saveAutoThemeBtn = managerPanel.querySelector('#save-auto-theme-btn');
+                const closeAutoThemeModalBtn = autoThemeModal ? autoThemeModal.querySelector('#close-auto-theme-modal') : null;
+                const saveAutoThemeBtn = autoThemeModal ? autoThemeModal.querySelector('#save-auto-theme-btn') : null;
+
+                // 将 autoThemeModal 挂载到 document.body 顶层，彻底脱离父级 transform 包含块，确保 position: fixed 绝对相对于浏览器视口居中
+                if (autoThemeModal) {
+                    document.body.appendChild(autoThemeModal);
+                }
 
                 let currentTargetThemeForPair = null;
 
@@ -6823,14 +6828,25 @@
                     }
                 }
 
+                const daynightModal = managerPanel.querySelector('#tm-daynight-pair-modal');
+                const closeTmDaynightBtn = daynightModal ? daynightModal.querySelector('#close-tm-daynight-modal') : null;
+                const saveTmDaynightBtn = daynightModal ? daynightModal.querySelector('#save-tm-daynight-btn') : null;
+                const clearTmDaynightBtn = daynightModal ? daynightModal.querySelector('#clear-tm-daynight-btn') : null;
+
+                // 将 daynightModal 挂载到 document.body 顶层
+                if (daynightModal) {
+                    document.body.appendChild(daynightModal);
+                }
+
                 function openDayNightPairModal(themeName) {
                     currentTargetThemeForPair = themeName;
-                    const pairModal = managerPanel.querySelector('#tm-daynight-pair-modal');
-                    const titleSpan = managerPanel.querySelector('#tm-daynight-current-name');
-                    const nightSelect = managerPanel.querySelector('#tm-daynight-night-select');
-                    const daySelect = managerPanel.querySelector('#tm-daynight-day-select');
+                    if (!daynightModal) return;
 
-                    titleSpan.textContent = themeName;
+                    const titleSpan = daynightModal.querySelector('#tm-daynight-current-name');
+                    const nightSelect = daynightModal.querySelector('#tm-daynight-night-select');
+                    const daySelect = daynightModal.querySelector('#tm-daynight-day-select');
+
+                    if (titleSpan) titleSpan.textContent = themeName;
 
                     if ($(nightSelect).data('select2')) $(nightSelect).select2('destroy');
                     if ($(daySelect).data('select2')) $(daySelect).select2('destroy');
@@ -6839,37 +6855,38 @@
                     allParsedThemes.forEach(t => {
                         optionsHtml += `<option value="${escapeHtml(t.value)}">${escapeHtml(t.display)}</option>`;
                     });
-                    nightSelect.innerHTML = optionsHtml;
-                    daySelect.innerHTML = optionsHtml;
+                    if (nightSelect) nightSelect.innerHTML = optionsHtml;
+                    if (daySelect) daySelect.innerHTML = optionsHtml;
 
                     const existingPair = getPairForTheme(themeName);
                     if (existingPair) {
-                        daySelect.value = existingPair.dayTheme || '';
-                        nightSelect.value = existingPair.nightTheme || '';
+                        if (daySelect) daySelect.value = existingPair.dayTheme || '';
+                        if (nightSelect) nightSelect.value = existingPair.nightTheme || '';
                     } else {
                         const isNightName = /(深色|暗色|黑色|Dark|Night|黑)/i.test(themeName);
                         if (isNightName) {
-                            nightSelect.value = themeName;
-                            daySelect.value = '';
+                            if (nightSelect) nightSelect.value = themeName;
+                            if (daySelect) daySelect.value = '';
                         } else {
-                            daySelect.value = themeName;
-                            nightSelect.value = '';
+                            if (daySelect) daySelect.value = themeName;
+                            if (nightSelect) nightSelect.value = '';
                         }
                     }
 
-                    pairModal.style.display = 'flex';
+                    daynightModal.style.display = 'flex';
 
                     // 初始化 Select2 增加可搜索能力
                     setTimeout(() => {
                         $([nightSelect, daySelect]).select2({
-                            dropdownParent: $(pairModal).find('.tm-modal-content'),
+                            dropdownParent: $(daynightModal).find('.tm-modal-content'),
                             width: '100%'
                         });
                     }, 0);
                 }
 
                 function populateAutoThemePairsList() {
-                    const pairsContainer = managerPanel.querySelector('#tm-pairs-list-container');
+                    if (!autoThemeModal) return;
+                    const pairsContainer = autoThemeModal.querySelector('#tm-pairs-list-container');
                     if (!pairsContainer) return;
 
                     if (!Array.isArray(themeDayNightPairs) || themeDayNightPairs.length === 0) {
@@ -6905,65 +6922,69 @@
                     });
                 }
 
-                const daynightModal = managerPanel.querySelector('#tm-daynight-pair-modal');
-                const closeTmDaynightBtn = managerPanel.querySelector('#close-tm-daynight-modal');
-                const saveTmDaynightBtn = managerPanel.querySelector('#save-tm-daynight-btn');
-                const clearTmDaynightBtn = managerPanel.querySelector('#clear-tm-daynight-btn');
-
-                closeTmDaynightBtn.addEventListener('click', () => {
-                    daynightModal.style.display = 'none';
-                });
-
-                saveTmDaynightBtn.addEventListener('click', () => {
-                    if (!currentTargetThemeForPair) return;
-                    const nightVal = managerPanel.querySelector('#tm-daynight-night-select').value;
-                    const dayVal = managerPanel.querySelector('#tm-daynight-day-select').value;
-
-                    // 移除包含涉及美化的旧组合
-                    themeDayNightPairs = themeDayNightPairs.filter(p => {
-                        if (!p) return false;
-                        if (p.dayTheme === currentTargetThemeForPair || p.nightTheme === currentTargetThemeForPair) return false;
-                        if (dayVal && (p.dayTheme === dayVal || p.nightTheme === dayVal)) return false;
-                        if (nightVal && (p.dayTheme === nightVal || p.nightTheme === nightVal)) return false;
-                        return true;
+                if (closeTmDaynightBtn) {
+                    closeTmDaynightBtn.addEventListener('click', () => {
+                        if (daynightModal) daynightModal.style.display = 'none';
                     });
+                }
 
-                    if (dayVal || nightVal) {
-                        const finalDay = dayVal || currentTargetThemeForPair;
-                        const finalNight = nightVal || currentTargetThemeForPair;
-                        themeDayNightPairs.push({
-                            dayTheme: finalDay,
-                            nightTheme: finalNight
+                if (saveTmDaynightBtn) {
+                    saveTmDaynightBtn.addEventListener('click', () => {
+                        if (!currentTargetThemeForPair || !daynightModal) return;
+                        const nightVal = daynightModal.querySelector('#tm-daynight-night-select')?.value || '';
+                        const dayVal = daynightModal.querySelector('#tm-daynight-day-select')?.value || '';
+
+                        // 移除包含涉及美化的旧组合
+                        themeDayNightPairs = themeDayNightPairs.filter(p => {
+                            if (!p) return false;
+                            if (p.dayTheme === currentTargetThemeForPair || p.nightTheme === currentTargetThemeForPair) return false;
+                            if (dayVal && (p.dayTheme === dayVal || p.nightTheme === dayVal)) return false;
+                            if (nightVal && (p.dayTheme === nightVal || p.nightTheme === nightVal)) return false;
+                            return true;
                         });
-                    }
 
-                    saveThemeDayNightPairs(themeDayNightPairs);
-                    
-                    if (dayVal) updateThemeItemDayNightState(dayVal);
-                    if (nightVal) updateThemeItemDayNightState(nightVal);
-                    updateThemeItemDayNightState(currentTargetThemeForPair);
+                        if (dayVal || nightVal) {
+                            const finalDay = dayVal || currentTargetThemeForPair;
+                            const finalNight = nightVal || currentTargetThemeForPair;
+                            themeDayNightPairs.push({
+                                dayTheme: finalDay,
+                                nightTheme: finalNight
+                            });
+                        }
 
-                    toastr.success(`已更新美化日夜组合绑定！`);
-                    daynightModal.style.display = 'none';
-                });
-
-                clearTmDaynightBtn.addEventListener('click', () => {
-                    if (!currentTargetThemeForPair) return;
-                    const pair = getPairForTheme(currentTargetThemeForPair);
-                    if (pair) {
-                        themeDayNightPairs = themeDayNightPairs.filter(p => p !== pair);
                         saveThemeDayNightPairs(themeDayNightPairs);
-                        if (pair.dayTheme) updateThemeItemDayNightState(pair.dayTheme);
-                        if (pair.nightTheme) updateThemeItemDayNightState(pair.nightTheme);
-                        toastr.info(`已解除该美化的日夜组合关联。`);
-                    }
-                    daynightModal.style.display = 'none';
-                });
+                        
+                        if (dayVal) updateThemeItemDayNightState(dayVal);
+                        if (nightVal) updateThemeItemDayNightState(nightVal);
+                        updateThemeItemDayNightState(currentTargetThemeForPair);
+
+                        toastr.success(`已更新美化日夜组合绑定！`);
+                        daynightModal.style.display = 'none';
+                    });
+                }
+
+                if (clearTmDaynightBtn) {
+                    clearTmDaynightBtn.addEventListener('click', () => {
+                        if (!currentTargetThemeForPair || !daynightModal) return;
+                        const pair = getPairForTheme(currentTargetThemeForPair);
+                        if (pair) {
+                            themeDayNightPairs = themeDayNightPairs.filter(p => p !== pair);
+                            saveThemeDayNightPairs(themeDayNightPairs);
+                            if (pair.dayTheme) updateThemeItemDayNightState(pair.dayTheme);
+                            if (pair.nightTheme) updateThemeItemDayNightState(pair.nightTheme);
+                            toastr.info(`已解除该美化的日夜组合关联。`);
+                        }
+                        daynightModal.style.display = 'none';
+                    });
+                }
 
                 function populateAutoThemeDropdowns() {
-                    const dayTarget = managerPanel.querySelector('#auto-theme-day-target');
-                    const nightTarget = managerPanel.querySelector('#auto-theme-night-target');
+                    if (!autoThemeModal) return;
+                    const dayTarget = autoThemeModal.querySelector('#auto-theme-day-target');
+                    const nightTarget = autoThemeModal.querySelector('#auto-theme-night-target');
                     const tags = loadThemeTags();
+
+                    if (!dayTarget || !nightTarget) return;
 
                     if ($(dayTarget).data('select2')) $(dayTarget).select2('destroy');
                     if ($(nightTarget).data('select2')) $(nightTarget).select2('destroy');
@@ -6998,45 +7019,67 @@
                     }, 0);
                 }
 
-                autoThemeBtn.addEventListener('click', () => {
-                    managerPanel.querySelector('#auto-theme-enable').checked = autoThemeSettings.enabled;
-                    managerPanel.querySelector('#auto-theme-enable-manual').checked = !!autoThemeSettings.enableManualToggle;
-                    managerPanel.querySelector(`input[name="auto-theme-mode"][value="${autoThemeSettings.mode}"]`).checked = true;
-                    managerPanel.querySelector('#auto-theme-day-start').value = autoThemeSettings.dayStart;
-                    managerPanel.querySelector('#auto-theme-night-start').value = autoThemeSettings.nightStart;
-                    managerPanel.querySelector('#auto-theme-time-settings').style.display = autoThemeSettings.mode === 'time' ? 'block' : 'none';
+                if (autoThemeBtn && autoThemeModal) {
+                    autoThemeBtn.addEventListener('click', () => {
+                        const enableChk = autoThemeModal.querySelector('#auto-theme-enable');
+                        const manualChk = autoThemeModal.querySelector('#auto-theme-enable-manual');
+                        const modeRadio = autoThemeModal.querySelector(`input[name="auto-theme-mode"][value="${autoThemeSettings.mode}"]`);
+                        const dayStartInput = autoThemeModal.querySelector('#auto-theme-day-start');
+                        const nightStartInput = autoThemeModal.querySelector('#auto-theme-night-start');
+                        const timeSettings = autoThemeModal.querySelector('#auto-theme-time-settings');
 
-                    populateAutoThemeDropdowns();
-                    autoThemeModal.style.display = 'flex';
-                });
+                        if (enableChk) enableChk.checked = autoThemeSettings.enabled;
+                        if (manualChk) manualChk.checked = !!autoThemeSettings.enableManualToggle;
+                        if (modeRadio) modeRadio.checked = true;
+                        if (dayStartInput) dayStartInput.value = autoThemeSettings.dayStart;
+                        if (nightStartInput) nightStartInput.value = autoThemeSettings.nightStart;
+                        if (timeSettings) timeSettings.style.display = autoThemeSettings.mode === 'time' ? 'block' : 'none';
 
-                managerPanel.querySelectorAll('input[name="auto-theme-mode"]').forEach(radio => {
-                    radio.addEventListener('change', (e) => {
-                        managerPanel.querySelector('#auto-theme-time-settings').style.display = e.target.value === 'time' ? 'block' : 'none';
+                        populateAutoThemeDropdowns();
+                        autoThemeModal.style.display = 'flex';
                     });
-                });
 
-                closeAutoThemeModalBtn.addEventListener('click', () => {
-                    autoThemeModal.style.display = 'none';
-                });
+                    autoThemeModal.querySelectorAll('input[name="auto-theme-mode"]').forEach(radio => {
+                        radio.addEventListener('change', (e) => {
+                            const timeSettings = autoThemeModal.querySelector('#auto-theme-time-settings');
+                            if (timeSettings) timeSettings.style.display = e.target.value === 'time' ? 'block' : 'none';
+                        });
+                    });
+                }
 
-                saveAutoThemeBtn.addEventListener('click', () => {
-                    autoThemeSettings.enabled = managerPanel.querySelector('#auto-theme-enable').checked;
-                    autoThemeSettings.enableManualToggle = managerPanel.querySelector('#auto-theme-enable-manual').checked;
-                    autoThemeSettings.mode = managerPanel.querySelector('input[name="auto-theme-mode"]:checked').value;
-                    autoThemeSettings.dayStart = managerPanel.querySelector('#auto-theme-day-start').value || '06:00';
-                    autoThemeSettings.nightStart = managerPanel.querySelector('#auto-theme-night-start').value || '18:00';
-                    autoThemeSettings.dayTarget = managerPanel.querySelector('#auto-theme-day-target').value;
-                    autoThemeSettings.nightTarget = managerPanel.querySelector('#auto-theme-night-target').value;
+                if (closeAutoThemeModalBtn) {
+                    closeAutoThemeModalBtn.addEventListener('click', () => {
+                        if (autoThemeModal) autoThemeModal.style.display = 'none';
+                    });
+                }
 
-                    localStorage.setItem(AUTO_THEME_KEY, JSON.stringify(autoThemeSettings));
-                    updateManualToggleBtnVisibility();
-                    toastr.success('自动切换主题设置已保存！');
-                    autoThemeModal.style.display = 'none';
+                if (saveAutoThemeBtn && autoThemeModal) {
+                    saveAutoThemeBtn.addEventListener('click', () => {
+                        const enableChk = autoThemeModal.querySelector('#auto-theme-enable');
+                        const manualChk = autoThemeModal.querySelector('#auto-theme-enable-manual');
+                        const modeRadio = autoThemeModal.querySelector('input[name="auto-theme-mode"]:checked');
+                        const dayStartInput = autoThemeModal.querySelector('#auto-theme-day-start');
+                        const nightStartInput = autoThemeModal.querySelector('#auto-theme-night-start');
+                        const dayTargetSelect = autoThemeModal.querySelector('#auto-theme-day-target');
+                        const nightTargetSelect = autoThemeModal.querySelector('#auto-theme-night-target');
 
-                    currentAutoThemeState = null;
-                    applyAutoThemeLoop();
-                });
+                        autoThemeSettings.enabled = enableChk ? enableChk.checked : false;
+                        autoThemeSettings.enableManualToggle = manualChk ? manualChk.checked : false;
+                        autoThemeSettings.mode = modeRadio ? modeRadio.value : 'system';
+                        autoThemeSettings.dayStart = dayStartInput ? dayStartInput.value || '06:00' : '06:00';
+                        autoThemeSettings.nightStart = nightStartInput ? nightStartInput.value || '18:00' : '18:00';
+                        autoThemeSettings.dayTarget = dayTargetSelect ? dayTargetSelect.value : '';
+                        autoThemeSettings.nightTarget = nightTargetSelect ? nightTargetSelect.value : '';
+
+                        localStorage.setItem(AUTO_THEME_KEY, JSON.stringify(autoThemeSettings));
+                        updateManualToggleBtnVisibility();
+                        toastr.success('自动切换主题设置已保存！');
+                        autoThemeModal.style.display = 'none';
+
+                        currentAutoThemeState = null;
+                        applyAutoThemeLoop();
+                    });
+                }
 
                 // ==========================================================
                 // ===== 注入原生背景面板 - 批量删除功能 (Background Batch Delete) =====
