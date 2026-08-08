@@ -878,8 +878,6 @@
 
 .two-line-layout .theme-item-name .theme-item-name-text,
 .theme-item.two-line-layout .theme-item-name .theme-item-name-text {
-    font-weight: bold !important;
-    font-size: 13px !important;
     word-break: break-all !important;
 }
 
