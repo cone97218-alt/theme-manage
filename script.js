@@ -4295,15 +4295,12 @@ function getPopupContainer(popup) {
 
 function normalizeTagHierarchy(tags) {
     if (!Array.isArray(tags)) return [];
-    const validIds = new Set(tags.map(t => t.id));
-    tags.forEach(t => {
-        if (!t.parentId || !validIds.has(t.parentId) || t.parentId === t.id) {
-            t.parentId = null;
-        }
+    tags.forEach((t, idx) => {
+        if (!t.id) t.id = 'tag_' + Date.now() + '_' + idx;
     });
-    const l1Ids = new Set(tags.filter(t => !t.parentId).map(t => t.id));
+    const validIds = new Set(tags.map(t => String(t.id)));
     tags.forEach(t => {
-        if (t.parentId && !l1Ids.has(t.parentId)) {
+        if (t.parentId && (!validIds.has(String(t.parentId)) || String(t.parentId) === String(t.id))) {
             t.parentId = null;
         }
     });
@@ -4430,7 +4427,7 @@ async function openManageTagsPopup() {
                                                 html += `
                                                     <div class="tm-level2-item" data-id="${cTag.id}" data-parent-id="${l1Tag.id}" data-index="${cIdx}">
                                                         <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
-                                                            ${isBatchDeleteMode ? `<input type="checkbox" class="tm-tag-batch-chk" data-id="${cTag.id}" ${selectedBatchTagIds.has(cTag.id) ? "checked" : ""} style="margin:0 4px 0 0; cursor:pointer;">` : ""}<i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
+                                                            ${isBatchDeleteMode ? `<input type="checkbox" class="tm-tag-batch-chk" data-id="${cTag.id}" ${selectedBatchTagIds.has(cTag.id) ? 'checked' : ''} style="margin:0 4px 0 0; cursor:pointer;">` : ''}<i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
                                                             <span style="text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(cTag.name)}</span>
                                                             <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${cTag.themes ? cTag.themes.length : 0})</small>
                                                             ${cKwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${cKwCount}词]</small>` : ''}
