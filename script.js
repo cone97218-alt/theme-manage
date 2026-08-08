@@ -3938,7 +3938,7 @@
                         cancelButton: '<i class="fa-solid fa-xmark"></i> 取消',
                         wide: true,
                         onOpen: (popup) => {
-                            const dlg = popup.dlg;
+                            const dlg = getPopupContainer(popup);
                             let isBatchDeleteMode = false;
                             const selectedBatchTagIds = new Set();
                             if (dlg) {
@@ -4279,6 +4279,20 @@
                 }
 
                 
+
+function getPopupContainer(popup) {
+    if (!popup) return document;
+    if (popup.dlg) {
+        if (popup.dlg instanceof Element) return popup.dlg;
+        if (popup.dlg[0] instanceof Element) return popup.dlg[0];
+        if (typeof popup.dlg.find === 'function') return popup.dlg[0] || document;
+    }
+    if (popup instanceof Element) return popup;
+    if (popup[0] instanceof Element) return popup[0];
+    if (typeof popup.find === 'function') return popup[0] || document;
+    return document;
+}
+
 function normalizeTagHierarchy(tags) {
     if (!Array.isArray(tags)) return [];
     const validIds = new Set(tags.map(t => t.id));
