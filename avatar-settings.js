@@ -1569,14 +1569,19 @@
             panel.style.transform = 'none';
         }
 
+        let savedTab = localStorage.getItem('themeManager_lastActiveTab') || 'adjust';
+        if (savedTab === 'bind' && type !== 'char') {
+            savedTab = 'adjust';
+        }
+
         // 拼接选项卡列表
         let tabButtonsHtml = `
-            <button class="avatar-adv-tab-btn active" data-tab="adjust" title="调整与自由裁剪"><i class="fa-solid fa-crop-simple"></i></button>
-            <button class="avatar-adv-tab-btn" data-tab="frame" title="配置头像框"><i class="fa-solid fa-border-all"></i></button>
-            <button class="avatar-adv-tab-btn" data-tab="gallery" title="本地视觉图库"><i class="fa-solid fa-images"></i></button>
+            <button class="avatar-adv-tab-btn ${savedTab === 'adjust' ? 'active' : ''}" data-tab="adjust" title="调整与自由裁剪"><i class="fa-solid fa-crop-simple"></i></button>
+            <button class="avatar-adv-tab-btn ${savedTab === 'frame' ? 'active' : ''}" data-tab="frame" title="配置头像框"><i class="fa-solid fa-border-all"></i></button>
+            <button class="avatar-adv-tab-btn ${savedTab === 'gallery' ? 'active' : ''}" data-tab="gallery" title="本地视觉图库"><i class="fa-solid fa-images"></i></button>
         `;
         if (type === 'char') {
-            tabButtonsHtml += `<button class="avatar-adv-tab-btn" data-tab="bind" title="美化主题绑定"><i class="fa-solid fa-link"></i></button>`;
+            tabButtonsHtml += `<button class="avatar-adv-tab-btn ${savedTab === 'bind' ? 'active' : ''}" data-tab="bind" title="美化主题绑定"><i class="fa-solid fa-link"></i></button>`;
         }
 
         // 针对 user 构建图库 subtab (全局图库 vs 角色图库)
@@ -1629,7 +1634,7 @@
             
             <div class="avatar-adv-content">
                 <!-- 调整与裁剪选项卡 -->
-                <div class="avatar-adv-tab-content active" id="tab-adjust">
+                <div class="avatar-adv-tab-content ${savedTab === 'adjust' ? 'active' : ''}" id="tab-adjust">
                     <div class="avatar-adv-form-row" style="margin-bottom: 2px; justify-content: space-between; width: 100%; flex-wrap: wrap; gap: 8px;">
                         <div style="display:inline-flex; flex-direction:column; gap:6px;">
                             <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12px;">
@@ -1698,7 +1703,7 @@
                 </div>
 
                 <!-- 头像框选项卡 -->
-                <div class="avatar-adv-tab-content" id="tab-frame">
+                <div class="avatar-adv-tab-content ${savedTab === 'frame' ? 'active' : ''}" id="tab-frame">
                     <div style="display:flex; flex-direction:row; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:5px;">
                         <div style="display:flex; flex-direction:row; gap:4px;">
                             <button class="avatar-adv-tab-btn active" style="padding:4px;" id="btn-subtab-apply" title="应用调整"><i class="fa-solid fa-sliders"></i></button>
@@ -1743,7 +1748,7 @@
                 </div>
 
                 <!-- 图库选项卡 -->
-                <div class="avatar-adv-tab-content" id="tab-gallery">
+                <div class="avatar-adv-tab-content ${savedTab === 'gallery' ? 'active' : ''}" id="tab-gallery">
                     ${galleryHeaderHtml}
                     <div style="display:flex; flex-direction:column; gap:6px; border:1px solid var(--SmartThemeBorderColor, rgba(0,0,0,0.08)); padding:10px; border-radius:8px; flex-shrink:0;">
                         <!-- 工具栏控制按钮行 -->
@@ -2400,6 +2405,7 @@
 
         try {
             bindTabs(panel);
+            adjustPreviewVisibility(panel);
         } catch (e) {
             console.error('[Theme Manager Avatar] Error binding tab switcher events:', e);
         }
@@ -3770,7 +3776,7 @@
         resizer.addEventListener('touchcancel', endResize, { passive: true });
     }
 
-    // 选项卡切换
+    // 选项卡切换（持久化记忆上次打开的 tab）
     function bindTabs(panel) {
         const tabs = panel.querySelectorAll('.avatar-adv-tab-btn[data-tab]');
         const contents = panel.querySelectorAll('.avatar-adv-tab-content');
@@ -3778,6 +3784,7 @@
         tabs.forEach(tab => {
             tab.addEventListener('click', () => {
                 const targetTab = tab.dataset.tab;
+                localStorage.setItem('themeManager_lastActiveTab', targetTab);
                 
                 tabs.forEach(t => t.classList.toggle('active', t === tab));
                 contents.forEach(c => c.classList.toggle('active', c.id === `tab-${targetTab}`));
@@ -3982,12 +3989,12 @@
             }
         };
 
-        // 1. Mousedown (鼠标点击和长按)
+        // 1. Mousedown (鼠标点击和长按) - 仅限 #chat 聊天界面内部触发，防止 drawer/面板内误触
         document.body.addEventListener('mousedown', (e) => {
             if (localStorage.getItem('themeManager_enableAvatarHelper') === 'false') return;
-            const avatarTargetSelector = '.mesAvatarWrapper, .avatar, .avatarimg, #avatar_div, .user_avatar, .mes_avatar, .mes-avatar, [class*="avatar"], [class*="Avatar"], .character_select img';
+            const avatarTargetSelector = '.mesAvatarWrapper, .avatar, .avatarimg, #avatar_div, .user_avatar, .mes_avatar, .mes-avatar, [class*="avatar"], [class*="Avatar"]';
             const target = e.target.closest(avatarTargetSelector);
-            if (!target) return;
+            if (!target || !target.closest('#chat')) return;
 
             const triggerMethod = avatarTriggerMethod;
             const now = Date.now();
@@ -4031,15 +4038,15 @@
         document.body.addEventListener('mouseup', cancelPress, true);
         document.body.addEventListener('mouseleave', cancelPress, true);
 
-        // 2. Touch (移动端触屏双击与长按)
+        // 2. Touch (移动端触屏双击与长按) - 仅限 #chat 聊天界面内部触发，防止 drawer/面板内误触
         let lastTouchTime = 0;
         let lastTouchElement = null;
 
         document.body.addEventListener('touchstart', (e) => {
             if (localStorage.getItem('themeManager_enableAvatarHelper') === 'false') return;
-            const avatarTargetSelector = '.mesAvatarWrapper, .avatar, .avatarimg, #avatar_div, .user_avatar, .mes_avatar, .mes-avatar, [class*="avatar"], [class*="Avatar"], .character_select img';
+            const avatarTargetSelector = '.mesAvatarWrapper, .avatar, .avatarimg, #avatar_div, .user_avatar, .mes_avatar, .mes-avatar, [class*="avatar"], [class*="Avatar"]';
             const target = e.target.closest(avatarTargetSelector);
-            if (!target) return;
+            if (!target || !target.closest('#chat')) return;
 
             const triggerMethod = avatarTriggerMethod;
             const touch = e.touches[0];
