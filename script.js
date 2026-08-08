@@ -318,45 +318,93 @@
                     if (!themeName) return false;
 
                     console.log(`[Theme Manager Delete] ══════════════════════════════════════`);
-                    console.log(`[Theme Manager Delete] 开始删除: "${themeName}"`);
+                    console.log(`[Theme Manager Delete] 开始擦除物理文件: "${themeName}"`);
 
-                    // 核心原则：ST 保存主题时，磁盘文件名 = sanitize(themeObj.name) + ".json"
-                    // 所以最优先的候选就是 themeObj.name（从 ST 内存读取的原始 name）
                     const candidateSet = new Set();
+                    const addNameVariants = (str) => {
+                        if (!str || typeof str !== 'string') return;
+                        const raw = str.trim();
+                        if (!raw) return;
 
-                    // 1. 最高优先：调用方传入的 themeObjParam.name（从 ST 内存取得的准确 name）
-                    if (themeObjParam && themeObjParam.name) {
-                        candidateSet.add(String(themeObjParam.name).trim());
+                        const baseList = new Set();
+                        baseList.add(raw);
+
+                        // 标准 OS 文件名 sanitize 变体 (剔除非法 OS 字符)
+                        const sanitized = raw.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim();
+                        if (sanitized) baseList.add(sanitized);
+
+                        // 变体 A: 剥离括号符号 (例如: "【Miao & Game】 360px" -> "Miao & Game 360px")
+                        const unbracketed = raw.replace(/[\[\]【】（）()《》<>]/g, ' ').replace(/\s+/g, ' ').trim();
+                        if (unbracketed) baseList.add(unbracketed);
+
+                        // 变体 B: 剥离括号及其内部内容 (例如: "【Miao & Game】 360px" -> "360px")
+                        const cleanOuter = raw.replace(/([\[【（(《<].*?[\]】）)》>])/g, '').trim();
+                        if (cleanOuter) baseList.add(cleanOuter);
+
+                        // 变体 C: 提取括号内部文本 (例如: "【Miao & Game】 360px" -> "Miao & Game")
+                        const bracketMatches = raw.match(/([\[【（(《<].*?[\]】）)》>])/g);
+                        if (bracketMatches) {
+                            bracketMatches.forEach(bm => {
+                                const inner = bm.replace(/[\[\]【】（）()《》<>]/g, '').trim();
+                                if (inner) baseList.add(inner);
+                            });
+                        }
+
+                        baseList.forEach(v => {
+                            if (!v) return;
+                            const noExt = v.replace(/\.json$/i, '').trim();
+                            if (!noExt) return;
+
+                            candidateSet.add(noExt);
+                            candidateSet.add(noExt.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim());
+
+                            if (noExt.includes('&amp;')) candidateSet.add(noExt.replace(/&amp;/g, '&'));
+                            if (noExt.includes('&')) {
+                                candidateSet.add(noExt.replace(/&/g, 'and'));
+                                candidateSet.add(noExt.replace(/&/g, ' '));
+                                candidateSet.add(noExt.replace(/\s*&\s*/g, '_&_'));
+                                candidateSet.add(noExt.replace(/\s*&\s*/g, '_and_'));
+                            }
+                            if (noExt.includes(' ') || noExt.includes('_')) {
+                                candidateSet.add(noExt.replace(/\s+/g, '_'));
+                                candidateSet.add(noExt.replace(/_/g, ' '));
+                            }
+                            if (noExt.includes(' ') || noExt.includes('-')) {
+                                candidateSet.add(noExt.replace(/\s+/g, '-'));
+                                candidateSet.add(noExt.replace(/-/g, ' '));
+                            }
+                        });
+                    };
+
+                    if (themeObjParam) {
+                        if (themeObjParam.name) addNameVariants(themeObjParam.name);
+                        if (themeObjParam.value) addNameVariants(themeObjParam.value);
                     }
-
-                    // 2. 从 ST 内存里查找该主题的准确 name
                     const stObj = findThemeObject(themeName);
-                    if (stObj && stObj.name) {
-                        candidateSet.add(String(stObj.name).trim());
+                    if (stObj) {
+                        if (stObj.name) addNameVariants(stObj.name);
+                        if (stObj.value) addNameVariants(stObj.value);
                     }
-
-                    // 3. themeName 本身（对于标准主题，磁盘名 = UI 显示名）
-                    candidateSet.add(String(themeName).trim());
+                    addNameVariants(themeName);
 
                     const candidates = Array.from(candidateSet).filter(Boolean);
-                    console.log(`[Theme Manager Delete] 候选磁盘文件名:`, candidates);
+                    console.log(`[Theme Manager Delete] 📋 试探磁盘候选文件名 (${candidates.length} 个):`, candidates);
 
                     let isDeletedOnDisk = false;
 
                     for (const candidateName of candidates) {
                         try {
                             await apiRequest('themes/delete', 'POST', { name: candidateName }, true);
-                            // apiRequest 不抛错即代表后端返回 200，删除成功
                             isDeletedOnDisk = true;
-                            console.log(`[Theme Manager Delete] ✅ 成功删除磁盘文件: "${candidateName}.json"`);
-                            break; // 命中后立即停止，不继续试探
+                            console.log(`[Theme Manager Delete] ✅ 成功擦除磁盘文件: "${candidateName}.json"`);
+                            break;
                         } catch (err) {
-                            console.warn(`[Theme Manager Delete] 候选名 "${candidateName}" 未命中磁盘文件`);
+                            // 继续下一个候选试探
                         }
                     }
 
                     if (!isDeletedOnDisk) {
-                        console.error(`[Theme Manager Delete] ❌ 所有候选名均未命中磁盘文件，删除失败！候选名:`, candidates);
+                        console.warn(`[Theme Manager Delete] ⚠️ 所有试探候选名均未命中磁盘文件，可能文件已被手动删除。候选名:`, candidates);
                     }
 
                     // 同步清理 ST 内存
@@ -1102,7 +1150,8 @@
                                 <button id="manage-tags-btn" class="menu_button" title="管理标签"><i class="fa-solid fa-tags"></i> 标签</button>
                                 <button id="tm-export-settings-btn" class="menu_button" title="导出配置文件"><i class="fa-solid fa-file-export"></i> 导出</button>
                                 <button id="tm-import-settings-btn" class="menu_button" title="从配置文件中导入插件设置"><i class="fa-solid fa-file-import"></i> 导入</button>
-                                <button id="tm-reset-all-system-btn" class="menu_button" style="background: rgba(220, 53, 69, 0.12) !important; color: #ff8888 !important; border: 1px solid rgba(220, 53, 69, 0.2) !important;" title="重置美化插件的所有数据"><i class="fa-solid fa-arrows-rotate"></i> 重置</button>
+                                <button id="tm-sync-disk-btn" class="menu_button" style="background: rgba(40, 167, 69, 0.18) !important; color: #72e48e !important; border: 1px solid rgba(40, 167, 69, 0.3) !important;" title="重新从磁盘读取主题并强行对齐界面与物理文件"><i class="fa-solid fa-arrows-rotate"></i> 对照磁盘</button>
+                                <button id="tm-reset-all-system-btn" class="menu_button" style="background: rgba(220, 53, 69, 0.12) !important; color: #ff8888 !important; border: 1px solid rgba(220, 53, 69, 0.2) !important;" title="重置美化插件的所有数据"><i class="fa-solid fa-triangle-exclamation"></i> 重置</button>
                             </div>
                         </div>
 
@@ -1407,6 +1456,96 @@
                     } catch (err) {
                         contentWrapper.innerHTML = '加载主题失败，请检查浏览器控制台获取更多信息。';
                         console.error(err);
+                    }
+                }
+
+                // === 强行重新对照磁盘并同步 ST 原生下拉框与全量 UI 缓存 ===
+                async function hardResyncThemes(showToast = true) {
+                    console.log('[Theme Manager] 🔄 开始重新对照磁盘并全量同步...');
+                    showLoader();
+                    _suspendObserver = true;
+
+                    try {
+                        // 1. 清除扩展内存缓存
+                        invalidateThemesCache();
+
+                        // 2. 从后端直接全量重新拉取磁盘上的所有主题文件数据
+                        const freshThemes = await getAllThemesFromAPI();
+
+                        // 3. 全量更新 ST getContext / power_user 内存
+                        if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                            const ctx = SillyTavern.getContext();
+                            if (ctx) ctx.themes = freshThemes;
+                        }
+                        if (typeof power_user !== 'undefined') {
+                            power_user.themes = freshThemes;
+                        }
+                        if (typeof themes !== 'undefined' && Array.isArray(themes)) {
+                            themes.length = 0;
+                            themes.push(...freshThemes);
+                        }
+
+                        // 4. 重构原生 #themes 下拉框 (<select id="themes">)
+                        const selectEl = originalSelect || document.querySelector('#themes');
+                        if (selectEl) {
+                            const currentVal = selectEl.value;
+                            selectEl.innerHTML = '';
+                            const existingNames = new Set();
+
+                            freshThemes.forEach(t => {
+                                const name = t.name || t.value;
+                                if (!name || existingNames.has(name)) return;
+                                existingNames.add(name);
+
+                                const option = document.createElement('option');
+                                option.value = name;
+                                option.innerText = name;
+                                selectEl.appendChild(option);
+                            });
+
+                            // 还原之前的选中项，如果原选中项已被从磁盘删除，则落到第一项
+                            if (currentVal && existingNames.has(currentVal)) {
+                                selectEl.value = currentVal;
+                            } else if (freshThemes.length > 0) {
+                                selectEl.value = freshThemes[0].name || freshThemes[0].value;
+                                triggerSelectChange(selectEl);
+                            }
+                        }
+
+                        // 5. 校验清理孤儿标签与收藏（剔除已被从磁盘删掉的主题名）
+                        const validThemeNames = new Set(freshThemes.map(t => t.name || t.value).filter(Boolean));
+
+                        favorites = favorites.filter(f => validThemeNames.has(f));
+                        updateFavorites(favorites);
+
+                        let tagsToUpdate = loadThemeTags();
+                        let tagsChanged = false;
+                        tagsToUpdate.forEach(tag => {
+                            if (tag.themes && Array.isArray(tag.themes)) {
+                                const beforeLen = tag.themes.length;
+                                tag.themes = tag.themes.filter(t => validThemeNames.has(t));
+                                if (tag.themes.length !== beforeLen) tagsChanged = true;
+                            }
+                        });
+                        if (tagsChanged) saveThemeTags(tagsToUpdate);
+
+                        // 6. 重建 DOM 与视口界面
+                        allParsedThemes = [];
+                        allParsedThemesMap.clear();
+                        themeItemMap.clear();
+                        if (contentWrapper) contentWrapper.innerHTML = '';
+
+                        await buildThemeUI();
+
+                        if (showToast) {
+                            toastr.success(`已成功与磁盘对照同步！共读取到 ${freshThemes.length} 个物理美化主题。`);
+                        }
+                    } catch (err) {
+                        console.error('[Theme Manager] 重新对照磁盘失败:', err);
+                        toastr.error('对照磁盘发生异常，请查看控制台: ' + (err.message || err));
+                    } finally {
+                        hideLoader();
+                        setTimeout(() => { _suspendObserver = false; }, 100);
                     }
                 }
 
@@ -2563,6 +2702,11 @@
                 managerPanel.querySelector('#tm-export-settings-btn').addEventListener('click', exportSettings);
                 managerPanel.querySelector('#tm-import-settings-btn').addEventListener('click', () => settingsFileInput.click());
                 settingsFileInput.addEventListener('change', importSettings);
+
+                const syncDiskBtn = managerPanel.querySelector('#tm-sync-disk-btn');
+                if (syncDiskBtn) {
+                    syncDiskBtn.addEventListener('click', () => hardResyncThemes(true));
+                }
 
                 // ---------- 功能结束 ----------
 
