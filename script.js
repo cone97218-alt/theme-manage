@@ -4047,14 +4047,15 @@
                 // === 超强分词与停止词过滤 (解决 700+ 超量美化在移动端卡顿) ===
                 const AUTO_GROUP_STOPWORDS = new Set([
                     'json', 'theme', 'themes', 'preset', 'presets', 'copy', 'new', 'fixed', 'final',
-                    '360px', '1080p', '720p', 'v1', 'v2', 'v3', 'v4', 'v5', 'mode', 'ui', 'dark', 'light',
-                    'st', 'sillytavern', 'main', 'card', 'style', 'test', 'demo',
-                    '美化', '主题', '预设', '整合', '重置', '修改', '修复', '最终', '完整', '通用', '版本', '备份', '副本'
+                    '360px', '1080p', '720p', 'v1', 'v2', 'v3', 'v4', 'v5', 'v1.0', 'v2.0', 'v3.0',
+                    '01', '02', '03', '04', '05', '06', '07', '08', '09', '10',
+                    'mode', 'ui', 'dark', 'light', 'st', 'sillytavern', 'main', 'card', 'style', 'test', 'demo',
+                    '美化', '主题', '预设', '整合', '重置', '修改', '修复', '最终', '完整', '通用', '版本', '备份', '副本', '版', '新'
                 ]);
 
                 function extractCandidateThemeGroups(themePool, minMatch = 2, targetLevel = 'l1', parentId = null) {
                     const list = themePool || allParsedThemes || [];
-                    const candidateMap = new Map(); // kw -> Set(themeName)
+                    const candidateMap = new Map(); // kw -> Set(themeValue)
 
                     // 0. 收集同级已存在的标签名，若已存在同名标签则自动跳过
                     const existingTags = loadThemeTags();
@@ -4064,26 +4065,40 @@
                             .map(t => t.name.trim().toLowerCase())
                     );
 
-                    // 1. 匹配各类括号里面的独立标记词（如 【黑金】 [Cyberpunk] (v2) 《动漫》 <Lite>）
+                    // 辅助：清洗主题名称中的版本号、各种类型括号、数字、常见后缀
+                    function sanitizeThemeTitle(rawName) {
+                        if (!rawName) return '';
+                        return rawName
+                            .replace(/[\[\]【】（）()《》<>\{\}]/g, ' ')
+                            .replace(/\bv?\d+(\.\d+)*\b/gi, ' ')
+                            .replace(/[_\-\+\/\\]+/g, ' ')
+                            .trim();
+                    }
+
+                    // 1. 策略 A: 匹配各类括号里面的独立标记词（如 【黑金】 [Cyberpunk] (莫兰迪) 《动漫》）
                     list.forEach(t => {
                         const name = t.display || t.value;
                         if (!name) return;
 
-                        // A. 括号内标签提取
                         let match;
                         const bRegex = /[\[【（(《<](.+?)[\]】）)》>]/g;
                         while ((match = bRegex.exec(name)) !== null) {
-                            const kw = match[1].trim();
+                            const kw = match[1].replace(/\bv?\d+(\.\d+)*\b/gi, '').trim();
                             const kwLower = kw.toLowerCase();
                             if (kw.length >= 1 && kw.length <= 20 && !AUTO_GROUP_STOPWORDS.has(kwLower) && !existingTagNamesAtLevel.has(kwLower)) {
                                 if (!candidateMap.has(kw)) candidateMap.set(kw, new Set());
                                 candidateMap.get(kw).add(t.value);
                             }
                         }
+                    });
 
-                        // B. 常用分词提取 (按空格、下划线、加号等分隔)
-                        const cleanName = name.replace(/[\[\]【】（）()《》<>]/g, ' ');
-                        const tokens = cleanName.split(/[\s_\-\+\/\\]+/).map(s => s.trim()).filter(Boolean);
+                    // 2. 策略 B: 分词 Token 提取 (按空格分隔)
+                    list.forEach(t => {
+                        const name = t.display || t.value;
+                        if (!name) return;
+
+                        const sanitized = sanitizeThemeTitle(name);
+                        const tokens = sanitized.split(/\s+/).filter(Boolean);
 
                         tokens.forEach(token => {
                             const tokenLower = token.toLowerCase();
@@ -4096,46 +4111,99 @@
                         });
                     });
 
-                    // 2. 转换为数组并按门槛筛选
-                    const result = [];
+                    // 3. 策略 C: N-Gram 任意位置连续子串滑动提取 (解决无空格中文/复合词位置不同、数字后缀干扰问题，如 "播放器", "聊天框", "莫兰迪")
+                    const nGramMap = new Map(); // kw -> Set(themeValue)
+
+                    list.forEach(t => {
+                        const name = t.display || t.value;
+                        if (!name) return;
+                        
+                        // 移除非中英文字符、数字，保留纯中英字串
+                        const cleanedStr = name
+                            .replace(/[\[\]【】（）()《》<>{}\-_+/\s]/g, '')
+                            .replace(/\d+/g, '');
+
+                        if (!cleanedStr) return;
+
+                        const maxGram = Math.min(6, cleanedStr.length);
+                        for (let len = 2; len <= maxGram; len++) {
+                            for (let i = 0; i <= cleanedStr.length - len; i++) {
+                                const subStr = cleanedStr.substring(i, i + len).trim();
+                                const subLower = subStr.toLowerCase();
+
+                                if (subStr.length >= 2 && !AUTO_GROUP_STOPWORDS.has(subLower) && !existingTagNamesAtLevel.has(subLower)) {
+                                    if (!nGramMap.has(subStr)) nGramMap.set(subStr, new Set());
+                                    nGramMap.get(subStr).add(t.value);
+                                }
+                            }
+                        }
+                    });
+
+                    // 合并 N-gram 抽取结果至 candidateMap，并通过位置无关的模糊匹配检索全量美化
+                    nGramMap.forEach((themesSet, subStr) => {
+                        if (themesSet.size >= minMatch) {
+                            const subLower = subStr.toLowerCase();
+                            const fullMatchedSet = new Set();
+                            
+                            list.forEach(t => {
+                                const titleLower = (t.display || t.value).toLowerCase();
+                                if (titleLower.includes(subLower)) {
+                                    fullMatchedSet.add(t.value);
+                                }
+                            });
+
+                            if (fullMatchedSet.size >= minMatch) {
+                                if (!candidateMap.has(subStr)) {
+                                    candidateMap.set(subStr, fullMatchedSet);
+                                } else {
+                                    const existingSet = candidateMap.get(subStr);
+                                    fullMatchedSet.forEach(val => existingSet.add(val));
+                                }
+                            }
+                        }
+                    });
+
+                    // 4. 转换为数组并按门槛筛选
+                    let candidateList = [];
                     candidateMap.forEach((themesSet, kw) => {
                         if (themesSet.size >= minMatch) {
-                            result.push({
+                            candidateList.push({
                                 keyword: kw,
                                 themes: Array.from(themesSet)
                             });
                         }
                     });
 
-                    // 3. 最大公约词归并提取 (Longest Common Prefix Subsumption)
-                    // 按照关键词字符串长度升序排序（短词优先）
-                    result.sort((a, b) => a.keyword.length - b.keyword.length);
-                    const prunedCandidates = [];
+                    // 5. 智能归并与去重 (Smart Subsumption & Overlap Merging)
+                    // 优先按字串长度降序排序（较长且有特异性的词优先，如 "播放器" 优于 "播放"）
+                    candidateList.sort((a, b) => b.keyword.length - a.keyword.length);
 
-                    for (const item of result) {
+                    const finalCandidates = [];
+                    
+                    for (const item of candidateList) {
                         const kwLower = item.keyword.toLowerCase();
-                        // 检测当前关键词是否为已有较短候选词的衍生词（例如 "12345" 包含了短词 "1234"）
-                        const isSubsumed = prunedCandidates.some(parent => {
-                            const parentKwLower = parent.keyword.toLowerCase();
-                            if (kwLower.includes(parentKwLower)) {
-                                const parentSet = new Set(parent.themes);
-                                const overlapCount = item.themes.filter(tName => parentSet.has(tName)).length;
-                                // 若当前词 75% 以上的美化已被短词包含，则直接取最大公约词，剔除衍生冗余长词
-                                if (overlapCount / item.themes.length >= 0.75) {
+                        
+                        // 检测是否有更长且美化包含率 ≥ 70% 的长词包含了当前短词
+                        const isChildOfExistingLonger = finalCandidates.some(longer => {
+                            const longerKwLower = longer.keyword.toLowerCase();
+                            if (longerKwLower.includes(kwLower)) {
+                                const itemSet = new Set(item.themes);
+                                const overlap = longer.themes.filter(t => itemSet.has(t)).length;
+                                if (overlap / longer.themes.length >= 0.7) {
                                     return true;
                                 }
                             }
                             return false;
                         });
 
-                        if (!isSubsumed) {
-                            prunedCandidates.push(item);
+                        if (!isChildOfExistingLonger) {
+                            finalCandidates.push(item);
                         }
                     }
 
-                    // 按包含的美化数量降序排列，截取前 80 个最热门候选
-                    prunedCandidates.sort((a, b) => b.themes.length - a.themes.length);
-                    return prunedCandidates.slice(0, 80);
+                    // 6. 按关联美化数量降序排列，截取前 100 个热门分类候选
+                    finalCandidates.sort((a, b) => b.themes.length - a.themes.length);
+                    return finalCandidates.slice(0, 100);
                 }
 
                 // === 分组向导 Step 1: 设置基数范围、目标层级与门槛 ===
