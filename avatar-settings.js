@@ -1920,11 +1920,37 @@
                     const isSelected = selectedGalleryIds.has(itemData.id);
                     item.className = `gallery-item${current.overrideUrl === itemData.url ? ' active' : ''}${isGalleryBatchMode && isSelected ? ' batch-selected' : ''}`;
 
+                    const imgEl = document.createElement('img');
+                    imgEl.alt = escapeHtml(itemData.name);
+                    imgEl.title = escapeHtml(itemData.name);
+                    const initialSrc = resolveImageUrl(itemData.url);
+
+                    const attemptRepair = () => {
+                        if (itemData.url && itemData.url.startsWith('db://')) {
+                            const blobId = itemData.url.substring(5);
+                            getImageBlob(blobId).then(blob => {
+                                if (blob) {
+                                    const objectUrl = URL.createObjectURL(blob);
+                                    galleryBlobUrlCache[blobId] = objectUrl;
+                                    imgEl.src = objectUrl;
+                                }
+                            }).catch(() => {});
+                        }
+                    };
+
+                    if (initialSrc) {
+                        imgEl.src = initialSrc;
+                        imgEl.onerror = attemptRepair;
+                    } else {
+                        attemptRepair();
+                    }
+
                     if (isGalleryBatchMode) {
-                        item.innerHTML = `
-                            <img src="${resolveImageUrl(itemData.url)}" alt="${escapeHtml(itemData.name)}" title="${escapeHtml(itemData.name)}">
-                            <div class="gallery-item-batch-chk${isSelected ? ' checked' : ''}"><i class="fa-solid fa-check"></i></div>
-                        `;
+                        item.appendChild(imgEl);
+                        const chk = document.createElement('div');
+                        chk.className = `gallery-item-batch-chk${isSelected ? ' checked' : ''}`;
+                        chk.innerHTML = '<i class="fa-solid fa-check"></i>';
+                        item.appendChild(chk);
                         item.addEventListener('click', () => {
                             if (selectedGalleryIds.has(itemData.id)) {
                                 selectedGalleryIds.delete(itemData.id);
@@ -1936,10 +1962,12 @@
                             renderGalleryGrid();
                         });
                     } else {
-                        item.innerHTML = `
-                            <img src="${resolveImageUrl(itemData.url)}" alt="${escapeHtml(itemData.name)}" title="${escapeHtml(itemData.name)}">
-                            <button class="gallery-item-delete" title="从图库中移除"><i class="fa-solid fa-trash"></i></button>
-                        `;
+                        item.appendChild(imgEl);
+                        const delBtn = document.createElement('button');
+                        delBtn.className = 'gallery-item-delete';
+                        delBtn.title = '从图库中移除';
+                        delBtn.innerHTML = '<i class="fa-solid fa-trash"></i>';
+                        item.appendChild(delBtn);
 
                         // 切换选择
                         item.addEventListener('click', (e) => {
@@ -1949,7 +1977,7 @@
                         });
 
                         // 从图库单项删除
-                        item.querySelector('.gallery-item-delete').addEventListener('click', (e) => {
+                        delBtn.addEventListener('click', (e) => {
                             e.stopPropagation();
                             if (confirm(`确定要将图片 "${itemData.name}" 从当前图库中移除吗？`)) {
                                 deleteSingleGalleryItem(itemData);
@@ -2711,13 +2739,18 @@
                 let loadedCount = 0;
                 const newItems = [];
 
-                for (const f of files) {
-                    const id = `img_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+                for (let idx = 0; idx < files.length; idx++) {
+                    const f = files[idx];
+                    const id = `img_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`;
                     const name = f.name.substring(0, f.name.lastIndexOf('.')) || f.name;
 
                     try {
-                        await saveImageBlob(id, name, f);
-                        galleryBlobUrlCache[id] = URL.createObjectURL(f);
+                        // 将 File 对象转换为纯净二进制 Blob，防范 DOM File 句柄游离失效导致的裂图
+                        const arrayBuf = await f.arrayBuffer();
+                        const cleanBlob = new Blob([arrayBuf], { type: f.type || 'image/png' });
+
+                        await saveImageBlob(id, name, cleanBlob);
+                        galleryBlobUrlCache[id] = URL.createObjectURL(cleanBlob);
                         const url = `db://${id}`;
                         newItems.push({ id, name, url });
                         loadedCount++;
