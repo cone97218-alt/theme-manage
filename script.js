@@ -1047,10 +1047,20 @@
                     _tagsCache = JSON.parse(localStorage.getItem(THEME_TAGS_KEY)) || [];
                     return _tagsCache;
                 }
+                function refreshAllParsedThemesTags() {
+                    const tags = loadThemeTags();
+                    buildThemeTagIndex(tags);
+                    if (allParsedThemes && allParsedThemes.length > 0) {
+                        allParsedThemes.forEach(t => {
+                            t.tags = getTagsForTheme(t.value, tags);
+                        });
+                    }
+                }
                 function saveThemeTags(tags) {
                     _tagsCache = tags; // 更新缓存
                     localStorage.setItem(THEME_TAGS_KEY, JSON.stringify(tags));
                     invalidateThemeTagIndex(); // 标签数据变了，反向索引也要失效
+                    refreshAllParsedThemesTags(); // 实时重刷全量 parsedThemes 的标签关联
                     document.dispatchEvent(new CustomEvent('themeManager:tagsChanged', { detail: tags }));
                 }
                 function invalidateTagsCache() {
@@ -1902,24 +1912,27 @@
                 function isThemeMatchingFilters(theme) {
                     if (activeTagFilters.size === 0) return true;
                     const tags = loadThemeTags();
+                    const themeTags = (theme && theme.tags && theme.tags.length > 0)
+                        ? theme.tags
+                        : getTagsForTheme(theme.value, tags);
 
                     if (tagFilterMode === 'and') {
                         // AND 模式：主题必须同时满足所有已选标签
                         for (const tagId of activeTagFilters) {
                             let matched = false;
                             if (tagId === '__FAVORITES__' && favoritesSet.has(theme.value)) matched = true;
-                            if (tagId === '__UNCATEGORIZED__' && (!theme.tags || theme.tags.length === 0)) matched = true;
+                            if (tagId === '__UNCATEGORIZED__' && (!themeTags || themeTags.length === 0)) matched = true;
                             if (typeof tagId === 'string' && tagId.startsWith('__SUB_UNCATEGORIZED__:')) {
                                 const l1Id = tagId.split(':')[1];
                                 const l1Tag = tags.find(t => t.id === l1Id);
                                 const l1Themes = l1Tag && l1Tag.themes ? l1Tag.themes : [];
                                 const childTagIds = tags.filter(t => t.parentId === l1Id).map(t => t.id);
-                                const belongsToL1 = (theme.tags && theme.tags.includes(l1Id)) || l1Themes.includes(theme.value);
-                                const hasChildTag = theme.tags && theme.tags.some(tId => childTagIds.includes(tId));
+                                const belongsToL1 = (themeTags && themeTags.includes(l1Id)) || l1Themes.includes(theme.value);
+                                const hasChildTag = themeTags && themeTags.some(tId => childTagIds.includes(tId));
                                 if (belongsToL1 && !hasChildTag) matched = true;
-                            } else if (theme.tags) {
+                            } else if (themeTags) {
                                 const targetIds = getExpandedTagIds(tagId, tags);
-                                if (theme.tags.some(tId => targetIds.includes(tId))) matched = true;
+                                if (themeTags.some(tId => targetIds.includes(tId))) matched = true;
                             }
                             if (!matched) return false;
                         }
@@ -1928,18 +1941,18 @@
                     // OR 模式（默认）：匹配任意标签即可
                     for (const tagId of activeTagFilters) {
                         if (tagId === '__FAVORITES__' && favoritesSet.has(theme.value)) return true;
-                        if (tagId === '__UNCATEGORIZED__' && (!theme.tags || theme.tags.length === 0)) return true;
+                        if (tagId === '__UNCATEGORIZED__' && (!themeTags || themeTags.length === 0)) return true;
                         if (typeof tagId === 'string' && tagId.startsWith('__SUB_UNCATEGORIZED__:')) {
                             const l1Id = tagId.split(':')[1];
                             const l1Tag = tags.find(t => t.id === l1Id);
                             const l1Themes = l1Tag && l1Tag.themes ? l1Tag.themes : [];
                             const childTagIds = tags.filter(t => t.parentId === l1Id).map(t => t.id);
-                            const belongsToL1 = (theme.tags && theme.tags.includes(l1Id)) || l1Themes.includes(theme.value);
-                            const hasChildTag = theme.tags && theme.tags.some(tId => childTagIds.includes(tId));
+                            const belongsToL1 = (themeTags && themeTags.includes(l1Id)) || l1Themes.includes(theme.value);
+                            const hasChildTag = themeTags && themeTags.some(tId => childTagIds.includes(tId));
                             if (belongsToL1 && !hasChildTag) return true;
-                        } else if (theme.tags) {
+                        } else if (themeTags) {
                             const targetIds = getExpandedTagIds(tagId, tags);
-                            if (theme.tags.some(tId => targetIds.includes(tId))) return true;
+                            if (themeTags.some(tId => targetIds.includes(tId))) return true;
                         }
                     }
                     return false;
@@ -4090,6 +4103,17 @@
                         themesList.forEach(tn => {
                             if (!tagObj.themes.includes(tn)) tagObj.themes.push(tn);
                         });
+
+                        // 若为二级子标签，同步把美化追加至其归属的一级主分类 themes 中
+                        if (parentId) {
+                            const parentTagObj = tags.find(t => t.id === parentId);
+                            if (parentTagObj) {
+                                if (!parentTagObj.themes) parentTagObj.themes = [];
+                                themesList.forEach(tn => {
+                                    if (!parentTagObj.themes.includes(tn)) parentTagObj.themes.push(tn);
+                                });
+                            }
+                        }
 
                         saveThemeTags(tags);
                         return { success: true, isNew: isNew, tagId: tagObj.id };
