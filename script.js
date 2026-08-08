@@ -1130,9 +1130,9 @@
                 managerPanel.id = 'theme-manager-panel';
                 managerPanel.innerHTML = `
                     <div id="theme-manager-header">
-                        <h4>
-                            <i class="fa-solid fa-palette"></i> 主题美化管理
-                            <button id="tm-quick-manual-toggle-btn" class="menu_button" style="display:none; padding:2px 8px; font-size:11px; margin-left:8px; line-height:1.2; vertical-align:middle;" title="切换日夜美化模式"><i class="fa-solid fa-circle-half-stroke"></i> 切换日夜</button>
+                        <h4 style="display:flex; align-items:center; gap:6px;">
+                            <span><i class="fa-solid fa-palette"></i> 主题美化管理</span>
+                            <button id="tm-quick-manual-toggle-btn" class="menu_button" style="display:none; padding:2px 8px; font-size:11px; margin-left:4px; height:24px; min-height:24px; line-height:1;" title="手动快捷切换日夜主题"><i class="fa-solid fa-circle-half-stroke"></i> 切换日夜</button>
                         </h4>
                         <div id="native-buttons-container"></div>
                         <div id="theme-manager-toggle-icon" class="fa-solid fa-chevron-down"></div>
@@ -1151,6 +1151,28 @@
                             </div>
                         </div>
                         <div id="more-actions-container" class="theme-manager-actions collapsed" data-mode="shared">
+                            <div class="tm-button-row" style="margin-bottom: 5px; gap: 8px;">
+                                <select id="tm-list-mode-select" class="text_pole" title="列表显示模式" style="flex: 1; min-width: 0; padding: 2px 5px; height: 28px; font-size: 12px; margin: 0;">
+                                    <option value="scroll">上下滑动看全部</option>
+                                    <option value="page">分页显示模式</option>
+                                </select>
+                                <select id="tm-page-size-select" class="text_pole" title="每页条数" style="flex: 1; min-width: 0; padding: 2px 5px; height: 28px; font-size: 12px; margin: 0; display: none;">
+                                    <option value="30">每页 30 条</option>
+                                    <option value="50">每页 50 条</option>
+                                    <option value="100">每页 100 条</option>
+                                    <option value="200">每页 200 条</option>
+                                    <option value="500">每页 500 条</option>
+                                </select>
+                                <select id="tm-sort-select" class="text_pole" title="排序规则" style="flex: 1; min-width: 0; padding: 2px 5px; height: 28px; font-size: 12px; margin: 0;">
+                                    <option value="name-asc">名称 A-Z</option>
+                                    <option value="name-desc">名称 Z-A</option>
+                                    <option value="favorite-first">收藏优先</option>
+                                    <option value="time-desc">时间倒序</option>
+                                    <option value="time-asc">时间正序</option>
+                                    <option value="usage-desc">次数 多→少</option>
+                                    <option value="usage-asc">次数 少→多</option>
+                                </select>
+                            </div>
                             <div class="tm-button-row">
                                 <button id="batch-edit-btn" class="menu_button" title="进入/退出批量编辑模式"><i class="fa-solid fa-pen-to-square"></i> 编辑</button>
                                 <button id="batch-import-btn" class="menu_button" title="从文件批量导入主题"><i class="fa-solid fa-folder-open"></i> 导入</button>
@@ -1164,6 +1186,11 @@
                             <button id="batch-select-all-btn" class="menu_button" title="全选当前列表中的所有美化"><i class="fa-solid fa-square-check"></i> 全选</button>
                             <button id="batch-select-range-btn" class="menu_button" title="连选：选中首尾勾选项之间的全部美化"><i class="fa-solid fa-list-check"></i> 连选</button>
                             <button id="batch-invert-select-btn" class="menu_button" title="反选当前列表中的美化"><i class="fa-solid fa-arrow-rotate-left"></i> 反选</button>
+                            <button id="batch-add-tag-btn" class="menu_button"><i class="fa-solid fa-tags"></i> 加标签</button>
+                            <button id="batch-remove-tag-btn" class="menu_button"><i class="fa-solid fa-tag"></i> 删标签</button>
+                            <button id="batch-rename-btn" class="menu_button"><i class="fa-solid fa-i-cursor"></i> 重命名</button>
+                            <button id="batch-delete-btn" class="menu_button"><i class="fa-solid fa-trash-can"></i> 删选中</button>
+                        </div>
                         <div class="theme-tags-row" id="theme-tags-container"></div>
                         <div id="tm-pagination-bar-top" class="tm-pagination-bar" style="display:none; justify-content: center; align-items: center; gap: 8px; margin-top: 5px; margin-bottom: 5px; width: 100%;">
                             <button class="tm-first-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="回到最前"><i class="fa-solid fa-angles-left"></i></button>
@@ -1195,7 +1222,7 @@
                                         <input type="checkbox" id="auto-theme-enable" style="margin:0;"> 启用自动切换
                                     </label>
                                     <label style="display:flex; align-items:center; gap:8px; width:100%; white-space:nowrap; margin-top:6px;">
-                                        <input type="checkbox" id="auto-theme-enable-manual" style="margin:0;"> 启用手动切换 (标题旁增加快捷按键)
+                                        <input type="checkbox" id="auto-theme-enable-manual" style="margin:0;"> 启用手动切换
                                     </label>
                                     <hr>
                                     <div>
@@ -2817,11 +2844,28 @@
 
                 // ^^^^^^^^^^^^ 新增代码 ^^^^^^^^^^^^ -->
 
+                function updateManualToggleBtnVisibility() {
+                    const btn = managerPanel.querySelector('#tm-quick-manual-toggle-btn');
+                    if (btn) {
+                        btn.style.display = autoThemeSettings.enableManualToggle ? 'inline-flex' : 'none';
+                    }
+                }
+
                 header.addEventListener('click', (e) => {
                     if (e.target.closest('#native-buttons-container')) return;
                     if (e.target.closest('#tm-quick-manual-toggle-btn')) return;
                     setCollapsed(content.style.maxHeight !== '0px', true);
                 });
+
+                const quickManualToggleBtn = managerPanel.querySelector('#tm-quick-manual-toggle-btn');
+                if (quickManualToggleBtn) {
+                    quickManualToggleBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        executeManualThemeToggle();
+                    });
+                }
+
+                updateManualToggleBtnVisibility();
 
                 // 搜索输入防抖（移动端输入法频繁触发 input 事件）
                 let _searchDebounceTimer = null;
@@ -6245,6 +6289,66 @@
                 };
                 let autoThemeCheckInterval = null;
 
+                function executeManualThemeToggle() {
+                    const currentTheme = originalSelect.value;
+                    const pair = getPairForTheme(currentTheme);
+                    let target = null;
+                    let nextState = 'night';
+
+                    if (pair && (pair.dayTheme || pair.nightTheme)) {
+                        if (currentTheme === pair.dayTheme) {
+                            nextState = 'night';
+                            target = pair.nightTheme || pair.dayTheme;
+                        } else if (currentTheme === pair.nightTheme) {
+                            nextState = 'day';
+                            target = pair.dayTheme || pair.nightTheme;
+                        } else {
+                            nextState = (currentAutoThemeState === 'day') ? 'night' : 'day';
+                            target = nextState === 'night' ? (pair.nightTheme || pair.dayTheme) : (pair.dayTheme || pair.nightTheme);
+                        }
+                    } else {
+                        const globalDayTheme = getThemeForTarget(autoThemeSettings.dayTarget);
+                        const globalNightTheme = getThemeForTarget(autoThemeSettings.nightTarget);
+
+                        if (currentTheme === globalDayTheme) {
+                            nextState = 'night';
+                            target = autoThemeSettings.nightTarget;
+                        } else if (currentTheme === globalNightTheme) {
+                            nextState = 'day';
+                            target = autoThemeSettings.dayTarget;
+                        } else {
+                            nextState = (currentAutoThemeState === 'day') ? 'night' : 'day';
+                            target = nextState === 'day' ? autoThemeSettings.dayTarget : autoThemeSettings.nightTarget;
+                        }
+                    }
+
+                    if (!target) {
+                        toastr.warning('未配置对应的日/夜间主题或全局目标。', '快捷切换');
+                        return;
+                    }
+
+                    const themeToApply = getThemeForTarget(target);
+                    if (!themeToApply) {
+                        toastr.warning(`找不到目标主题: ${target}`, '快捷切换');
+                        return;
+                    }
+
+                    if (originalSelect.value !== themeToApply) {
+                        originalSelect.value = themeToApply;
+                        triggerSelectChange(originalSelect);
+                        toastr.success(`手动切换至 ${nextState === 'day' ? '日间' : '夜间'} 主题: <b>${escapeHtml(themeToApply)}</b>`, '快捷切换', { escapeHtml: false });
+                    } else {
+                        toastr.info(`当前已是 ${nextState === 'day' ? '日间' : '夜间'} 主题: <b>${escapeHtml(themeToApply)}</b>`, '快捷切换', { escapeHtml: false });
+                    }
+
+                    const boundBg = themeBackgroundBindings[themeToApply];
+                    if (boundBg) {
+                        applyBackgroundDirectly(boundBg);
+                    }
+
+                    currentAutoThemeState = nextState;
+                }
+
 
 
                 function getSystemThemeMode() {
@@ -6566,87 +6670,8 @@
                     }, 0);
                 }
 
-                function updateManualToggleBtnVisibility() {
-                    const btn = managerPanel.querySelector('#tm-quick-manual-toggle-btn');
-                    if (btn) {
-                        btn.style.display = autoThemeSettings.enableManualToggle ? 'inline-flex' : 'none';
-                    }
-                }
-
-                function executeManualThemeToggle() {
-                    const currentTheme = originalSelect.value;
-                    const pair = getPairForTheme(currentTheme);
-                    let target = null;
-                    let nextState = 'night';
-
-                    if (pair && (pair.dayTheme || pair.nightTheme)) {
-                        // 1. 若美化有独立的日夜组，按日夜组相互对调
-                        if (currentTheme === pair.dayTheme) {
-                            nextState = 'night';
-                            target = pair.nightTheme || pair.dayTheme;
-                        } else if (currentTheme === pair.nightTheme) {
-                            nextState = 'day';
-                            target = pair.dayTheme || pair.nightTheme;
-                        } else {
-                            nextState = (currentAutoThemeState === 'day') ? 'night' : 'day';
-                            target = nextState === 'night' ? (pair.nightTheme || pair.dayTheme) : (pair.dayTheme || pair.nightTheme);
-                        }
-                    } else {
-                        // 2. 若无独立日夜组，回退使用全局的日间/夜间设置
-                        const globalDayTheme = getThemeForTarget(autoThemeSettings.dayTarget);
-                        const globalNightTheme = getThemeForTarget(autoThemeSettings.nightTarget);
-
-                        if (currentTheme === globalDayTheme) {
-                            nextState = 'night';
-                            target = autoThemeSettings.nightTarget;
-                        } else if (currentTheme === globalNightTheme) {
-                            nextState = 'day';
-                            target = autoThemeSettings.dayTarget;
-                        } else {
-                            nextState = (currentAutoThemeState === 'day') ? 'night' : 'day';
-                            target = nextState === 'day' ? autoThemeSettings.dayTarget : autoThemeSettings.nightTarget;
-                        }
-                    }
-
-                    if (!target) {
-                        toastr.warning('无法切换：未配置对应的日/夜间主题或全局目标。', '手动切换');
-                        return;
-                    }
-
-                    const themeToApply = getThemeForTarget(target);
-                    if (!themeToApply) {
-                        toastr.warning(`找不到目标主题: ${target}`, '手动切换');
-                        return;
-                    }
-
-                    if (originalSelect.value !== themeToApply) {
-                        originalSelect.value = themeToApply;
-                        triggerSelectChange(originalSelect);
-                        toastr.success(`切换至 ${nextState === 'day' ? '日间' : '夜间'} 主题: <b>${escapeHtml(themeToApply)}</b>`, '快捷日夜切换', { escapeHtml: false });
-                    } else {
-                        toastr.info(`当前已是 ${nextState === 'day' ? '日间' : '夜间'} 主题: <b>${escapeHtml(themeToApply)}</b>`, '快捷日夜切换', { escapeHtml: false });
-                    }
-
-                    const boundBg = themeBackgroundBindings[themeToApply];
-                    if (boundBg) {
-                        applyBackgroundDirectly(boundBg);
-                    }
-
-                    currentAutoThemeState = nextState;
-                }
-
-                const quickManualBtn = managerPanel.querySelector('#tm-quick-manual-toggle-btn');
-                if (quickManualBtn) {
-                    quickManualBtn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        executeManualThemeToggle();
-                    });
-                }
-                updateManualToggleBtnVisibility();
-
                 autoThemeBtn.addEventListener('click', () => {
-                    managerPanel.querySelector('#auto-theme-enable').checked = !!autoThemeSettings.enabled;
+                    managerPanel.querySelector('#auto-theme-enable').checked = autoThemeSettings.enabled;
                     managerPanel.querySelector('#auto-theme-enable-manual').checked = !!autoThemeSettings.enableManualToggle;
                     managerPanel.querySelector(`input[name="auto-theme-mode"][value="${autoThemeSettings.mode}"]`).checked = true;
                     managerPanel.querySelector('#auto-theme-day-start').value = autoThemeSettings.dayStart;
