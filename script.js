@@ -416,52 +416,43 @@
                     console.log(`[Theme Manager Delete] ══════════════════════════════════════`);
                     return isDeletedOnDisk;
                 }
+                // 从 ST 内存里找到某主题的完整数据对象（包含颜色、CSS 等所有字段）
                 function findThemeObject(themeName) {
                     if (!themeName) return null;
-                    let obj = allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
-                    if (obj && (obj.main_text_color || obj.shadow || obj.custom_css || obj.blur_strength)) {
-                        return obj;
-                    }
+                    const raw = String(themeName).trim();
 
-                    if (Array.isArray(allThemeObjects) && allThemeObjects.length > 0) {
-                        const raw = String(themeName).trim();
-                        const unbracketed = raw.replace(/[\[\]【】（）()《》<>]/g, ' ').replace(/\s+/g, ' ').trim();
-                        const cleanOuter = raw.replace(/([\[【（(《<].*?[\]】）)》>])/g, '').trim();
+                    // 1. 先从本扩展的内存缓存里直接命中
+                    const fromMap = allThemeObjectsMap.get(raw);
+                    if (fromMap) return fromMap;
 
-                        const found = allThemeObjects.find(t => {
-                            if (!t) return false;
-                            const tn = String(t.name || t.value || '').trim();
-                            if (!tn) return false;
-                            return (
-                                tn === raw || tn === unbracketed || tn === cleanOuter ||
-                                tn.replace(/[\[\]【】（）()《》<>]/g, ' ').replace(/\s+/g, ' ').trim() === unbracketed
-                            );
-                        });
-                        if (found) return found;
-                    }
-
+                    // 2. 从 ST 全局 themes 数组里查找（这里存的是包含完整字段的对象）
                     if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
                         const ctx = SillyTavern.getContext();
                         const stThemes = ctx?.themes || ctx?.power_user?.themes;
                         if (Array.isArray(stThemes)) {
-                            const raw = String(themeName).trim();
-                            const unbracketed = raw.replace(/[\[\]【】（）()《》<>]/g, ' ').replace(/\s+/g, ' ').trim();
-                            const found = stThemes.find(t => t && (t.name === raw || t.name === unbracketed));
+                            const found = stThemes.find(t => t && t.name === raw);
                             if (found) return found;
                         }
+                    }
+
+                    // 3. 全局 power_user 对象
+                    if (typeof power_user !== 'undefined' && Array.isArray(power_user.themes)) {
+                        const found = power_user.themes.find(t => t && t.name === raw);
+                        if (found) return found;
                     }
 
                     return null;
                 }
 
+                // 直接把主题对象写盘（对象里必须包含 name 字段和完整样式字段）
                 async function saveTheme(themeObject) {
-                    if (!themeObject || typeof themeObject !== 'object') return;
-                    let finalObject = { ...themeObject };
-                    if (!finalObject.main_text_color && !finalObject.custom_css && typeof power_user !== 'undefined') {
-                        const defaultSnapshot = typeof getThemeObject === 'function' ? getThemeObject(finalObject.name) : {};
-                        finalObject = { ...defaultSnapshot, ...finalObject };
+                    if (!themeObject || !themeObject.name) {
+                        console.error('[Theme Manager] saveTheme: 传入的对象无效或缺少 name', themeObject);
+                        return;
                     }
-                    await apiRequest('themes/save', 'POST', finalObject);
+                    console.log(`[Theme Manager] saveTheme → 写入 "${themeObject.name}.json"`);
+                    await apiRequest('themes/save', 'POST', themeObject);
+                    console.log(`[Theme Manager] saveTheme ✅ 写入成功: "${themeObject.name}.json"`);
                 }
 
                 // === 移动端/跨端通用确认弹窗助手 ===
@@ -2303,20 +2294,24 @@
                         }
 
                         if (renameTasks.length > 0) {
-                            const results = await limitConcurrency(10, renameTasks, async ({ oldName, newName, themeObject }) => {
-                                const baseObj = allThemeObjectsMap.get(oldName) || themeObject || { name: oldName };
-                                const newThemeObject = { ...baseObj, name: newName };
+                            const results = await limitConcurrency(10, renameTasks, async ({ oldName, newName }) => {
+                                // 从 ST 内存读取完整主题数据
+                                const fullThemeObj = findThemeObject(oldName);
+                                if (!fullThemeObj) {
+                                    throw new Error(`无法从 ST 内存读取主题 "${oldName}" 的完整数据`);
+                                }
+                                const objectToSave = { ...fullThemeObj, name: newName };
 
-                                // 1. 保存新主题文件（保存失败则直接抛错中断，不执行旧文件删除）
-                                await saveTheme(newThemeObject);
+                                // 1. 写入新文件
+                                await saveTheme(objectToSave);
 
-                                // 2. 擦除旧主题物理文件
+                                // 2. 擦除旧文件
                                 try {
-                                    await deleteTheme(oldName, baseObj);
+                                    await deleteTheme(oldName, fullThemeObj);
                                 } catch (delErr) {
                                     console.warn(`[Theme Manager] 删除原主题 "${oldName}" 提示:`, delErr);
                                 }
-                                return { oldName, newName, newThemeObject };
+                                return { oldName, newName, newThemeObject: objectToSave };
                             });
 
                             // 批量更新原生 DOM、内存与插件状态
@@ -4673,14 +4668,33 @@
                                 toastr.success(`已将「${oldName}」重命名为「${finalNewName}」`);
                                 updateActiveState();
 
-                                // 后台异步写盘与异步删除旧文件
+                                // 后台异步：先从 ST 内存读原主题完整数据，写新文件，成功后删旧文件
                                 (async () => {
+                                    console.log(`[Theme Manager Rename] ══════════════════`);
+                                    console.log(`[Theme Manager Rename] "${oldName}" → "${finalNewName}"`);
                                     try {
-                                        await saveTheme(newThemeObject);
-                                        await deleteTheme(oldName, themeObject);
+                                        // Step 1: 从 ST 内存获取完整主题数据
+                                        const fullThemeObj = findThemeObject(oldName);
+                                        if (!fullThemeObj) {
+                                            console.error(`[Theme Manager Rename] ❌ 无法从 ST 内存找到主题 "${oldName}" 的完整数据，重命名中止！`);
+                                            toastr.error(`重命名失败：无法读取主题 "${oldName}" 的数据`);
+                                            return;
+                                        }
+                                        console.log(`[Theme Manager Rename] Step 1 ✅ 读取到完整数据 (字段数: ${Object.keys(fullThemeObj).length})`);
+
+                                        // Step 2: 用新名字写入新文件
+                                        const objectToSave = { ...fullThemeObj, name: finalNewName };
+                                        await saveTheme(objectToSave);
+                                        console.log(`[Theme Manager Rename] Step 2 ✅ 新文件写入成功: "${finalNewName}.json"`);
+
+                                        // Step 3: 删除旧文件（用原始完整对象辅助定位磁盘文件名）
+                                        await deleteTheme(oldName, fullThemeObj);
+                                        console.log(`[Theme Manager Rename] Step 3 ✅ 旧文件已清除: "${oldName}"`);
                                     } catch (e) {
-                                        console.warn(`[Theme Manager] 静默重命名物理文件:`, e);
+                                        console.error(`[Theme Manager Rename] ❌ 重命名磁盘操作失败:`, e);
+                                        toastr.error(`重命名磁盘操作失败: ${e.message || e}`);
                                     }
+                                    console.log(`[Theme Manager Rename] ══════════════════`);
                                 })();
                             }
                         }
