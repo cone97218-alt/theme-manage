@@ -4033,19 +4033,19 @@
                 }
 
                 // === 超强分词与停止词过滤 (解决 700+ 超量美化在移动端卡顿) ===
-                // === 智能扩展停止词表与噪音过滤 (彻底过滤非标签性技术后缀/通用废字) ===
+                // === 超强分词与停止词过滤 (解决 700+ 超量美化在移动端卡顿) ===
                 const AUTO_GROUP_STOPWORDS = new Set([
                     'json', 'theme', 'themes', 'preset', 'presets', 'copy', 'new', 'fixed', 'final',
-                    '360px', '1080p', '720p', '4k', 'hd', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8', 'v9', 'v10',
-                    'mode', 'ui', 'dark', 'light', 'st', 'sillytavern', 'main', 'master', 'card', 'style', 'test', 'demo',
-                    'zip', 'rar', '7z', 'css', 'js', 'html', 'build', 'dist', 'min', 'patch', 'update', 'release', 'ver', 'version', 'default',
-                    '美化', '主题', '预设', '整合', '重置', '修改', '修复', '最终', '完整', '通用', '版本', '备份', '副本', '默认', '新建', '配置', '优化', '极简', '样式', '测试', '无名'
+                    '360px', '1080p', '720p', 'v1', 'v2', 'v3', 'v4', 'v5', 'mode', 'ui', 'dark', 'light',
+                    'st', 'sillytavern', 'main', 'card', 'style', 'test', 'demo',
+                    '美化', '主题', '预设', '整合', '重置', '修改', '修复', '最终', '完整', '通用', '版本', '备份', '副本'
                 ]);
 
                 function extractCandidateThemeGroups(themePool, minMatch = 2, targetLevel = 'l1', parentId = null) {
                     const list = themePool || allParsedThemes || [];
-                    const candidateMap = new Map(); // kw -> { themes: Set, scoreBonus: number }
+                    const candidateMap = new Map(); // kw -> Set(themeName)
 
+                    // 0. 收集同级已存在的标签名，若已存在同名标签则自动跳过
                     const existingTags = loadThemeTags();
                     const existingTagNamesAtLevel = new Set(
                         existingTags
@@ -4053,112 +4053,76 @@
                             .map(t => t.name.trim().toLowerCase())
                     );
 
-                    if (parentId) {
-                        const parentTagObj = existingTags.find(t => t.id === parentId);
-                        if (parentTagObj) {
-                            existingTagNamesAtLevel.add(parentTagObj.name.trim().toLowerCase());
-                        }
-                    }
-
-                    const addCandidate = (kw, themeValue, bonusScore = 0) => {
-                        if (!kw) return;
-                        const cleanKw = kw.trim();
-                        if (cleanKw.length < 2 || cleanKw.length > 25) return;
-                        const kwLower = cleanKw.toLowerCase();
-
-                        // 纯数字或停用词/已存在标签过滤
-                        if (/^\d+$/.test(cleanKw)) return;
-                        if (AUTO_GROUP_STOPWORDS.has(kwLower)) return;
-                        if (existingTagNamesAtLevel.has(kwLower)) return;
-
-                        // 英文字符长度过滤：英文单词单独存在时至少 3 字符
-                        if (/^[a-zA-Z0-9_\-\s]+$/.test(cleanKw) && cleanKw.length < 3) return;
-
-                        if (!candidateMap.has(cleanKw)) {
-                            candidateMap.set(cleanKw, { themes: new Set(), scoreBonus: bonusScore });
-                        }
-                        const record = candidateMap.get(cleanKw);
-                        record.themes.add(themeValue);
-                        if (bonusScore > record.scoreBonus) record.scoreBonus = bonusScore;
-                    };
-
+                    // 1. 匹配各类括号里面的独立标记词（如 【黑金】 [Cyberpunk] (v2) 《动漫》 <Lite>）
                     list.forEach(t => {
                         const name = t.display || t.value;
                         if (!name) return;
 
-                        // A. 规则 1: 括号显式标签提取 (+10 Bonus Score)
-                        const bRegex = /[\[【（(《<](.+?)[\]】）)》>]/g;
+                        // A. 括号内标签提取
                         let match;
+                        const bRegex = /[\[【（(《<](.+?)[\]】）)》>]/g;
                         while ((match = bRegex.exec(name)) !== null) {
                             const kw = match[1].trim();
-                            addCandidate(kw, t.value, 10);
+                            const kwLower = kw.toLowerCase();
+                            if (kw.length >= 1 && kw.length <= 20 && !AUTO_GROUP_STOPWORDS.has(kwLower) && !existingTagNamesAtLevel.has(kwLower)) {
+                                if (!candidateMap.has(kw)) candidateMap.set(kw, new Set());
+                                candidateMap.get(kw).add(t.value);
+                            }
                         }
 
-                        // B. 规则 2: 前缀分隔符提取 (+8 Bonus Score)
-                        const cleanName = name.replace(/[\[\]【】（）()《》<>]/g, ' ').trim();
-                        const prefixMatch = cleanName.match(/^([^\s_\-\+\/\\:：|]+)[\s_\-\+\/\\:：|]/);
-                        if (prefixMatch && prefixMatch[1]) {
-                            const prefixKw = prefixMatch[1].trim();
-                            addCandidate(prefixKw, t.value, 8);
-                        }
+                        // B. 常用分词提取 (按空格、下划线、加号等分隔)
+                        const cleanName = name.replace(/[\[\]【】（）()《》<>]/g, ' ');
+                        const tokens = cleanName.split(/[\s_\-\+\/\\]+/).map(s => s.trim()).filter(Boolean);
 
-                        // C. 规则 3: 连续分词 N-Gram 提取
-                        const tokens = cleanName.split(/[\s_\-\+\/\\:：|]+/).map(s => s.trim()).filter(Boolean);
                         tokens.forEach(token => {
-                            addCandidate(token, t.value, 2);
+                            const tokenLower = token.toLowerCase();
+                            if (token.length >= 2 && token.length <= 15) {
+                                if (!/^\d+$/.test(token) && !AUTO_GROUP_STOPWORDS.has(tokenLower) && !existingTagNamesAtLevel.has(tokenLower)) {
+                                    if (!candidateMap.has(token)) candidateMap.set(token, new Set());
+                                    candidateMap.get(token).add(t.value);
+                                }
+                            }
                         });
-
-                        // 2-word N-Gram 组合 (如 "Dark Mode")
-                        for (let i = 0; i < tokens.length - 1; i++) {
-                            const bigram = `${tokens[i]} ${tokens[i+1]}`;
-                            addCandidate(bigram, t.value, 5);
-                        }
                     });
 
-                    // 转换为可筛选与评估得分的候选对象数组
-                    const rawCandidates = [];
-                    candidateMap.forEach((rec, kw) => {
-                        if (rec.themes.size >= minMatch) {
-                            const score = (rec.themes.size * 3) + rec.scoreBonus + (kw.length > 3 ? 2 : 0);
-                            rawCandidates.push({
+                    // 2. 转换为数组并按门槛筛选
+                    const result = [];
+                    candidateMap.forEach((themesSet, kw) => {
+                        if (themesSet.size >= minMatch) {
+                            result.push({
                                 keyword: kw,
-                                themes: Array.from(rec.themes),
-                                score: score
+                                themes: Array.from(themesSet)
                             });
                         }
                     });
 
-                    // 排序与精准智能求精 (Word-boundary Subsumption)
-                    rawCandidates.sort((a, b) => b.score - a.score || b.keyword.length - a.keyword.length);
-
+                    // 3. 最大公约词归并提取 (Longest Common Prefix Subsumption)
+                    // 按照关键词字符串长度升序排序（短词优先）
+                    result.sort((a, b) => a.keyword.length - b.keyword.length);
                     const prunedCandidates = [];
-                    for (const item of rawCandidates) {
+
+                    for (const item of result) {
                         const kwLower = item.keyword.toLowerCase();
-
-                        const isRedundant = prunedCandidates.some(parent => {
+                        // 检测当前关键词是否为已有较短候选词的衍生词（例如 "12345" 包含了短词 "1234"）
+                        const isSubsumed = prunedCandidates.some(parent => {
                             const parentKwLower = parent.keyword.toLowerCase();
-                            const isExactSub = parentKwLower === kwLower ||
-                                parentKwLower.startsWith(kwLower + ' ') || parentKwLower.endsWith(' ' + kwLower) ||
-                                kwLower.startsWith(parentKwLower + ' ') || kwLower.endsWith(' ' + parentKwLower);
-
-                            if (isExactSub) {
+                            if (kwLower.includes(parentKwLower)) {
                                 const parentSet = new Set(parent.themes);
                                 const overlapCount = item.themes.filter(tName => parentSet.has(tName)).length;
-                                if (overlapCount / item.themes.length >= 0.8) {
+                                // 若当前词 75% 以上的美化已被短词包含，则直接取最大公约词，剔除衍生冗余长词
+                                if (overlapCount / item.themes.length >= 0.75) {
                                     return true;
                                 }
                             }
                             return false;
                         });
 
-                        if (!isRedundant) {
-                            prunedCandidates.push({
-                                keyword: item.keyword,
-                                themes: item.themes
-                            });
+                        if (!isSubsumed) {
+                            prunedCandidates.push(item);
                         }
                     }
 
+                    // 按包含的美化数量降序排列，截取前 80 个最热门候选
                     prunedCandidates.sort((a, b) => b.themes.length - a.themes.length);
                     return prunedCandidates.slice(0, 80);
                 }
@@ -4915,11 +4879,12 @@
                         </div>
                         <div id="tm-batch-delete-bar" style="display:none; background:rgba(220,53,69,0.12); padding:8px 12px; border-radius:6px; margin-bottom:10px; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; border:1px solid rgba(220,53,69,0.25); writing-mode:horizontal-tb !important;">
                             <span style="font-size:12px; font-weight:bold; color:#ff8888; white-space:nowrap;">
-                                <i class="fa-solid fa-list-check" style="margin-right:4px;"></i> 已勾选 <b id="tm-batch-tag-count">0</b> / <span id="tm-batch-tag-total">0</span> 个标签 <small style="opacity:0.75; font-weight:normal; margin-left:6px;">(支持 Shift 键连选)</small>
+                                <i class="fa-solid fa-list-check" style="margin-right:4px;"></i> 已勾选 <b id="tm-batch-tag-count">0</b> / <span id="tm-batch-tag-total">0</span> 个标签
                             </span>
                             <div style="display:flex; gap:6px; flex-wrap:wrap;">
                                 <button id="tm-batch-tag-select-all" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;"><i class="fa-solid fa-check-double"></i> 全选</button>
                                 <button id="tm-batch-tag-invert-select" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;"><i class="fa-solid fa-arrows-rotate"></i> 反选</button>
+                                <button id="tm-batch-tag-range-select" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;" title="移动端/点触连选：依次点击【起点】和【终点】标签"><i class="fa-solid fa-arrows-left-right-to-line"></i> 范围连选</button>
                                 <button id="tm-confirm-batch-delete" class="menu_button" style="margin:0; font-size:11px; padding:2px 10px; background:rgba(220,53,69,0.3) !important; color:#ff8888 !important; white-space:nowrap;" disabled><i class="fa-solid fa-trash"></i> 确认删除选中</button>
                                 <button id="tm-cancel-batch-delete" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;">退出批量</button>
                             </div>
@@ -5047,6 +5012,8 @@
                             };
 
                             let lastCheckedIdx = -1;
+                            let isMobileRangeActive = false;
+                            let mobileRangeStartIdx = -1;
 
                             const updateBatchCount = () => {
                                 const countEl = dlg.querySelector('#tm-batch-tag-count');
@@ -5060,6 +5027,73 @@
                                 }
                             };
 
+                            const handleTagCheckClick = (chk, idx, e) => {
+                                const id = chk.dataset.id;
+                                const isChecked = chk.checked;
+                                const allChks = Array.from(dlg.querySelectorAll('.tm-batch-tag-chk'));
+                                const batchRangeBtn = dlg.querySelector('#tm-batch-tag-range-select');
+
+                                // 1. 移动端/触摸屏“起点 ➔ 终点”范围连选模式
+                                if (isMobileRangeActive) {
+                                    if (mobileRangeStartIdx === -1) {
+                                        mobileRangeStartIdx = idx;
+                                        const startTag = tags.find(t => t.id === id);
+                                        toastr.info(`📍 起点已锁定：「${startTag ? startTag.name : '未知'}」，请点选【终点标签】`);
+                                        chk.checked = true;
+                                        selectedTagIds.add(id);
+                                    } else {
+                                        const start = Math.min(mobileRangeStartIdx, idx);
+                                        const end = Math.max(mobileRangeStartIdx, idx);
+                                        let selectCount = 0;
+                                        for (let i = start; i <= end; i++) {
+                                            const targetChk = allChks[i];
+                                            if (targetChk) {
+                                                targetChk.checked = true;
+                                                selectedTagIds.add(targetChk.dataset.id);
+                                                selectCount++;
+                                            }
+                                        }
+                                        toastr.success(`🎉 范围连选完成！已自动勾选 ${selectCount} 个标签！`);
+                                        isMobileRangeActive = false;
+                                        mobileRangeStartIdx = -1;
+                                        if (batchRangeBtn) {
+                                            batchRangeBtn.style.background = '';
+                                            batchRangeBtn.style.color = '';
+                                        }
+                                    }
+                                    updateBatchCount();
+                                    return;
+                                }
+
+                                // 2. 桌面端 Shift 键连选模式
+                                if (e && e.shiftKey && lastCheckedIdx !== -1) {
+                                    const start = Math.min(lastCheckedIdx, idx);
+                                    const end = Math.max(lastCheckedIdx, idx);
+
+                                    for (let i = start; i <= end; i++) {
+                                        const targetChk = allChks[i];
+                                        if (targetChk) {
+                                            targetChk.checked = isChecked;
+                                            const tid = targetChk.dataset.id;
+                                            if (isChecked) {
+                                                selectedTagIds.add(tid);
+                                            } else {
+                                                selectedTagIds.delete(tid);
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    if (isChecked) {
+                                        selectedTagIds.add(id);
+                                    } else {
+                                        selectedTagIds.delete(id);
+                                    }
+                                }
+
+                                lastCheckedIdx = idx;
+                                updateBatchCount();
+                            };
+
                             const BindEvents = () => {
                                 // 批量勾选与 Shift 连选逻辑
                                 const allChks = Array.from(dlg.querySelectorAll('.tm-batch-tag-chk'));
@@ -5067,37 +5101,26 @@
                                     chk.setAttribute('data-order-idx', idx);
 
                                     chk.addEventListener('click', (e) => {
-                                        const id = chk.dataset.id;
-                                        const isChecked = chk.checked;
-
-                                        if (e.shiftKey && lastCheckedIdx !== -1) {
-                                            const start = Math.min(lastCheckedIdx, idx);
-                                            const end = Math.max(lastCheckedIdx, idx);
-
-                                            for (let i = start; i <= end; i++) {
-                                                const targetChk = allChks[i];
-                                                if (targetChk) {
-                                                    targetChk.checked = isChecked;
-                                                    const tid = targetChk.dataset.id;
-                                                    if (isChecked) {
-                                                        selectedTagIds.add(tid);
-                                                    } else {
-                                                        selectedTagIds.delete(tid);
-                                                    }
-                                                }
-                                            }
-                                        } else {
-                                            if (isChecked) {
-                                                selectedTagIds.add(id);
-                                            } else {
-                                                selectedTagIds.delete(id);
-                                            }
-                                        }
-
-                                        lastCheckedIdx = idx;
-                                        updateBatchCount();
+                                        e.stopPropagation();
+                                        handleTagCheckClick(chk, idx, e);
                                     });
                                 });
+
+                                // 移动端整行大区域触控勾选辅助
+                                if (isBatchDeleteMode) {
+                                    dlg.querySelectorAll('.tm-flat-tag-item, .tm-level1-header, .tm-level2-item').forEach(row => {
+                                        row.style.cursor = 'pointer';
+                                        row.addEventListener('click', (e) => {
+                                            if (e.target.closest('.tm-btn-icon-only') || e.target.classList.contains('tm-batch-tag-chk')) return;
+                                            const chk = row.querySelector('.tm-batch-tag-chk');
+                                            if (chk) {
+                                                const idx = parseInt(chk.getAttribute('data-order-idx'));
+                                                chk.checked = !chk.checked;
+                                                handleTagCheckClick(chk, idx, e);
+                                            }
+                                        });
+                                    });
+                                }
                                 // 删除
                                 dlg.querySelectorAll('.delete-tag-inline').forEach(btn => {
                                     btn.addEventListener('click', (e) => {
@@ -5409,6 +5432,23 @@
                                     });
                                     renderList();
                                     updateBatchCount();
+                                });
+                            }
+
+                            const batchRangeBtn = dlg.querySelector('#tm-batch-tag-range-select');
+                            if (batchRangeBtn) {
+                                batchRangeBtn.addEventListener('click', () => {
+                                    isMobileRangeActive = !isMobileRangeActive;
+                                    mobileRangeStartIdx = -1;
+                                    if (isMobileRangeActive) {
+                                        batchRangeBtn.style.background = 'var(--SmartThemeQuoteColor, #007bff)';
+                                        batchRangeBtn.style.color = '#ffffff';
+                                        toastr.info('👉 范围连选模式已开启：请在列表中依次点选【起点标签】和【终点标签】');
+                                    } else {
+                                        batchRangeBtn.style.background = '';
+                                        batchRangeBtn.style.color = '';
+                                        toastr.info('已退出范围连选模式');
+                                    }
                                 });
                             }
 
