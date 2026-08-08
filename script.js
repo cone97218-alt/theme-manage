@@ -1419,17 +1419,33 @@
                     deduplicateSelectOptions(originalSelect);
                     const scrollTop = contentWrapper.scrollTop;
 
-                    // 如果主题列表未发生变化，直接更新 active 状态即可，避免重建 DOM
-                    if (allParsedThemes.length > 0 && isThemeListIdentical() && themeItemMap.size > 0) {
-                        updateActiveState();
-                        return;
-                    }
-
                     contentWrapper.innerHTML = '正在加载主题...';
                     try {
                         allThemeObjects = await getCachedThemes();
                         allThemeObjectsMap.clear();
-                        allThemeObjects.forEach(t => allThemeObjectsMap.set(t.name, t));
+                        allThemeObjects.forEach(t => {
+                            const name = t.name || t.value;
+                            if (name) allThemeObjectsMap.set(name, t);
+                        });
+
+                        // 🧹 严格以服务端 API 返回的真实磁盘文件列表为准，清理原生下拉框中已从磁盘删除的死选项节点
+                        const serverThemeNames = new Set(Array.from(allThemeObjectsMap.keys()));
+                        if (originalSelect && originalSelect.options) {
+                            Array.from(originalSelect.options).forEach(opt => {
+                                if (opt.value && !serverThemeNames.has(opt.value)) {
+                                    console.log(`[Theme Manager] 🧹 清理原生下拉框中的死选项: "${opt.value}"`);
+                                    opt.remove();
+                                }
+                            });
+                        }
+
+                        // 如果主题列表未发生变化，直接更新 active 状态即可，避免重建 DOM
+                        if (allParsedThemes.length > 0 && isThemeListIdentical() && themeItemMap.size > 0) {
+                            contentWrapper.innerHTML = '';
+                            updateActiveState();
+                            return;
+                        }
+
                         contentWrapper.innerHTML = '';
 
                         // 缓存标签数据，避免在循环中反复 JSON.parse
@@ -1437,13 +1453,12 @@
                         // 构建反向索引，将 getTagsForTheme 从 O(tags*themes) 降为 O(1)
                         buildThemeTagIndex(cachedTags);
 
-                        allParsedThemes = Array.from(originalSelect.options).map(option => {
-                            const themeName = option.value;
+                        // 仅以服务器真实存在的主题数据对象构建 UI 列表，彻底隔离已被物理删除的残留项
+                        allParsedThemes = allThemeObjects.map(t => {
+                            const themeName = t.name || t.value;
                             if (!themeName) return null;
                             const tagIds = getTagsForTheme(themeName, cachedTags);
-                            const themeObj = allThemeObjectsMap.get(themeName);
-                            const mtime = themeObj ? themeObj.mtime : 0;
-                            return { value: themeName, display: themeName, tags: tagIds, mtime: mtime || 0 };
+                            return { value: themeName, display: themeName, tags: tagIds, mtime: t.mtime || 0 };
                         }).filter(Boolean);
 
                         // 刷新 Map 索引
