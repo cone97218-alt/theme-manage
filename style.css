@@ -56,11 +56,18 @@
     color: inherit;
 }
 
+/* 防止拓展面板撑大酒馆设置第一列，破坏三列等宽布局 */
+#UI-Theme-Block {
+    min-width: 0 !important;
+    overflow: hidden !important;
+}
+
 #theme-manager-panel {
     border-radius: 8px;
     width: 100%;
     box-sizing: border-box;
     min-width: 0 !important;
+    overflow: hidden;
 }
 
 #theme-manager-header {
