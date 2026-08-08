@@ -1070,11 +1070,32 @@
                     scheduleAsyncProtection();
                 }
 
+                // 校验并净化二级子标签的主题关联：二级标签包含的主题必须严格属于其父级一级标签
+                function sanitizeSubtagThemeAssociations(tags) {
+                    if (!Array.isArray(tags)) return tags;
+                    const tagMap = new Map(tags.map(t => [t.id, t]));
+                    tags.forEach(t => {
+                        if (t.parentId) {
+                            const parent = tagMap.get(t.parentId);
+                            if (parent && Array.isArray(parent.themes)) {
+                                const parentThemes = new Set(parent.themes);
+                                if (Array.isArray(t.themes)) {
+                                    t.themes = t.themes.filter(themeName => parentThemes.has(themeName));
+                                }
+                            } else {
+                                t.themes = [];
+                            }
+                        }
+                    });
+                    return tags;
+                }
+
                 // 标签数据缓存（避免每次调用都 JSON.parse）
                 let _tagsCache = null;
                 function loadThemeTags() {
                     if (_tagsCache) return _tagsCache;
                     _tagsCache = JSON.parse(localStorage.getItem(THEME_TAGS_KEY)) || [];
+                    sanitizeSubtagThemeAssociations(_tagsCache);
                     return _tagsCache;
                 }
                 function refreshAllParsedThemesTags() {
@@ -1087,6 +1108,7 @@
                     }
                 }
                 function saveThemeTags(tags) {
+                    sanitizeSubtagThemeAssociations(tags);
                     _tagsCache = tags; // 更新缓存
                     localStorage.setItem(THEME_TAGS_KEY, JSON.stringify(tags));
                     invalidateThemeTagIndex(); // 标签数据变了，反向索引也要失效
@@ -3979,10 +4001,19 @@
                         : allParsedThemes.map(t => t.value);
                     let changed = false;
 
-                    for (const themeName of themesToCheck) {
-                        const nameLC = themeName.toLowerCase();
-                        for (const tag of tags) {
-                            if (!tag.keywords || tag.keywords.length === 0) continue;
+                    for (const tag of tags) {
+                        if (!tag.keywords || tag.keywords.length === 0) continue;
+
+                        // 如果是二级子标签，只能在其归属的一级父级标签拥有的主题中进行关键词检索！
+                        let candidateThemes = themesToCheck;
+                        if (tag.parentId) {
+                            const parentTag = tags.find(p => p.id === tag.parentId);
+                            const parentThemes = parentTag && Array.isArray(parentTag.themes) ? parentTag.themes : [];
+                            candidateThemes = themesToCheck.filter(th => parentThemes.includes(th));
+                        }
+
+                        for (const themeName of candidateThemes) {
+                            const nameLC = themeName.toLowerCase();
                             const matches = tag.keywords.some(kw => kw && nameLC.includes(kw.toLowerCase()));
                             if (matches) {
                                 if (!tag.themes) tag.themes = [];
