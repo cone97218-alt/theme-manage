@@ -4421,7 +4421,7 @@
                                 BindEvents();
                             };
 
-                            const BindEvents = () => {
+                            function BindEvents() {
                                 // 删除
                                 dlg.querySelectorAll('.delete-tag-inline').forEach(btn => {
                                     btn.addEventListener('click', (e) => {
