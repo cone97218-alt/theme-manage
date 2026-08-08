@@ -311,7 +311,7 @@
                 }
 
                 async function getAllThemesFromAPI() { return (await apiRequest('settings/get', 'POST', {})).themes || []; }
-                async function deleteTheme(themeName) {
+                async function deleteTheme(themeName, themeObjParam = null) {
                     if (!themeName) return;
 
                     const cleanName = themeName.replace(/\[.*?\]/g, '').trim();
@@ -322,7 +322,7 @@
                         cleanName.replace(/\.json$/i, '')
                     ]);
 
-                    const themeObj = allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
+                    const themeObj = themeObjParam || allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
                     if (themeObj) {
                         if (themeObj.name) {
                             candidateSet.add(themeObj.name);
@@ -4525,7 +4525,7 @@
                                 (async () => {
                                     try {
                                         await saveTheme(newThemeObject);
-                                        await deleteTheme(oldName, true);
+                                        await deleteTheme(oldName, themeObject);
                                     } catch (e) {
                                         console.warn(`[Theme Manager] 静默重命名物理文件:`, e);
                                     }
@@ -4536,6 +4536,10 @@
                             if (confirm(`确定要删除主题 "${themeItem.querySelector('.theme-item-name-text').textContent}" 吗？`)) {
                                 try {
                                     const isCurrentlyActive = originalSelect.value === themeName;
+                                    const targetThemeObj = allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
+
+                                    // 先发起物理磁盘擦除（保留完整 [分类前缀] 候选文件名）
+                                    const deleteTask = deleteTheme(themeName, targetThemeObj);
 
                                     // 0ms 乐观 UI 删除：立刻从视口移除 DOM 节点并清除数据及关系映射
                                     manualUpdateOriginalSelect('delete', themeName);
@@ -4602,8 +4606,7 @@
                                     updateActiveState();
                                     toastr.success(`主题 "${themeName}" 已成功删除！`);
 
-                                    // 后台静默并发擦除物理磁盘文件
-                                    deleteTheme(themeName).catch(err => console.error('[Theme Manager Delete Async Error]:', err));
+                                    deleteTask.catch(err => console.error('[Theme Manager Delete Async Error]:', err));
                                 } catch (err) {
                                     console.error('[Theme Manager Delete Error]:', err);
                                     toastr.error('删除美化时发生异常，请查看控制台。');
