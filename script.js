@@ -3693,7 +3693,14 @@
                     return changed;
                 }
 
-                // === 分组提取算法 (带 700+ 超大数量级异步切分与性能优化) ===
+                // === 超强分词与停止词过滤 (解决 700+ 超量美化在移动端卡顿) ===
+                const AUTO_GROUP_STOPWORDS = new Set([
+                    'json', 'theme', 'themes', 'preset', 'presets', 'copy', 'new', 'fixed', 'final',
+                    '360px', '1080p', '720p', 'v1', 'v2', 'v3', 'v4', 'v5', 'mode', 'ui', 'dark', 'light',
+                    'st', 'sillytavern', 'main', 'card', 'style', 'test', 'demo',
+                    '美化', '主题', '预设', '整合', '重置', '修改', '修复', '最终', '完整', '通用', '版本', '备份', '副本'
+                ]);
+
                 function extractCandidateThemeGroups(themePool, minMatch = 2) {
                     const list = themePool || allParsedThemes || [];
                     const candidateMap = new Map(); // kw -> Set(themeName)
@@ -3710,7 +3717,8 @@
                         bracketRegex.lastIndex = 0;
                         while ((match = bracketRegex.exec(name)) !== null) {
                             const kw = match[1].trim();
-                            if (kw.length >= 1 && kw.length <= 20) {
+                            const kwLower = kw.toLowerCase();
+                            if (kw.length >= 1 && kw.length <= 20 && !AUTO_GROUP_STOPWORDS.has(kwLower)) {
                                 if (!candidateMap.has(kw)) candidateMap.set(kw, new Set());
                                 candidateMap.get(kw).add(t.value);
                             }
@@ -3721,8 +3729,9 @@
                         const tokens = cleanName.split(/[\s_\-\+\/\\]+/).map(s => s.trim()).filter(Boolean);
 
                         tokens.forEach(token => {
+                            const tokenLower = token.toLowerCase();
                             if (token.length >= 2 && token.length <= 15) {
-                                if (!/^\d+$/.test(token) && !/^(json|v\d+|theme|preset|copy|new|fixed|final|360px|1080p)$/i.test(token)) {
+                                if (!/^\d+$/.test(token) && !AUTO_GROUP_STOPWORDS.has(tokenLower)) {
                                     if (!candidateMap.has(token)) candidateMap.set(token, new Set());
                                     candidateMap.get(token).add(t.value);
                                 }
@@ -3741,9 +3750,9 @@
                         }
                     });
 
-                    // 按包含的美化数量降序排列，最多截取前 120 个最热门候选
+                    // 按包含的美化数量降序排列，截取前 80 个最热门候选
                     result.sort((a, b) => b.themes.length - a.themes.length);
-                    return result.slice(0, 120);
+                    return result.slice(0, 80);
                 }
 
                 // === 分组向导 Step 1: 设置基数范围、目标层级与门槛 ===
@@ -3869,7 +3878,7 @@
 
                                     popup.close();
 
-                                    // 显示加载器并使用 setTimeout 挂起计算，防止 700+ 美化在移动端卡死
+                                    // 显示加载器，等待 250ms 让上一个弹窗从 DOM 完结动画中销毁，避免死锁
                                     showLoader();
                                     setTimeout(() => {
                                         try {
@@ -3910,7 +3919,7 @@
                                             console.error('分组提取失败:', err);
                                             toastr.error('分组提取发生异常: ' + (err.message || err));
                                         }
-                                    }, 80);
+                                    }, 250);
                                 });
                             }
                         }
@@ -3928,6 +3937,9 @@
 
                     const candidate = candidates[currentIndex];
                     const targetLevelLabel = level === 'l2' ? '二级子标签' : '一级主标签';
+                    const MAX_INITIAL_THEMES = 25; // 限制单张卡片初始渲染的最大 DOM 节点数，防止移动端卡死
+                    const initialThemes = candidate.themes.slice(0, MAX_INITIAL_THEMES);
+                    const remainingThemes = candidate.themes.slice(MAX_INITIAL_THEMES);
 
                     const wizardHtml = `
                         <div style="padding:4px;">
@@ -3948,13 +3960,16 @@
                                     <span style="font-size:12px; font-weight:normal; opacity:0.8;">匹配 <b>${candidate.themes.length}</b> 个美化</span>
                                 </div>
                                 <div style="font-size:11px; opacity:0.7; margin-bottom:6px;">勾选下方需要纳入此标签的美化主题（美化可同时拥有多个标签）：</div>
-                                <div style="max-height:170px; overflow-y:auto; background:rgba(0,0,0,0.15); padding:6px; border-radius:4px; display:flex; flex-direction:column; gap:4px;">
-                                    ${candidate.themes.map(tName => `
+                                <div id="wizard-themes-container" style="max-height:170px; overflow-y:auto; background:rgba(0,0,0,0.15); padding:6px; border-radius:4px; display:flex; flex-direction:column; gap:4px;">
+                                    ${initialThemes.map(tName => `
                                         <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 6px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none;">
                                             <input type="checkbox" class="wizard-theme-chk" value="${escapeHtml(tName)}" checked style="margin:0;">
                                             <span style="word-break:break-all;">${escapeHtml(tName)}</span>
                                         </label>
                                     `).join('')}
+                                    ${remainingThemes.length > 0 ? `
+                                        <button id="wizard-load-more-btn" class="menu_button" style="margin:6px 0 0 0; font-size:11px; width:100%; justify-content:center; background:rgba(255,255,255,0.06);"><i class="fa-solid fa-chevron-down"></i> 展开余下 ${remainingThemes.length} 个美化...</button>
+                                    ` : ''}
                                 </div>
                             </div>
                             <div style="display:flex; gap:8px; justify-content:space-between; align-items:center; flex-wrap:wrap;">
@@ -3982,6 +3997,23 @@
                             const skipBtn = dlg.querySelector('#wizard-skip-btn');
                             const approveBtn = dlg.querySelector('#wizard-approve-btn');
                             const passAllBtn = dlg.querySelector('#wizard-pass-all-btn');
+                            const loadMoreBtn = dlg.querySelector('#wizard-load-more-btn');
+
+                            if (loadMoreBtn) {
+                                loadMoreBtn.addEventListener('click', (e) => {
+                                    e.preventDefault();
+                                    const container = dlg.querySelector('#wizard-themes-container');
+                                    loadMoreBtn.remove();
+                                    const frag = document.createDocumentFragment();
+                                    remainingThemes.forEach(tName => {
+                                        const lbl = document.createElement('label');
+                                        lbl.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 6px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none;';
+                                        lbl.innerHTML = `<input type="checkbox" class="wizard-theme-chk" value="${escapeHtml(tName)}" checked style="margin:0;"><span style="word-break:break-all;">${escapeHtml(tName)}</span>`;
+                                        frag.appendChild(lbl);
+                                    });
+                                    container.appendChild(frag);
+                                });
+                            }
 
                             const createTagAndSave = (cItem, tagName, selectedThemes) => {
                                 if (!selectedThemes || selectedThemes.length === 0) return false;
@@ -4015,7 +4047,7 @@
                             skipBtn.addEventListener('click', (e) => {
                                 e.preventDefault();
                                 popup.close();
-                                runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount, assignedThemesCount);
+                                setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount, assignedThemesCount), 100);
                             });
 
                             approveBtn.addEventListener('click', (e) => {
@@ -4028,7 +4060,7 @@
 
                                 const success = createTagAndSave(candidate, tagName, selectedThemes);
                                 popup.close();
-                                runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount + (success ? 1 : 0), assignedThemesCount + selectedThemes.length);
+                                setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount + (success ? 1 : 0), assignedThemesCount + selectedThemes.length), 100);
                             });
 
                             passAllBtn.addEventListener('click', (e) => {
