@@ -4956,6 +4956,8 @@
 
                         setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount, assignedThemesCount, historyStack), 50);
                     }
+                }
+
                 // 高级关键词映射管理弹窗：可直观查看关键词胶囊、一键删除独立关键词、无损追加新关键词
                 async function openTagKeywordsModal(tag, onSave) {
                     let keywords = [...(tag.keywords || [])];
