@@ -1487,13 +1487,13 @@
                         // 2. 从后端直接全量重新拉取磁盘上的所有主题文件数据
                         let freshThemes = await getAllThemesFromAPI();
 
-                        // 3. 自动检测并解除重名冲突（当磁盘上多个 JSON 内写了相同的 name 时）
+                        // 3. 全量规范化重写落盘，确保每一个物理文件的文件名与 JSON 内 name 100% 强制对齐
                         let fixedCount = 0;
                         const usedNames = new Set();
                         for (let i = 0; i < freshThemes.length; i++) {
                             const t = freshThemes[i];
                             if (!t || typeof t !== 'object') continue;
-                            const origName = (t.name || t.value || '未命名主题').trim();
+                            let origName = (t.name || t.value || '未命名主题').trim();
 
                             if (usedNames.has(origName)) {
                                 // 发现同名冲突，自动添加后缀区别并规范落盘
@@ -1506,17 +1506,19 @@
                                 console.warn(`[Theme Manager Resync] ⚠️ 发现同名主题 "${origName}"，自动重命名对齐为 "${newUniqueName}"`);
                                 t.name = newUniqueName;
                                 t.value = newUniqueName;
+                                origName = newUniqueName;
                                 fixedCount++;
-
-                                // 保存落盘新规范文件
-                                try {
-                                    const { mtime: _m, ...cleanObj } = t;
-                                    await apiRequest('themes/save', 'POST', cleanObj, true);
-                                } catch (e) {
-                                    console.warn('[Theme Manager Resync] 重新落盘失败:', e);
-                                }
                             }
-                            usedNames.add(t.name || t.value);
+                            usedNames.add(origName);
+
+                            // 规范化落盘：重新提交一次 save 请求，强制后端按当前 name 写入规范物理文件名 sanitize(name).json
+                            try {
+                                const { mtime: _m, ...cleanObj } = t;
+                                cleanObj.name = origName;
+                                await apiRequest('themes/save', 'POST', cleanObj, true);
+                            } catch (e) {
+                                console.warn('[Theme Manager Resync] 重新规范落盘提示:', e);
+                            }
                         }
 
                         if (fixedCount > 0) {
@@ -1591,8 +1593,8 @@
                         await buildThemeUI();
 
                         if (showToast) {
-                            let msg = `已成功与磁盘对照同步！共读取到 ${freshThemes.length} 个美化主题。`;
-                            if (fixedCount > 0) msg += `（自动检测并解除了 ${fixedCount} 个命名重叠加重）`;
+                            let msg = `已成功与磁盘对照同步！共读取并强制对齐 ${freshThemes.length} 个美化主题。`;
+                            if (fixedCount > 0) msg += `（自动修复并重命名了 ${fixedCount} 个命名冲突）`;
                             toastr.success(msg);
                         }
                     } catch (err) {
