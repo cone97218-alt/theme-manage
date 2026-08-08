@@ -1063,5 +1063,108 @@
     writing-mode: horizontal-tb !important;
 }
 
+/* 自动分组批量审核矩阵 Responsive Styles */
+.tm-matrix-container {
+    width: 100% !important;
+    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    box-sizing: border-box !important;
+    writing-mode: horizontal-tb !important;
+}
+
+.tm-matrix-header {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    padding-bottom: 8px !important;
+    margin-bottom: 10px !important;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.2) !important;
+    flex-wrap: wrap !important;
+}
+
+.tm-matrix-toolbar {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    margin-bottom: 10px !important;
+    flex-wrap: wrap !important;
+}
+
+.tm-matrix-list {
+    flex: 1 !important;
+    max-height: calc(75vh - 140px) !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    padding-right: 4px !important;
+}
+
+.tm-matrix-card {
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(128, 128, 128, 0.2) !important;
+    border-radius: 6px !important;
+    padding: 8px 12px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 6px !important;
+    transition: all 0.2s ease !important;
+}
+
+.tm-matrix-card:hover {
+    border-color: rgba(0, 123, 255, 0.4) !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.tm-matrix-card-header {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    flex-wrap: wrap !important;
+}
+
+.tm-matrix-tag-input {
+    flex: 1 1 140px !important;
+    min-width: 110px !important;
+    max-width: 260px !important;
+    height: 28px !important;
+    padding: 2px 8px !important;
+    font-size: 12.5px !important;
+    margin: 0 !important;
+    writing-mode: horizontal-tb !important;
+}
+
+.tm-matrix-themes-wrapper {
+    display: none;
+    background: rgba(0, 0, 0, 0.15) !important;
+    padding: 8px !important;
+    border-radius: 4px !important;
+    margin-top: 4px !important;
+    max-height: 160px !important;
+    overflow-y: auto !important;
+    flex-direction: column !important;
+    gap: 4px !important;
+}
+
+.tm-matrix-themes-wrapper.expanded {
+    display: flex !important;
+}
+
+.tm-matrix-footer {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    margin-top: 10px !important;
+    padding-top: 8px !important;
+    border-top: 1px solid rgba(128, 128, 128, 0.2) !important;
+    flex-wrap: wrap !important;
+}
+
 
 

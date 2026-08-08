@@ -4306,14 +4306,278 @@
                                 return;
                             }
 
-                            // 启动审核向导，带空 historyStack 历史战报栈
-                            runAutoGroupReviewStep(candidates, 0, selectedLevel, parentId, 0, 0, []);
+                            // 启动全景批量审核矩阵
+                            openAutoGroupBatchMatrix(candidates, selectedLevel, parentId);
                         } catch (err) {
                             hideLoader();
                             console.error('分组提取失败:', err);
                             toastr.error('分组提取发生异常: ' + (err.message || err));
                         }
                     }, 150);
+                }
+
+                // === 方案 1: 全景批量审核矩阵 (包含响应式移动端 UI、实时重命名与一键批量应用) ===
+                async function openAutoGroupBatchMatrix(candidates, level, parentId) {
+                    if (!candidates || candidates.length === 0) {
+                        toastr.info('没有候选分组可供审核。');
+                        return;
+                    }
+
+                    const targetLevelLabel = level === 'l2' ? '二级子标签' : '一级主标签';
+                    const totalThemesCount = new Set(candidates.flatMap(c => c.themes)).size;
+
+                    const matrixHtml = `
+                        <div class="tm-matrix-container">
+                            <div class="tm-matrix-header">
+                                <span style="font-weight:bold; font-size:14px; color:var(--SmartThemeQuoteColor, #4a90e2); display:inline-flex; align-items:center; gap:6px; white-space:nowrap;">
+                                    <i class="fa-solid fa-table-cells-large" style="color:#ffc107;"></i> 自动分组全景审核矩阵
+                                </span>
+                                <span style="font-size:12px; padding:3px 10px; border-radius:12px; background:rgba(0,123,255,0.18); color:#4dabf7; font-weight:bold; white-space:nowrap;">
+                                    <i class="fa-solid fa-sitemap" style="margin-right:4px;"></i>${targetLevelLabel}
+                                </span>
+                            </div>
+
+                            <div class="tm-matrix-toolbar">
+                                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                    <label style="display:inline-flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; user-select:none; white-space:nowrap; margin:0;">
+                                        <input type="checkbox" id="matrix-select-all-chk" checked style="margin:0;">
+                                        <span>全选 / 全取消</span>
+                                    </label>
+                                    <input type="search" id="matrix-search-box" class="text_pole" placeholder="过滤候选分组..." style="font-size:12px; height:26px; padding:2px 8px; width:150px; margin:0;">
+                                </div>
+                                <div id="matrix-stats-summary" style="font-size:12px; opacity:0.85; white-space:nowrap;">
+                                    已选中 <b><span id="matrix-selected-count">${candidates.length}</span></b> / ${candidates.length} 个分组 (涉及 <b>${totalThemesCount}</b> 个美化)
+                                </div>
+                            </div>
+
+                            <div id="tm-matrix-list" class="tm-matrix-list">
+                                ${candidates.map((c, idx) => `
+                                    <div class="tm-matrix-card" data-idx="${idx}">
+                                        <div class="tm-matrix-card-header">
+                                            <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
+                                                <input type="checkbox" class="matrix-group-chk" data-idx="${idx}" checked style="margin:0; flex-shrink:0;">
+                                                <label style="display:inline-flex; align-items:center; gap:4px; font-size:12px; white-space:nowrap; flex-shrink:0; margin:0;">
+                                                    <i class="fa-solid fa-tag" style="color:#ffc107;"></i>
+                                                </label>
+                                                <input type="text" class="matrix-tag-name-input text_pole" data-idx="${idx}" value="${escapeHtml(c.keyword)}" style="flex:1; min-width:100px; max-width:260px; height:28px; padding:2px 8px; font-size:12.5px; margin:0;">
+                                            </div>
+                                            <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+                                                <span style="font-size:11.5px; opacity:0.75; white-space:nowrap;">
+                                                    <i class="fa-solid fa-layer-group" style="margin-right:3px;"></i>${c.themes.length}个美化
+                                                </span>
+                                                <button class="menu_button matrix-toggle-themes-btn" data-idx="${idx}" style="font-size:11px; padding:2px 8px; margin:0; height:24px; min-height:24px; white-space:nowrap;" title="查看/编辑关联的美化"><i class="fa-solid fa-chevron-down"></i> 明细</button>
+                                                <button class="menu_button matrix-remove-card-btn" data-idx="${idx}" style="font-size:11px; padding:2px 6px; margin:0; height:24px; min-height:24px; background:rgba(220,53,69,0.2) !important; color:#ff8888 !important; white-space:nowrap;" title="移除此分组"><i class="fa-solid fa-trash-can"></i></button>
+                                            </div>
+                                        </div>
+                                        <div id="matrix-themes-wrapper-${idx}" class="tm-matrix-themes-wrapper">
+                                            <div style="font-size:11px; opacity:0.75; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center; white-space:nowrap;">
+                                                <span>勾选加入的美化 (${c.themes.length}):</span>
+                                                <label style="cursor:pointer; display:inline-flex; align-items:center; gap:4px; margin:0;">
+                                                    <input type="checkbox" class="matrix-sub-select-all" data-idx="${idx}" checked style="margin:0;"> 全选美化
+                                                </label>
+                                            </div>
+                                            ${c.themes.map(tName => `
+                                                <label style="display:flex; align-items:center; gap:6px; font-size:11.5px; cursor:pointer; padding:3px 6px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none; white-space:nowrap;">
+                                                    <input type="checkbox" class="matrix-theme-chk matrix-theme-chk-${idx}" value="${escapeHtml(tName)}" checked style="margin:0;">
+                                                    <span style="word-break:break-all;">${escapeHtml(tName)}</span>
+                                                </label>
+                                            `).join('')}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+
+                            <div class="tm-matrix-footer">
+                                <button id="matrix-cancel-btn" class="menu_button" style="margin:0; font-size:12px; padding:5px 12px; background:rgba(128,128,128,0.2) !important; white-space:nowrap;"><i class="fa-solid fa-xmark"></i> 取消退出</button>
+                                <button id="matrix-apply-all-btn" class="menu_button active" style="margin:0; font-size:12.5px; font-weight:bold; padding:5px 16px; background:var(--SmartThemeQuoteColor, #007bff) !important; color:#ffffff !important; white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> 一键生成/应用已选分组 (<span id="matrix-apply-count">${candidates.length}</span>)</button>
+                            </div>
+                        </div>
+                    `;
+
+                    // 辅助函数：保存/更新/合并二级与一级标签但不重刷全量 DOM
+                    const createTagAndSaveSilent = (cItem, tagName, themesList) => {
+                        if (!themesList || themesList.length === 0) return { success: false, isNew: false };
+                        let tags = loadThemeTags();
+
+                        let isNew = false;
+                        let tagObj = tags.find(t => t.name.toLowerCase() === tagName.toLowerCase() && (parentId ? t.parentId === parentId : (!t.parentId || !tags.some(p => p.id === t.parentId))));
+                        if (!tagObj) {
+                            isNew = true;
+                            tagObj = {
+                                id: 'tag_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+                                name: tagName,
+                                parentId: parentId || null,
+                                themes: [],
+                                keywords: [tagName]
+                            };
+                            tags.push(tagObj);
+                        } else {
+                            if (parentId && !tagObj.parentId) tagObj.parentId = parentId;
+                            if (!tagObj.keywords) tagObj.keywords = [];
+                            if (!tagObj.keywords.includes(tagName)) tagObj.keywords.push(tagName);
+                        }
+
+                        if (!tagObj.themes) tagObj.themes = [];
+                        themesList.forEach(tn => {
+                            if (!tagObj.themes.includes(tn)) tagObj.themes.push(tn);
+                        });
+
+                        if (parentId) {
+                            const parentTagObj = tags.find(t => t.id === parentId);
+                            if (parentTagObj) {
+                                if (!parentTagObj.themes) parentTagObj.themes = [];
+                                themesList.forEach(tn => {
+                                    if (!parentTagObj.themes.includes(tn)) parentTagObj.themes.push(tn);
+                                });
+                            }
+                        }
+
+                        saveThemeTags(tags);
+                        return { success: true, isNew: isNew, tagId: tagObj.id };
+                    };
+
+                    await callGenericPopup(matrixHtml, 'confirm', null, {
+                        title: `自动分组全景矩阵 (${candidates.length} 个候选分组)`,
+                        okButton: null,
+                        cancelButton: null,
+                        wide: true,
+                        onOpen: (popup) => {
+                            const dlg = popup.dlg;
+                            if (dlg) {
+                                dlg.style.width = '85vw';
+                                dlg.style.height = '85vh';
+                                dlg.style.maxWidth = '980px';
+                                dlg.style.maxHeight = '85vh';
+                                dlg.style.display = 'flex';
+                                dlg.style.flexDirection = 'column';
+                            }
+
+                            const matrixList = dlg ? dlg.querySelector('#tm-matrix-list') : null;
+                            const selectAllChk = dlg ? dlg.querySelector('#matrix-select-all-chk') : null;
+                            const searchBox = dlg ? dlg.querySelector('#matrix-search-box') : null;
+                            const applyBtn = dlg ? dlg.querySelector('#matrix-apply-all-btn') : null;
+                            const cancelBtn = dlg ? dlg.querySelector('#matrix-cancel-btn') : null;
+                            const selectedCountSpan = dlg ? dlg.querySelector('#matrix-selected-count') : null;
+                            const applyCountSpan = dlg ? dlg.querySelector('#matrix-apply-count') : null;
+
+                            const updateStats = () => {
+                                if (!matrixList) return;
+                                const checkedGroupChks = matrixList.querySelectorAll('.matrix-group-chk:checked');
+                                const checkedCount = checkedGroupChks.length;
+                                if (selectedCountSpan) selectedCountSpan.textContent = checkedCount;
+                                if (applyCountSpan) applyCountSpan.textContent = checkedCount;
+                                if (applyBtn) applyBtn.disabled = (checkedCount === 0);
+                            };
+
+                            if (searchBox && matrixList) {
+                                searchBox.addEventListener('input', (e) => {
+                                    const q = e.target.value.toLowerCase().trim();
+                                    matrixList.querySelectorAll('.tm-matrix-card').forEach(card => {
+                                        const idx = card.dataset.idx;
+                                        const c = candidates[idx];
+                                        const nameVal = card.querySelector('.matrix-tag-name-input')?.value.toLowerCase() || '';
+                                        const themesVal = c ? c.themes.join(' ').toLowerCase() : '';
+                                        const match = !q || nameVal.includes(q) || themesVal.includes(q);
+                                        card.style.display = match ? 'flex' : 'none';
+                                    });
+                                });
+                            }
+
+                            if (selectAllChk && matrixList) {
+                                selectAllChk.addEventListener('change', (e) => {
+                                    const isChecked = e.target.checked;
+                                    matrixList.querySelectorAll('.matrix-group-chk').forEach(chk => {
+                                        chk.checked = isChecked;
+                                    });
+                                    updateStats();
+                                });
+                            }
+
+                            if (matrixList) {
+                                matrixList.querySelectorAll('.matrix-toggle-themes-btn').forEach(btn => {
+                                    btn.addEventListener('click', (e) => {
+                                        e.preventDefault();
+                                        const idx = btn.dataset.idx;
+                                        const wrapper = matrixList.querySelector(`#matrix-themes-wrapper-${idx}`);
+                                        if (wrapper) {
+                                            const isExpanded = wrapper.classList.toggle('expanded');
+                                            btn.innerHTML = isExpanded
+                                                ? '<i class="fa-solid fa-chevron-up"></i> 收起'
+                                                : '<i class="fa-solid fa-chevron-down"></i> 明细';
+                                        }
+                                    });
+                                });
+
+                                matrixList.querySelectorAll('.matrix-sub-select-all').forEach(subChk => {
+                                    subChk.addEventListener('change', (e) => {
+                                        const idx = subChk.dataset.idx;
+                                        const isChecked = e.target.checked;
+                                        matrixList.querySelectorAll(`.matrix-theme-chk-${idx}`).forEach(chk => {
+                                            chk.checked = isChecked;
+                                        });
+                                    });
+                                });
+
+                                matrixList.querySelectorAll('.matrix-remove-card-btn').forEach(btn => {
+                                    btn.addEventListener('click', (e) => {
+                                        e.preventDefault();
+                                        const idx = btn.dataset.idx;
+                                        const card = matrixList.querySelector(`.tm-matrix-card[data-idx="${idx}"]`);
+                                        if (card) {
+                                            card.remove();
+                                            updateStats();
+                                        }
+                                    });
+                                });
+
+                                matrixList.addEventListener('change', (e) => {
+                                    if (e.target.classList.contains('matrix-group-chk')) {
+                                        updateStats();
+                                    }
+                                });
+                            }
+
+                            if (cancelBtn) {
+                                cancelBtn.addEventListener('click', () => {
+                                    closePopup(popup);
+                                });
+                            }
+
+                            if (applyBtn) {
+                                applyBtn.addEventListener('click', () => {
+                                    let createdCount = 0;
+                                    let totalAssignedThemes = 0;
+
+                                    if (matrixList) {
+                                        matrixList.querySelectorAll('.tm-matrix-card').forEach(card => {
+                                            const groupChk = card.querySelector('.matrix-group-chk');
+                                            if (groupChk && groupChk.checked) {
+                                                const idx = card.dataset.idx;
+                                                const cItem = candidates[idx];
+                                                const nameInput = card.querySelector('.matrix-tag-name-input');
+                                                const tagName = (nameInput ? nameInput.value.trim() : cItem.keyword) || cItem.keyword;
+                                                const checkedThemeChks = card.querySelectorAll(`.matrix-theme-chk-${idx}:checked`);
+                                                const themesList = Array.from(checkedThemeChks).map(cb => cb.value);
+
+                                                if (themesList.length > 0) {
+                                                    const saveRes = createTagAndSaveSilent(cItem, tagName, themesList);
+                                                    if (saveRes.success) {
+                                                        createdCount++;
+                                                        totalAssignedThemes += themesList.length;
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    }
+
+                                    renderTagsUI();
+                                    updateActiveState();
+                                    toastr.success(`🎉 批量审核完成！成功创建/合并了 ${createdCount} 个标签分类，挂载了 ${totalAssignedThemes} 个美化关联！`);
+                                    closePopup(popup);
+                                });
+                            }
+                        }
+                    });
                 }
 
                 // === 分组向导 Step 2: 逐个审核通过/不通过（支持 80% 大屏幕、最大公约数提取与子标签合并） ===
