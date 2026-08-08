@@ -4861,6 +4861,134 @@
 
                         setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount, assignedThemesCount, historyStack), 50);
                     }
+                // 高级关键词映射管理弹窗：可直观查看关键词胶囊、一键删除独立关键词、无损追加新关键词
+                async function openTagKeywordsModal(tag, onSave) {
+                    let keywords = [...(tag.keywords || [])];
+
+                    const buildKeywordsPillsHtml = () => {
+                        if (keywords.length === 0) {
+                            return `<div style="text-align:center; padding:16px; font-size:12px; opacity:0.5; border:1px dashed rgba(128,128,128,0.3); border-radius:6px; background:rgba(0,0,0,0.1); width:100%;">暂无关键词，请在上方输入添加</div>`;
+                        }
+                        return keywords.map((kw, idx) => `
+                            <span class="tm-kw-pill" style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; background:rgba(74,144,226,0.15); border:1px solid rgba(74,144,226,0.3); border-radius:14px; font-size:12px; font-weight:500; color:var(--SmartThemeQuoteColor, #4a90e2); margin:3px; writing-mode:horizontal-tb !important; user-select:none;">
+                                <i class="fa-solid fa-key" style="font-size:10px; opacity:0.7;"></i>
+                                <span>${escapeHtml(kw)}</span>
+                                <i class="fa-solid fa-xmark btn-remove-kw" data-idx="${idx}" style="cursor:pointer; opacity:0.6; font-size:11px; margin-left:2px;" title="删除此关键词"></i>
+                            </span>
+                        `).join('');
+                    };
+
+                    let modalHtml = `
+                        <div style="display:flex; flex-direction:column; gap:12px; writing-mode:horizontal-tb !important;">
+                            <div style="font-size:12px; opacity:0.85; line-height:1.5; background:rgba(255,255,255,0.04); padding:10px 12px; border-radius:6px; border-left:3px solid var(--SmartThemeQuoteColor, #4a90e2);">
+                                <i class="fa-solid fa-circle-info" style="color:var(--SmartThemeQuoteColor, #4a90e2); margin-right:4px;"></i>
+                                当导入或重命名美化主题时，如果主题名称或文件名中包含以下任一关键词，将自动匹配归入标签「<b>${escapeHtml(tag.name)}</b>」。
+                            </div>
+
+                            <div style="display:flex; gap:8px; align-items:center;">
+                                <input type="text" id="tm-kw-input" class="text_pole" placeholder="输入新关键词 (按 Enter 或点添加，支持逗号分隔多个)" style="flex:1; min-width:0; height:34px; font-size:12px;">
+                                <button id="tm-btn-add-kw" class="menu_button" style="margin:0; white-space:nowrap; height:34px; padding:0 14px;"><i class="fa-solid fa-plus"></i> 添加</button>
+                            </div>
+
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+                                <span style="font-size:12px; font-weight:bold;">已绑定的关键词 (<span id="tm-kw-count">${keywords.length}</span>)</span>
+                                <button id="tm-btn-clear-kws" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; opacity:0.8;" ${keywords.length === 0 ? 'disabled' : ''}><i class="fa-solid fa-trash-can"></i> 清空全部</button>
+                            </div>
+
+                            <div id="tm-kw-pills-container" style="max-height:180px; overflow-y:auto; padding:8px; border:1px solid rgba(128,128,128,0.2); border-radius:6px; background:rgba(0,0,0,0.15); display:flex; flex-wrap:wrap; align-content:flex-start;">
+                                ${buildKeywordsPillsHtml()}
+                            </div>
+
+                            <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:11px; opacity:0.85; margin-top:4px; user-select:none;">
+                                <input type="checkbox" id="chk-auto-apply-kw" checked>
+                                <span>保存时自动对现有所有美化重新应用此关键词映射</span>
+                            </label>
+                        </div>
+                    `;
+
+                    await callGenericPopup(modalHtml, 'confirm', null, {
+                        title: `编辑关键词映射 - ${tag.name}`,
+                        okButton: '保存生效',
+                        cancelButton: '取消',
+                        wide: true,
+                        onOpen: (popup) => {
+                            const dlg = popup.dlg;
+                            const kwInput = dlg.querySelector('#tm-kw-input');
+                            const addBtn = dlg.querySelector('#tm-btn-add-kw');
+                            const clearBtn = dlg.querySelector('#tm-btn-clear-kws');
+                            const container = dlg.querySelector('#tm-kw-pills-container');
+                            const countEl = dlg.querySelector('#tm-kw-count');
+                            const okBtn = dlg.querySelector('.popup-button-ok');
+
+                            const refreshPills = () => {
+                                if (container) container.innerHTML = buildKeywordsPillsHtml();
+                                if (countEl) countEl.textContent = keywords.length;
+                                if (clearBtn) clearBtn.disabled = keywords.length === 0;
+
+                                dlg.querySelectorAll('.btn-remove-kw').forEach(btn => {
+                                    btn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        const idx = parseInt(btn.dataset.idx);
+                                        if (!isNaN(idx) && idx >= 0 && idx < keywords.length) {
+                                            keywords.splice(idx, 1);
+                                            refreshPills();
+                                        }
+                                    });
+                                });
+                            };
+
+                            const addKeyword = () => {
+                                if (!kwInput) return;
+                                const val = kwInput.value.trim();
+                                if (!val) return;
+
+                                const newKws = val.split(/[,，\s]/).map(k => k.trim()).filter(k => k.length > 0);
+                                let addedCount = 0;
+                                newKws.forEach(k => {
+                                    if (!keywords.includes(k)) {
+                                        keywords.push(k);
+                                        addedCount++;
+                                    }
+                                });
+
+                                if (addedCount > 0) {
+                                    kwInput.value = '';
+                                    refreshPills();
+                                } else {
+                                    toastr.warning('输入的关键词已存在');
+                                }
+                            };
+
+                            if (addBtn) addBtn.addEventListener('click', addKeyword);
+                            if (kwInput) {
+                                kwInput.addEventListener('keydown', (e) => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        addKeyword();
+                                    }
+                                });
+                            }
+
+                            if (clearBtn) {
+                                clearBtn.addEventListener('click', () => {
+                                    if (confirm('确定要清空该标签的所有关键词吗？')) {
+                                        keywords = [];
+                                        refreshPills();
+                                    }
+                                });
+                            }
+
+                            if (okBtn) {
+                                okBtn.addEventListener('click', () => {
+                                    tag.keywords = keywords;
+                                    const autoApply = dlg.querySelector('#chk-auto-apply-kw')?.checked;
+                                    if (onSave) onSave(tag, autoApply);
+                                });
+                            }
+
+                            refreshPills();
+                        }
+                    });
                 }
 
                 async function openManageTagsPopup() {
@@ -5157,23 +5285,22 @@
                                     });
                                 });
 
-                                // 关键词
+                                // 关键词高级管理弹窗
                                 dlg.querySelectorAll('.keywords-tag-inline').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
+                                    btn.addEventListener('click', async (e) => {
                                         e.stopPropagation();
                                         const id = e.currentTarget.dataset.id;
                                         const tag = tags.find(t => t.id === id);
                                         if (!tag) return;
-                                        const currentKeywords = (tag.keywords || []).join(', ');
-                                        const input = prompt(
-                                            `「${tag.name}」的关键词（逗号分隔）\n导入或重命名的美化名如包含这些词，将自动归入此标签：`,
-                                            currentKeywords
-                                        );
-                                        if (input !== null) {
-                                            tag.keywords = input.split(',').map(k => k.trim()).filter(k => k.length > 0);
+
+                                        await openTagKeywordsModal(tag, (updatedTag, autoApply) => {
                                             saveThemeTags(tags);
                                             renderList();
-                                        }
+                                            if (autoApply) {
+                                                applyKeywordMappings();
+                                            }
+                                            toastr.success(`已更新标签「${updatedTag.name}」的关键词映射`);
+                                        });
                                     });
                                 });
 
