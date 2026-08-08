@@ -4217,9 +4217,12 @@
                         }
                     }
 
-                    // 6. 按关联美化数量降序排列，截取前 100 个热门分类候选
+                    // 6. 按关联美化数量降序排列，根据 maxCandidates 参数弹性截取
                     finalCandidates.sort((a, b) => b.themes.length - a.themes.length);
-                    return finalCandidates.slice(0, 100);
+                    if (maxCandidates && maxCandidates > 0 && isFinite(maxCandidates)) {
+                        return finalCandidates.slice(0, maxCandidates);
+                    }
+                    return finalCandidates;
                 }
 
                 // === 分组向导 Step 1: 设置基数范围、目标层级与门槛 ===
@@ -4308,6 +4311,22 @@
                                         <span>个美化主题</span>
                                     </div>
                                 </div>
+                                <hr style="border:0; border-top:1px solid rgba(128,128,128,0.2); margin:0;">
+                                <div>
+                                    <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
+                                        <i class="fa-solid fa-list-ol"></i> 4. 提取分类上限 (海量美化专用)：
+                                    </div>
+                                    <div style="display:inline-flex; align-items:center; gap:8px; font-size:13px; padding-left:12px; flex-wrap:wrap;">
+                                        <span>提取候选上限：</span>
+                                        <select id="tm-auto-max-candidates" class="text_pole" style="font-size:12px; height:28px; padding:2px 8px; width:170px; margin:0;">
+                                            <option value="100">100 组 (默认推荐)</option>
+                                            <option value="200" selected>200 组 (深度提取)</option>
+                                            <option value="500">500 组 (海量美化推荐)</option>
+                                            <option value="0">🚀 全量全景提取 (不限组数)</option>
+                                        </select>
+                                        <small style="opacity:0.65;">(不限组数可提取所有可能的分类组，结合全景矩阵审核一键全选清理)</small>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     `;
@@ -4316,6 +4335,7 @@
                     let selectedLevel = 'l1';
                     let parentId = null;
                     let minMatch = 2;
+                    let maxCandidates = 200;
 
                     const popupRes = await callGenericPopup(setupHtml, 'confirm', null, {
                         title: '分组提取设置',
@@ -4353,6 +4373,7 @@
 
                             const minMatchInput = dlg.querySelector('#tm-auto-min-match');
                             const parentSelect = dlg.querySelector('#tm-auto-parent-select');
+                            const maxCandidatesSelect = dlg.querySelector('#tm-auto-max-candidates');
 
                             dlg.addEventListener('change', () => {
                                 const checkedScope = dlg.querySelector('input[name="tm-auto-scope"]:checked');
@@ -4361,6 +4382,7 @@
                                 if (checkedLevel) selectedLevel = checkedLevel.value;
                                 if (parentSelect) parentId = parentSelect.value;
                                 if (minMatchInput) minMatch = parseInt(minMatchInput.value) || 2;
+                                if (maxCandidatesSelect) maxCandidates = parseInt(maxCandidatesSelect.value);
                             });
                         }
                     });
@@ -4393,7 +4415,7 @@
                                 pool = allParsedThemes;
                             }
 
-                            const candidates = extractCandidateThemeGroups(pool, minMatch, selectedLevel, parentId);
+                            const candidates = extractCandidateThemeGroups(pool, minMatch, selectedLevel, parentId, maxCandidates);
                             hideLoader();
 
                             if (candidates.length === 0) {
