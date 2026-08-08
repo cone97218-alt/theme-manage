@@ -3918,7 +3918,8 @@
         // 1. Mousedown (鼠标点击和长按)
         document.body.addEventListener('mousedown', (e) => {
             if (localStorage.getItem('themeManager_enableAvatarHelper') === 'false') return;
-            const target = e.target.closest('.avatar, .avatarimg, #avatar_div, .user_avatar, .character_select img');
+            const avatarTargetSelector = '.mesAvatarWrapper, .avatar, .avatarimg, #avatar_div, .user_avatar, .mes_avatar, .mes-avatar, [class*="avatar"], [class*="Avatar"], .character_select img';
+            const target = e.target.closest(avatarTargetSelector);
             if (!target) return;
 
             const triggerMethod = avatarTriggerMethod;
@@ -3969,7 +3970,8 @@
 
         document.body.addEventListener('touchstart', (e) => {
             if (localStorage.getItem('themeManager_enableAvatarHelper') === 'false') return;
-            const target = e.target.closest('.avatar, .avatarimg, #avatar_div, .user_avatar, .character_select img');
+            const avatarTargetSelector = '.mesAvatarWrapper, .avatar, .avatarimg, #avatar_div, .user_avatar, .mes_avatar, .mes-avatar, [class*="avatar"], [class*="Avatar"], .character_select img';
+            const target = e.target.closest(avatarTargetSelector);
             if (!target) return;
 
             const triggerMethod = avatarTriggerMethod;
@@ -4021,7 +4023,8 @@
             if (localStorage.getItem('themeManager_enableAvatarHelper') === 'false') return;
             if (!isZoomDisabled) return;
 
-            const target = e.target.closest('.avatar, .avatarimg, #avatar_div, .user_avatar');
+            const avatarTargetSelector = '.mesAvatarWrapper, .avatar, .avatarimg, #avatar_div, .user_avatar, .mes_avatar, .mes-avatar, [class*="avatar"], [class*="Avatar"]';
+            const target = e.target.closest(avatarTargetSelector);
             if (target && target.closest('#chat')) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -4054,19 +4057,35 @@
         const chatEl = document.getElementById('chat');
         if (chatEl) {
             const chatObserver = new MutationObserver((mutations) => {
+                const processedMesSet = new Set();
                 mutations.forEach(mutation => {
-                    mutation.addedNodes.forEach(node => {
-                        if (node.nodeType === Node.ELEMENT_NODE) {
-                            if (node.classList.contains('mes')) {
-                                tagMessageElementsWithCharName(node);
-                            } else {
-                                node.querySelectorAll('.mes').forEach(tagMessageElementsWithCharName);
+                    // 1. 处理新增 DOM 节点（包括思维链/流式生成的子元素和文本节点）
+                    if (mutation.addedNodes) {
+                        mutation.addedNodes.forEach(node => {
+                            if (node.nodeType === Node.ELEMENT_NODE) {
+                                const mesEl = node.closest('.mes');
+                                if (mesEl) {
+                                    processedMesSet.add(mesEl);
+                                } else {
+                                    node.querySelectorAll('.mes').forEach(m => processedMesSet.add(m));
+                                }
+                            } else if (node.nodeType === Node.TEXT_NODE && node.parentElement) {
+                                const mesEl = node.parentElement.closest('.mes');
+                                if (mesEl) processedMesSet.add(mesEl);
                             }
-                        }
-                    });
+                        });
+                    }
+                    // 2. 实时追踪包含思维链（.mes_reasoning_details / details open 展开与折叠）或流式替换 innerHTML 的变动
+                    if (mutation.target && mutation.target.nodeType === Node.ELEMENT_NODE) {
+                        const mesEl = mutation.target.closest('.mes');
+                        if (mesEl) processedMesSet.add(mesEl);
+                    }
                 });
+
+                // 对产生变动的所有消息块进行 0 延迟头像判定与补全替换
+                processedMesSet.forEach(tagMessageElementsWithCharName);
             });
-            chatObserver.observe(chatEl, { childList: true, subtree: true });
+            chatObserver.observe(chatEl, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'open', 'ch_name'] });
         }
     } catch (e) {
         console.warn('[Theme Manager Avatar] Failed to setup chat MutationObserver:', e);
@@ -4094,7 +4113,7 @@
     try {
         const { eventSource, eventTypes } = SillyTavern.getContext();
         
-        // 绑定消息渲染时机，动态插入发送者 data-ch-name 标签
+        // 绑定消息渲染与流式传输时机
         eventSource.on(eventTypes.CHARACTER_MESSAGE_RENDERED, (mesId) => {
             const el = document.querySelector(`.mes[mesid="${mesId}"]`);
             if (el) tagMessageElementsWithCharName(el);
@@ -4103,6 +4122,18 @@
             const el = document.querySelector(`.mes[mesid="${mesId}"]`);
             if (el) tagMessageElementsWithCharName(el);
         });
+        if (eventTypes.STREAM_TOKEN_RECEIVED) {
+            eventSource.on(eventTypes.STREAM_TOKEN_RECEIVED, () => {
+                const lastMes = document.querySelector('#chat .mes:last-child');
+                if (lastMes) tagMessageElementsWithCharName(lastMes);
+            });
+        }
+        if (eventTypes.MESSAGE_UPDATED) {
+            eventSource.on(eventTypes.MESSAGE_UPDATED, (mesId) => {
+                const el = document.querySelector(`.mes[mesid="${mesId}"]`);
+                if (el) tagMessageElementsWithCharName(el);
+            });
+        }
 
         eventSource.on(eventTypes.CHARACTER_SELECTED, () => {
             updateActiveCharacterAttr();
