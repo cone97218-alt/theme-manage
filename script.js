@@ -416,7 +416,53 @@
                     console.log(`[Theme Manager Delete] ══════════════════════════════════════`);
                     return isDeletedOnDisk;
                 }
-                async function saveTheme(themeObject) { await apiRequest('themes/save', 'POST', themeObject); }
+                function findThemeObject(themeName) {
+                    if (!themeName) return null;
+                    let obj = allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
+                    if (obj && (obj.main_text_color || obj.shadow || obj.custom_css || obj.blur_strength)) {
+                        return obj;
+                    }
+
+                    if (Array.isArray(allThemeObjects) && allThemeObjects.length > 0) {
+                        const raw = String(themeName).trim();
+                        const unbracketed = raw.replace(/[\[\]【】（）()《》<>]/g, ' ').replace(/\s+/g, ' ').trim();
+                        const cleanOuter = raw.replace(/([\[【（(《<].*?[\]】）)》>])/g, '').trim();
+
+                        const found = allThemeObjects.find(t => {
+                            if (!t) return false;
+                            const tn = String(t.name || t.value || '').trim();
+                            if (!tn) return false;
+                            return (
+                                tn === raw || tn === unbracketed || tn === cleanOuter ||
+                                tn.replace(/[\[\]【】（）()《》<>]/g, ' ').replace(/\s+/g, ' ').trim() === unbracketed
+                            );
+                        });
+                        if (found) return found;
+                    }
+
+                    if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                        const ctx = SillyTavern.getContext();
+                        const stThemes = ctx?.themes || ctx?.power_user?.themes;
+                        if (Array.isArray(stThemes)) {
+                            const raw = String(themeName).trim();
+                            const unbracketed = raw.replace(/[\[\]【】（）()《》<>]/g, ' ').replace(/\s+/g, ' ').trim();
+                            const found = stThemes.find(t => t && (t.name === raw || t.name === unbracketed));
+                            if (found) return found;
+                        }
+                    }
+
+                    return null;
+                }
+
+                async function saveTheme(themeObject) {
+                    if (!themeObject || typeof themeObject !== 'object') return;
+                    let finalObject = { ...themeObject };
+                    if (!finalObject.main_text_color && !finalObject.custom_css && typeof power_user !== 'undefined') {
+                        const defaultSnapshot = typeof getThemeObject === 'function' ? getThemeObject(finalObject.name) : {};
+                        finalObject = { ...defaultSnapshot, ...finalObject };
+                    }
+                    await apiRequest('themes/save', 'POST', finalObject);
+                }
 
                 // === 移动端/跨端通用确认弹窗助手 ===
                 async function confirmAction(message, okText = '确认删除') {
@@ -2232,17 +2278,7 @@
                         const usedNewNames = new Set();
 
                         for (const oldName of selectedForBatch) {
-                            let themeObject = allThemeObjectsMap.get(oldName) || allParsedThemesMap.get(oldName);
-                            if (!themeObject && Array.isArray(currentThemes)) {
-                                const cleanReqName = oldName.replace(/[\[\]【】（）()《》<>]/g, '').trim();
-                                themeObject = currentThemes.find(t => t && (
-                                    t.name === oldName || t.name === cleanReqName ||
-                                    t.value === oldName || t.value === cleanReqName
-                                ));
-                            }
-                            if (!themeObject) {
-                                themeObject = { name: oldName };
-                            }
+                            let themeObject = findThemeObject(oldName) || { name: oldName };
 
                             const newName = renameLogic(oldName);
                             if (!newName || !newName.trim()) {
@@ -4556,17 +4592,7 @@
                                     toastr.warning(`主题 "${finalNewName}" 已存在，请使用其他名称。`);
                                     return;
                                 }
-                                let themeObject = allThemeObjectsMap.get(oldName) || allParsedThemesMap.get(oldName);
-                                if (!themeObject && Array.isArray(allThemeObjects)) {
-                                    const cleanReqName = oldName.replace(/[\[\]【】（）()《》<>]/g, '').trim();
-                                    themeObject = allThemeObjects.find(t => t && (
-                                        t.name === oldName || t.name === cleanReqName ||
-                                        t.value === oldName || t.value === cleanReqName
-                                    ));
-                                }
-                                if (!themeObject) {
-                                    themeObject = { name: oldName };
-                                }
+                                let themeObject = findThemeObject(oldName) || { name: oldName };
                                 const isActive = originalSelect.value === oldName;
                                 const newThemeObject = { ...themeObject, name: finalNewName };
 
