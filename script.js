@@ -381,7 +381,7 @@
 
                     let isDeletedOnDisk = false;
 
-                    // 直接采用 SillyTavern 原生主题删除接口 fetch('/api/themes/delete')
+                    // 使用 ST 原生删除接口 fetch('/api/themes/delete')
                     await Promise.all(candidates.map(async candidateName => {
                         try {
                             const response = await fetch('/api/themes/delete', {
@@ -389,9 +389,10 @@
                                 headers: getRequestHeaders(),
                                 body: JSON.stringify({ name: candidateName }),
                             });
-                            if (response.ok) {
+                            // HTTP 200 (物理删除成功) 或 HTTP 404 (磁盘上本就已不存在该文件) 均符合预期
+                            if (response.ok || response.status === 404) {
                                 isDeletedOnDisk = true;
-                                console.log(`[Theme Manager Delete] ✅ ST 原生接口成功擦除磁盘文件: "${candidateName}.json"`);
+                                console.log(`[Theme Manager Delete] ✅ 确认磁盘已无此文件: "${candidateName}.json" (HTTP ${response.status})`);
                             } else {
                                 console.warn(`[Theme Manager Delete] ⚠️ 候选名 "${candidateName}" 返回 HTTP ${response.status}`);
                             }
