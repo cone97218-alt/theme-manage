@@ -3839,9 +3839,12 @@
                         </div>
                     `;
 
-                    let userSelectedData = null;
+                    let selectedScope = 'all';
+                    let selectedLevel = 'l1';
+                    let parentId = null;
+                    let minMatch = 2;
 
-                    const confirmed = await callGenericPopup(setupHtml, 'confirm', null, {
+                    const popupRes = await callGenericPopup(setupHtml, 'confirm', null, {
                         title: '分组提取设置',
                         okButton: '开始分析提取',
                         cancelButton: '取消',
@@ -3857,7 +3860,8 @@
                             const scopeTagContainer = dlg.querySelector('#tm-auto-scope-tag-container');
                             scopeRadios.forEach(r => {
                                 r.addEventListener('change', () => {
-                                    scopeTagContainer.style.display = (r.value === 'tag' && r.checked) ? 'block' : 'none';
+                                    if (r.checked) selectedScope = r.value;
+                                    scopeTagContainer.style.display = (selectedScope === 'tag') ? 'block' : 'none';
                                 });
                             });
 
@@ -3865,60 +3869,69 @@
                             const parentContainer = dlg.querySelector('#tm-auto-parent-container');
                             levelRadios.forEach(r => {
                                 r.addEventListener('change', () => {
-                                    parentContainer.style.display = (r.value === 'l2' && r.checked) ? 'block' : 'none';
+                                    if (r.checked) selectedLevel = r.value;
+                                    parentContainer.style.display = (selectedLevel === 'l2') ? 'block' : 'none';
                                 });
                             });
 
-                            const okBtn = dlg.querySelector('.popup-button-ok');
-                            if (okBtn) {
-                                okBtn.addEventListener('click', () => {
-                                    userSelectedData = {
-                                        scope: dlg.querySelector('input[name="tm-auto-scope"]:checked').value,
-                                        level: dlg.querySelector('input[name="tm-auto-level"]:checked').value,
-                                        parentId: dlg.querySelector('#tm-auto-parent-select') ? dlg.querySelector('#tm-auto-parent-select').value : null,
-                                        minMatch: parseInt(dlg.querySelector('#tm-auto-min-match').value) || 2,
-                                        scopeTagId: dlg.querySelector('#tm-auto-scope-tag-select') ? dlg.querySelector('#tm-auto-scope-tag-select').value : null
-                                    };
-                                });
-                            }
+                            const minMatchInput = dlg.querySelector('#tm-auto-min-match');
+                            const scopeTagSelect = dlg.querySelector('#tm-auto-scope-tag-select');
+                            const parentSelect = dlg.querySelector('#tm-auto-parent-select');
+
+                            dlg.addEventListener('change', () => {
+                                const checkedScope = dlg.querySelector('input[name="tm-auto-scope"]:checked');
+                                if (checkedScope) selectedScope = checkedScope.value;
+                                const checkedLevel = dlg.querySelector('input[name="tm-auto-level"]:checked');
+                                if (checkedLevel) selectedLevel = checkedLevel.value;
+                                if (parentSelect) parentId = parentSelect.value;
+                                if (minMatchInput) minMatch = parseInt(minMatchInput.value) || 2;
+                            });
                         }
                     });
 
-                    if (!confirmed || !userSelectedData) return;
+                    if (!popupRes) return; // 用户取消
 
-                    // 150ms 优雅等待设置弹窗彻底淡出，避免弹窗重叠死锁
-                    await new Promise(r => setTimeout(r, 150));
+                    showLoader();
+                    setTimeout(() => {
+                        try {
+                            let pool = [];
+                            if (selectedScope === 'filtered') {
+                                if (selectedForBatch && selectedForBatch.size > 0) {
+                                    const set = new Set(selectedForBatch);
+                                    pool = allParsedThemes.filter(t => set.has(t.value));
+                                } else if (typeof filteredThemes !== 'undefined' && filteredThemes.length > 0) {
+                                    pool = filteredThemes;
+                                } else {
+                                    pool = allParsedThemes;
+                                }
+                            } else if (selectedScope === 'tag') {
+                                const scopeTagId = document.querySelector('#tm-auto-scope-tag-select')?.value;
+                                const scopeTag = existingTags.find(tg => tg.id === scopeTagId);
+                                if (scopeTag && scopeTag.themes) {
+                                    const tagThemesSet = new Set(scopeTag.themes);
+                                    pool = allParsedThemes.filter(t => tagThemesSet.has(t.value));
+                                } else {
+                                    pool = allParsedThemes;
+                                }
+                            } else {
+                                pool = allParsedThemes;
+                            }
 
-                    let pool = [];
-                    if (userSelectedData.scope === 'filtered') {
-                        if (selectedForBatch && selectedForBatch.size > 0) {
-                            const set = new Set(selectedForBatch);
-                            pool = allParsedThemes.filter(t => set.has(t.value));
-                        } else if (typeof filteredThemes !== 'undefined' && filteredThemes.length > 0) {
-                            pool = filteredThemes;
-                        } else {
-                            pool = allParsedThemes;
+                            const candidates = extractCandidateThemeGroups(pool, minMatch);
+                            hideLoader();
+
+                            if (candidates.length === 0) {
+                                toastr.info(`在选定的 ${pool.length} 个美化中，未分析到重合数 ≥ ${minMatch} 的词组分类。`);
+                                return;
+                            }
+
+                            runAutoGroupReviewStep(candidates, 0, selectedLevel, parentId, 0, 0);
+                        } catch (err) {
+                            hideLoader();
+                            console.error('分组提取失败:', err);
+                            toastr.error('分组提取发生异常: ' + (err.message || err));
                         }
-                    } else if (userSelectedData.scope === 'tag' && userSelectedData.scopeTagId) {
-                        const scopeTag = existingTags.find(tg => tg.id === userSelectedData.scopeTagId);
-                        if (scopeTag && scopeTag.themes) {
-                            const tagThemesSet = new Set(scopeTag.themes);
-                            pool = allParsedThemes.filter(t => tagThemesSet.has(t.value));
-                        } else {
-                            pool = allParsedThemes;
-                        }
-                    } else {
-                        pool = allParsedThemes;
-                    }
-
-                    const candidates = extractCandidateThemeGroups(pool, userSelectedData.minMatch);
-
-                    if (candidates.length === 0) {
-                        toastr.info(`在选定的 ${pool.length} 个美化中，未分析到重合数 ≥ ${userSelectedData.minMatch} 的词组分类。`);
-                        return;
-                    }
-
-                    runAutoGroupReviewStep(candidates, 0, userSelectedData.level, userSelectedData.parentId, 0, 0);
+                    }, 150);
                 }
 
                 // === 分组向导 Step 2: 逐个审核通过/不通过 ===
@@ -3932,7 +3945,7 @@
 
                     const candidate = candidates[currentIndex];
                     const targetLevelLabel = level === 'l2' ? '二级子标签' : '一级主标签';
-                    const MAX_INITIAL_THEMES = 25; // 限制单张卡片初始渲染的最大 DOM 节点数，防止移动端卡死
+                    const MAX_INITIAL_THEMES = 25;
                     const initialThemes = candidate.themes.slice(0, MAX_INITIAL_THEMES);
                     const remainingThemes = candidate.themes.slice(MAX_INITIAL_THEMES);
 
@@ -3967,20 +3980,18 @@
                                     ` : ''}
                                 </div>
                             </div>
-                            <div style="display:flex; gap:8px; justify-content:space-between; align-items:center; flex-wrap:wrap;">
-                                <button id="wizard-skip-btn" class="menu_button" style="margin:0; background:rgba(108,117,125,0.25) !important; color:#ccc !important;"><i class="fa-solid fa-xmark"></i> 不通过 / 跳过</button>
-                                <div style="display:flex; gap:6px;">
-                                    <button id="wizard-pass-all-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px;" title="将其余候选全自动通过"><i class="fa-solid fa-forward"></i> 全部通过</button>
-                                    <button id="wizard-approve-btn" class="menu_button" style="margin:0; background:rgba(40,167,69,0.85) !important; color:#fff !important; font-weight:bold;"><i class="fa-solid fa-check"></i> 通过并创建标签</button>
-                                </div>
+                            <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:8px;">
+                                <button id="wizard-pass-all-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px;" title="将其余候选全自动通过"><i class="fa-solid fa-forward"></i> 全部剩余通过</button>
                             </div>
                         </div>
                     `;
 
-                    await callGenericPopup(wizardHtml, 'confirm', null, {
+                    let actionTaken = 'standard';
+
+                    const popupRes = await callGenericPopup(wizardHtml, 'confirm', null, {
                         title: `美化分组审核 (${currentIndex + 1}/${candidates.length})`,
-                        okButton: false,
-                        cancelButton: '退出向导',
+                        okButton: '✅ 通过并创建标签',
+                        cancelButton: '❌ 不通过 / 跳过',
                         wide: true,
                         onOpen: (popup) => {
                             const dlg = popup.dlg;
@@ -3989,11 +4000,7 @@
                                 dlg.style.maxWidth = '480px';
                             }
 
-                            const skipBtn = dlg.querySelector('#wizard-skip-btn');
-                            const approveBtn = dlg.querySelector('#wizard-approve-btn');
-                            const passAllBtn = dlg.querySelector('#wizard-pass-all-btn');
                             const loadMoreBtn = dlg.querySelector('#wizard-load-more-btn');
-
                             if (loadMoreBtn) {
                                 loadMoreBtn.addEventListener('click', (e) => {
                                     e.preventDefault();
@@ -4010,69 +4017,72 @@
                                 });
                             }
 
-                            const createTagAndSave = (cItem, tagName, selectedThemes) => {
-                                if (!selectedThemes || selectedThemes.length === 0) return false;
-                                let tags = loadThemeTags();
-
-                                let tagObj = tags.find(t => t.name.toLowerCase() === tagName.toLowerCase());
-                                if (!tagObj) {
-                                    tagObj = {
-                                        id: 'tag_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-                                        name: tagName,
-                                        parentId: parentId || null,
-                                        themes: [],
-                                        keywords: [tagName]
-                                    };
-                                    tags.push(tagObj);
-                                } else {
-                                    if (parentId && !tagObj.parentId) tagObj.parentId = parentId;
-                                    if (!tagObj.keywords) tagObj.keywords = [];
-                                    if (!tagObj.keywords.includes(tagName)) tagObj.keywords.push(tagName);
-                                }
-
-                                if (!tagObj.themes) tagObj.themes = [];
-                                selectedThemes.forEach(tn => {
-                                    if (!tagObj.themes.includes(tn)) tagObj.themes.push(tn);
+                            const passAllBtn = dlg.querySelector('#wizard-pass-all-btn');
+                            if (passAllBtn) {
+                                passAllBtn.addEventListener('click', (e) => {
+                                    e.preventDefault();
+                                    actionTaken = 'pass_all';
+                                    popup.close();
                                 });
-
-                                saveThemeTags(tags);
-                                return true;
-                            };
-
-                            skipBtn.addEventListener('click', (e) => {
-                                e.preventDefault();
-                                popup.close();
-                                setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount, assignedThemesCount), 100);
-                            });
-
-                            approveBtn.addEventListener('click', (e) => {
-                                e.preventDefault();
-                                const tagName = (dlg.querySelector('#wizard-tag-name-input').value || candidate.keyword).trim();
-                                const selectedThemes = Array.from(dlg.querySelectorAll('.wizard-theme-chk:checked')).map(cb => cb.value);
-
-                                if (!tagName) { toastr.warning('标签名称不能为空'); return; }
-                                if (selectedThemes.length === 0) { toastr.warning('请至少勾选一个美化主题'); return; }
-
-                                const success = createTagAndSave(candidate, tagName, selectedThemes);
-                                popup.close();
-                                setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount + (success ? 1 : 0), assignedThemesCount + selectedThemes.length), 100);
-                            });
-
-                            passAllBtn.addEventListener('click', (e) => {
-                                e.preventDefault();
-                                let passCount = 0;
-                                for (let i = currentIndex; i < candidates.length; i++) {
-                                    const c = candidates[i];
-                                    const success = createTagAndSave(c, c.keyword, c.themes);
-                                    if (success) passCount++;
-                                }
-                                popup.close();
-                                renderTagsUI();
-                                updateActiveState();
-                                toastr.success(`🎉 分组向导完成！共自动生成并挂载了 ${createdTagsCount + passCount} 个标签分类。`);
-                            });
+                            }
                         }
                     });
+
+                    const createTagAndSave = (cItem, tagName, themesList) => {
+                        if (!themesList || themesList.length === 0) return false;
+                        let tags = loadThemeTags();
+
+                        let tagObj = tags.find(t => t.name.toLowerCase() === tagName.toLowerCase());
+                        if (!tagObj) {
+                            tagObj = {
+                                id: 'tag_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+                                name: tagName,
+                                parentId: parentId || null,
+                                themes: [],
+                                keywords: [tagName]
+                            };
+                            tags.push(tagObj);
+                        } else {
+                            if (parentId && !tagObj.parentId) tagObj.parentId = parentId;
+                            if (!tagObj.keywords) tagObj.keywords = [];
+                            if (!tagObj.keywords.includes(tagName)) tagObj.keywords.push(tagName);
+                        }
+
+                        if (!tagObj.themes) tagObj.themes = [];
+                        themesList.forEach(tn => {
+                            if (!tagObj.themes.includes(tn)) tagObj.themes.push(tn);
+                        });
+
+                        saveThemeTags(tags);
+                        return true;
+                    };
+
+                    if (actionTaken === 'pass_all') {
+                        let passCount = 0;
+                        for (let i = currentIndex; i < candidates.length; i++) {
+                            const c = candidates[i];
+                            const success = createTagAndSave(c, c.keyword, c.themes);
+                            if (success) passCount++;
+                        }
+                        renderTagsUI();
+                        updateActiveState();
+                        toastr.success(`🎉 分组向导完成！共自动生成并挂载了 ${createdTagsCount + passCount} 个标签分类。`);
+                        return;
+                    }
+
+                    if (popupRes) {
+                        // 用户点击了 '✅ 通过并创建标签'
+                        const tagNameInput = document.querySelector('#wizard-tag-name-input');
+                        const tagName = (tagNameInput ? tagNameInput.value : candidate.keyword).trim() || candidate.keyword;
+                        const checkedThemes = Array.from(document.querySelectorAll('.wizard-theme-chk:checked')).map(cb => cb.value);
+                        const finalThemes = checkedThemes.length > 0 ? checkedThemes : candidate.themes;
+
+                        const success = createTagAndSave(candidate, tagName, finalThemes);
+                        setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount + (success ? 1 : 0), assignedThemesCount + finalThemes.length), 60);
+                    } else {
+                        // 用户点击了 '❌ 不通过 / 跳过'
+                        setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount, assignedThemesCount), 60);
+                    }
                 }
 
                 async function openManageTagsPopup() {
