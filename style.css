@@ -60,8 +60,7 @@
     border-radius: 8px;
     width: 100%;
     box-sizing: border-box;
-    flex-basis: 100% !important;
-    max-width: none !important;
+    min-width: 0 !important;
 }
 
 #theme-manager-header {
