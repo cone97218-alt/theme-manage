@@ -2229,21 +2229,30 @@
                         let tagsToUpdate = loadThemeTags();
 
                         const renameTasks = [];
+                        const usedNewNames = new Set();
 
                         for (const oldName of selectedForBatch) {
-                            let themeObject = allThemeObjectsMap.get(oldName) || currentThemes.find(t => t.name === oldName || t.name === oldName.replace(/\[.*?\]/g, '').trim());
+                            let themeObject = allThemeObjectsMap.get(oldName) || allParsedThemesMap.get(oldName);
+                            if (!themeObject && Array.isArray(currentThemes)) {
+                                const cleanReqName = oldName.replace(/[\[\]【】（）()《》<>]/g, '').trim();
+                                themeObject = currentThemes.find(t => t && (
+                                    t.name === oldName || t.name === cleanReqName ||
+                                    t.value === oldName || t.value === cleanReqName
+                                ));
+                            }
                             if (!themeObject) {
-                                console.warn(`批量操作：在API返回与内存中未找到主题 "${oldName}"，使用极简降级对象。`);
                                 themeObject = { name: oldName };
                             }
+
                             const newName = renameLogic(oldName);
                             if (!newName || !newName.trim()) {
                                 skippedCount++;
                                 continue;
                             }
-                            if (currentThemes.some(t => t.name === newName && t.name !== oldName)) {
-                                console.warn(`批量操作：目标名称 "${newName}" 已存在，已跳过 "${oldName}"。`);
-                                toastr.warning(`主题 "${newName}" 已存在，跳过重命名。`);
+
+                            if (usedNewNames.has(newName) || currentThemes.some(t => t.name === newName && t.name !== oldName)) {
+                                console.warn(`批量操作：目标名称 "${newName}" 已存在或内部冲突，已跳过 "${oldName}"。`);
+                                toastr.warning(`主题名称 "${newName}" 冲突，已跳过。`);
                                 skippedCount++;
                                 continue;
                             }
@@ -2253,21 +2262,19 @@
                                 continue;
                             }
 
+                            usedNewNames.add(newName);
                             renameTasks.push({ oldName, newName, themeObject });
                         }
 
                         if (renameTasks.length > 0) {
-                            // 提升并发限制为 10，实现极速并发保存与删除
                             const results = await limitConcurrency(10, renameTasks, async ({ oldName, newName, themeObject }) => {
                                 const baseObj = allThemeObjectsMap.get(oldName) || themeObject || { name: oldName };
                                 const newThemeObject = { ...baseObj, name: newName };
-                                // 1. 先保存新主题文件
-                                try {
-                                    await saveTheme(newThemeObject);
-                                } catch (saveErr) {
-                                    console.error(`[Theme Manager] 重命名保存新主题 "${newName}" 异常:`, saveErr);
-                                }
-                                // 2. 尝试擦除旧主题物理文件
+
+                                // 1. 保存新主题文件（保存失败则直接抛错中断，不执行旧文件删除）
+                                await saveTheme(newThemeObject);
+
+                                // 2. 擦除旧主题物理文件
                                 try {
                                     await deleteTheme(oldName, baseObj);
                                 } catch (delErr) {
