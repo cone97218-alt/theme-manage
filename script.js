@@ -381,7 +381,7 @@
 
                     let isDeletedOnDisk = false;
 
-                    // 使用 ST 原生删除接口 fetch('/api/themes/delete')
+                    // 直接采用 SillyTavern 原生主题删除接口 fetch('/api/themes/delete')
                     await Promise.all(candidates.map(async candidateName => {
                         try {
                             const response = await fetch('/api/themes/delete', {
@@ -389,10 +389,9 @@
                                 headers: getRequestHeaders(),
                                 body: JSON.stringify({ name: candidateName }),
                             });
-                            // HTTP 200 (物理删除成功) 或 HTTP 404 (磁盘上本就已不存在该文件) 均符合预期
-                            if (response.ok || response.status === 404) {
+                            if (response.ok) {
                                 isDeletedOnDisk = true;
-                                console.log(`[Theme Manager Delete] ✅ 确认磁盘已无此文件: "${candidateName}.json" (HTTP ${response.status})`);
+                                console.log(`[Theme Manager Delete] ✅ ST 原生接口成功擦除磁盘文件: "${candidateName}.json"`);
                             } else {
                                 console.warn(`[Theme Manager Delete] ⚠️ 候选名 "${candidateName}" 返回 HTTP ${response.status}`);
                             }
@@ -442,6 +441,42 @@
                         }
                     }
                     return confirm(message);
+                }
+                async function promptAction(message, defaultValue = '') {
+                    if (typeof callGenericPopup === 'function') {
+                        try {
+                            const inputId = 'tm-prompt-input-' + Date.now();
+                            const res = await callGenericPopup(`
+                                <div style="text-align:left; padding:5px;">
+                                    <h3 style="margin:0 0 10px 0; color:var(--SmartThemeQuoteColor, #4a90e2); text-align:center;"><i class="fa-solid fa-pen" style="margin-right:6px;"></i>${escapeHtml(message)}</h3>
+                                    <input type="text" id="${inputId}" class="text_pole wide100p" value="${escapeHtml(defaultValue)}" placeholder="请输入新名称" style="margin-top:6px; box-sizing:border-box;">
+                                </div>
+                            `, 2, null, {
+                                okButton: '确认',
+                                cancelButton: '取消',
+                                wide: false,
+                                onOpen: (popup) => {
+                                    const dlg = popup.dlg;
+                                    if (dlg) {
+                                        dlg.style.width = '90%';
+                                        dlg.style.maxWidth = '380px';
+                                        const input = dlg.querySelector(`#${inputId}`);
+                                        if (input) {
+                                            setTimeout(() => { input.focus(); input.select(); }, 100);
+                                        }
+                                    }
+                                }
+                            });
+                            if (res === 1 || res === true || (res && res.result === 1)) {
+                                const inputEl = document.querySelector(`#${inputId}`);
+                                return inputEl ? inputEl.value : defaultValue;
+                            }
+                            return null;
+                        } catch (e) {
+                            console.warn('[Theme Manager] callGenericPopup 异常, 回退至 prompt:', e);
+                        }
+                    }
+                    return prompt(message, defaultValue);
                 }
 
                 // === 工具函数 ===
@@ -2227,11 +2262,11 @@
                                 } catch (saveErr) {
                                     console.error(`[Theme Manager] 重命名保存新主题 "${newName}" 异常:`, saveErr);
                                 }
-                                // 2. 尝试删除旧主题（传入 true 静默 404 弹窗，若后端不存在旧文件则忽略）
+                                // 2. 尝试擦除旧主题物理文件
                                 try {
-                                    await deleteTheme(oldName, true);
+                                    await deleteTheme(oldName, baseObj);
                                 } catch (delErr) {
-                                    console.warn(`[Theme Manager] 删除原主题 "${oldName}" 提示 (已静默):`, delErr);
+                                    console.warn(`[Theme Manager] 删除原主题 "${oldName}" 提示:`, delErr);
                                 }
                                 return { oldName, newName, newThemeObject };
                             });
@@ -4501,7 +4536,7 @@
                         }
                         else if (button && button.classList.contains('rename-btn')) {
                             const oldName = themeName;
-                            const newName = prompt(`请输入新名称：`, oldName);
+                            const newName = await promptAction(`请输入新名称：`, oldName);
                             if (newName && newName.trim() && newName.trim() !== oldName) {
                                 const finalNewName = newName.trim();
                                 // 检查新名称是否已存在
