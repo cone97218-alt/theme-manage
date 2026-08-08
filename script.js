@@ -3786,7 +3786,9 @@
                             </h4>
                             <div style="background:rgba(255,255,255,0.04); border-radius:6px; padding:12px; margin-bottom:14px; display:flex; flex-direction:column; gap:12px;">
                                 <div>
-                                    <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--SmartThemeQuoteColor, #4a90e2);">1. 选择分析的美化基数范围：</div>
+                                    <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:5px;">
+                                        <i class="fa-solid fa-layer-group"></i> 1. 选择分析的美化基数范围：
+                                    </div>
                                     <div style="display:flex; flex-direction:column; gap:6px; padding-left:8px;">
                                         <label style="display:inline-flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
                                             <input type="radio" name="tm-auto-scope" value="all" checked style="margin:0;">
@@ -3809,7 +3811,9 @@
                                 </div>
                                 <hr style="border:0; border-top:1px solid rgba(128,128,128,0.2); margin:0;">
                                 <div>
-                                    <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--SmartThemeQuoteColor, #4a90e2);">2. 选择生成标签的目标层级：</div>
+                                    <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:5px;">
+                                        <i class="fa-solid fa-sitemap"></i> 2. 选择生成标签的目标层级：
+                                    </div>
                                     <div style="display:flex; flex-direction:column; gap:6px; padding-left:8px;">
                                         <label style="display:inline-flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
                                             <input type="radio" name="tm-auto-level" value="l1" checked style="margin:0;">
@@ -3828,7 +3832,9 @@
                                 </div>
                                 <hr style="border:0; border-top:1px solid rgba(128,128,128,0.2); margin:0;">
                                 <div>
-                                    <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--SmartThemeQuoteColor, #4a90e2);">3. 提取门槛：</div>
+                                    <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:5px;">
+                                        <i class="fa-solid fa-filter"></i> 3. 提取门槛：
+                                    </div>
                                     <div style="display:inline-flex; align-items:center; gap:8px; font-size:12px; padding-left:8px;">
                                         <span>至少重合包含：</span>
                                         <input type="number" id="tm-auto-min-match" class="text_pole" value="2" min="2" max="50" style="width:55px; text-align:center; height:26px; padding:0; margin:0;">
@@ -3875,7 +3881,6 @@
                             });
 
                             const minMatchInput = dlg.querySelector('#tm-auto-min-match');
-                            const scopeTagSelect = dlg.querySelector('#tm-auto-scope-tag-select');
                             const parentSelect = dlg.querySelector('#tm-auto-parent-select');
 
                             dlg.addEventListener('change', () => {
@@ -3889,7 +3894,7 @@
                         }
                     });
 
-                    if (!popupRes) return; // 用户取消
+                    if (!popupRes) return;
 
                     showLoader();
                     setTimeout(() => {
@@ -3925,7 +3930,8 @@
                                 return;
                             }
 
-                            runAutoGroupReviewStep(candidates, 0, selectedLevel, parentId, 0, 0);
+                            // 启动审核向导，带空 historyStack 历史战报栈
+                            runAutoGroupReviewStep(candidates, 0, selectedLevel, parentId, 0, 0, []);
                         } catch (err) {
                             hideLoader();
                             console.error('分组提取失败:', err);
@@ -3934,12 +3940,13 @@
                     }, 150);
                 }
 
-                // === 分组向导 Step 2: 逐个审核通过/不通过 ===
-                async function runAutoGroupReviewStep(candidates, currentIndex, level, parentId, createdTagsCount, assignedThemesCount) {
+                // === 分组向导 Step 2: 逐个审核通过/不通过（支持中途停止、撤销回溯、静默更新） ===
+                async function runAutoGroupReviewStep(candidates, currentIndex, level, parentId, createdTagsCount, assignedThemesCount, historyStack = []) {
                     if (currentIndex >= candidates.length) {
+                        // 整体向导彻底结束后，仅执行一次 UI 刷排
                         renderTagsUI();
                         updateActiveState();
-                        toastr.success(`🎉 分组完成！共创建/更新了 ${createdTagsCount} 个标签分类。`);
+                        toastr.success(`🎉 分组向导已完成！共创建/更新了 ${createdTagsCount} 个标签分类。`);
                         return;
                     }
 
@@ -3952,23 +3959,27 @@
                     const wizardHtml = `
                         <div style="padding:4px;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid rgba(128,128,128,0.2); padding-bottom:8px;">
-                                <span style="font-weight:bold; font-size:13px; color:var(--SmartThemeQuoteColor, #4a90e2);">
-                                    <i class="fa-solid fa-list-check" style="margin-right:4px;"></i> 审核分组向导 (${currentIndex + 1} / ${candidates.length})
+                                <span style="font-weight:bold; font-size:13px; color:var(--SmartThemeQuoteColor, #4a90e2); display:inline-flex; align-items:center; gap:6px;">
+                                    <i class="fa-solid fa-list-check" style="color:#ffc107;"></i> 分组向导审核 (${currentIndex + 1} / ${candidates.length})
                                 </span>
                                 <span style="font-size:11px; padding:2px 8px; border-radius:10px; background:rgba(0,123,255,0.18); color:#4dabf7; font-weight:bold;">
-                                    ${targetLevelLabel}
+                                    <i class="fa-solid fa-sitemap" style="margin-right:4px;"></i>${targetLevelLabel}
                                 </span>
                             </div>
-                            <div style="background:rgba(255,255,255,0.04); padding:10px; border-radius:6px; margin-bottom:12px;">
+                            <div style="background:rgba(255,255,255,0.04); padding:10px; border-radius:6px; margin-bottom:10px;">
                                 <div style="font-size:13px; font-weight:bold; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
                                     <span style="display:inline-flex; align-items:center; gap:6px;">
                                         <i class="fa-solid fa-tag" style="color:#ffc107;"></i> 标签名称：
                                         <input type="text" id="wizard-tag-name-input" class="text_pole" value="${escapeHtml(candidate.keyword)}" style="display:inline-block; width:160px; height:26px; padding:2px 6px; font-size:13px; margin:0;">
                                     </span>
-                                    <span style="font-size:12px; font-weight:normal; opacity:0.8;">匹配 <b>${candidate.themes.length}</b> 个美化</span>
+                                    <span style="font-size:12px; font-weight:normal; opacity:0.8;">
+                                        <i class="fa-solid fa-layer-group" style="margin-right:3px;"></i> 匹配 <b>${candidate.themes.length}</b> 个美化
+                                    </span>
                                 </div>
-                                <div style="font-size:11px; opacity:0.7; margin-bottom:6px;">勾选下方需要纳入此标签的美化主题（美化可同时拥有多个标签）：</div>
-                                <div id="wizard-themes-container" style="max-height:170px; overflow-y:auto; background:rgba(0,0,0,0.15); padding:6px; border-radius:4px; display:flex; flex-direction:column; gap:4px;">
+                                <div style="font-size:11px; opacity:0.7; margin-bottom:6px; display:flex; align-items:center; gap:4px;">
+                                    <i class="fa-solid fa-tags"></i> 勾选需加入该标签的美化（支持多标签）：
+                                </div>
+                                <div id="wizard-themes-container" style="max-height:160px; overflow-y:auto; background:rgba(0,0,0,0.15); padding:6px; border-radius:4px; display:flex; flex-direction:column; gap:4px;">
                                     ${initialThemes.map(tName => `
                                         <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 6px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none;">
                                             <input type="checkbox" class="wizard-theme-chk" value="${escapeHtml(tName)}" checked style="margin:0;">
@@ -3980,8 +3991,14 @@
                                     ` : ''}
                                 </div>
                             </div>
-                            <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:8px;">
-                                <button id="wizard-pass-all-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px;" title="将其余候选全自动通过"><i class="fa-solid fa-forward"></i> 全部剩余通过</button>
+                            <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:wrap; margin-top:6px;">
+                                <div style="display:flex; gap:6px;">
+                                    ${historyStack.length > 0 ? `
+                                        <button id="wizard-undo-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px; background:rgba(255,193,7,0.2) !important; color:#ffc107 !important;" title="撤销上一步操作并重写上个卡片"><i class="fa-solid fa-rotate-left"></i> 上一步</button>
+                                    ` : ''}
+                                    <button id="wizard-stop-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px; background:rgba(220,53,69,0.2) !important; color:#ff8888 !important;" title="结束向导并保存当前已建立的分组"><i class="fa-solid fa-circle-stop"></i> 结束向导</button>
+                                </div>
+                                <button id="wizard-pass-all-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px; background:rgba(0,123,255,0.2) !important; color:#4dabf7 !important;" title="将其余候选全自动通过"><i class="fa-solid fa-forward-fast"></i> 全部剩余通过</button>
                             </div>
                         </div>
                     `;
@@ -4017,6 +4034,24 @@
                                 });
                             }
 
+                            const undoBtn = dlg.querySelector('#wizard-undo-btn');
+                            if (undoBtn) {
+                                undoBtn.addEventListener('click', (e) => {
+                                    e.preventDefault();
+                                    actionTaken = 'undo';
+                                    popup.close();
+                                });
+                            }
+
+                            const stopBtn = dlg.querySelector('#wizard-stop-btn');
+                            if (stopBtn) {
+                                stopBtn.addEventListener('click', (e) => {
+                                    e.preventDefault();
+                                    actionTaken = 'stop';
+                                    popup.close();
+                                });
+                            }
+
                             const passAllBtn = dlg.querySelector('#wizard-pass-all-btn');
                             if (passAllBtn) {
                                 passAllBtn.addEventListener('click', (e) => {
@@ -4028,12 +4063,15 @@
                         }
                     });
 
-                    const createTagAndSave = (cItem, tagName, themesList) => {
-                        if (!themesList || themesList.length === 0) return false;
+                    // 辅助函数：保存/更新标签但不重刷全量 DOM
+                    const createTagAndSaveSilent = (cItem, tagName, themesList) => {
+                        if (!themesList || themesList.length === 0) return { success: false, isNew: false };
                         let tags = loadThemeTags();
 
+                        let isNew = false;
                         let tagObj = tags.find(t => t.name.toLowerCase() === tagName.toLowerCase());
                         if (!tagObj) {
+                            isNew = true;
                             tagObj = {
                                 id: 'tag_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
                                 name: tagName,
@@ -4054,15 +4092,49 @@
                         });
 
                         saveThemeTags(tags);
-                        return true;
+                        return { success: true, isNew: isNew, tagId: tagObj.id };
                     };
 
+                    // 1. 中途撤销上一步 (Rollback History)
+                    if (actionTaken === 'undo') {
+                        if (historyStack.length > 0) {
+                            const lastStep = historyStack.pop();
+                            if (lastStep.action === 'approve' && lastStep.addedThemes && lastStep.addedThemes.length > 0) {
+                                let tags = loadThemeTags();
+                                const tagObj = tags.find(t => t.name.toLowerCase() === lastStep.tagName.toLowerCase());
+                                if (tagObj && tagObj.themes) {
+                                    const removeSet = new Set(lastStep.addedThemes);
+                                    tagObj.themes = tagObj.themes.filter(tn => !removeSet.has(tn));
+                                    if (tagObj.themes.length === 0 && lastStep.isNew) {
+                                        const idx = tags.indexOf(tagObj);
+                                        if (idx > -1) tags.splice(idx, 1);
+                                    }
+                                    saveThemeTags(tags);
+                                }
+                            }
+                            const newCreatedCount = Math.max(0, createdTagsCount - (lastStep.action === 'approve' ? 1 : 0));
+                            setTimeout(() => runAutoGroupReviewStep(candidates, lastStep.currentIndex, level, parentId, newCreatedCount, assignedThemesCount, historyStack), 50);
+                        } else {
+                            setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex, level, parentId, createdTagsCount, assignedThemesCount, historyStack), 50);
+                        }
+                        return;
+                    }
+
+                    // 2. 中途停止向导
+                    if (actionTaken === 'stop') {
+                        renderTagsUI();
+                        updateActiveState();
+                        toastr.info(`⏹️ 分组向导已停止。已为您生成并保存了 ${createdTagsCount} 个标签分类。`);
+                        return;
+                    }
+
+                    // 3. 全部剩余自动通过
                     if (actionTaken === 'pass_all') {
                         let passCount = 0;
                         for (let i = currentIndex; i < candidates.length; i++) {
                             const c = candidates[i];
-                            const success = createTagAndSave(c, c.keyword, c.themes);
-                            if (success) passCount++;
+                            const res = createTagAndSaveSilent(c, c.keyword, c.themes);
+                            if (res.success) passCount++;
                         }
                         renderTagsUI();
                         updateActiveState();
@@ -4070,6 +4142,7 @@
                         return;
                     }
 
+                    // 4. 标准用户按键分支 (通过 vs 跳过)
                     if (popupRes) {
                         // 用户点击了 '✅ 通过并创建标签'
                         const tagNameInput = document.querySelector('#wizard-tag-name-input');
@@ -4077,11 +4150,28 @@
                         const checkedThemes = Array.from(document.querySelectorAll('.wizard-theme-chk:checked')).map(cb => cb.value);
                         const finalThemes = checkedThemes.length > 0 ? checkedThemes : candidate.themes;
 
-                        const success = createTagAndSave(candidate, tagName, finalThemes);
-                        setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount + (success ? 1 : 0), assignedThemesCount + finalThemes.length), 60);
+                        const saveRes = createTagAndSaveSilent(candidate, tagName, finalThemes);
+
+                        historyStack.push({
+                            currentIndex: currentIndex,
+                            action: 'approve',
+                            tagName: tagName,
+                            addedThemes: finalThemes,
+                            isNew: saveRes.isNew
+                        });
+
+                        setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount + (saveRes.success ? 1 : 0), assignedThemesCount + finalThemes.length, historyStack), 50);
                     } else {
                         // 用户点击了 '❌ 不通过 / 跳过'
-                        setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount, assignedThemesCount), 60);
+                        historyStack.push({
+                            currentIndex: currentIndex,
+                            action: 'skip',
+                            tagName: candidate.keyword,
+                            addedThemes: [],
+                            isNew: false
+                        });
+
+                        setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount, assignedThemesCount, historyStack), 50);
                     }
                 }
 
