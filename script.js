@@ -201,6 +201,15 @@
                 const TWO_LINE_LAYOUT_KEY = 'themeManager_twoLineLayout';
                 const HIDE_TAG_PILLS_KEY = 'themeManager_hideTagPills';
 
+                let autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || {
+                    enabled: false,
+                    enableManualToggle: false,
+                    mode: 'system',
+                    dayStart: '06:00',
+                    nightStart: '18:00',
+                    dayTarget: '',
+                    nightTarget: ''
+                };
                 let isTwoLineLayout = localStorage.getItem(TWO_LINE_LAYOUT_KEY) === 'true';
                 let hideTagPills = localStorage.getItem(HIDE_TAG_PILLS_KEY) === 'true';
                 if (isTwoLineLayout && hideTagPills) {
@@ -6278,15 +6287,6 @@
                 // ==========================================================
                 // ======================= Auto Theme Switcher =========================
                 // ==========================================================
-                let autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || {
-                    enabled: false,
-                    enableManualToggle: false,
-                    mode: 'system',
-                    dayStart: '06:00',
-                    nightStart: '18:00',
-                    dayTarget: '',
-                    nightTarget: ''
-                };
                 let autoThemeCheckInterval = null;
 
                 function executeManualThemeToggle() {
