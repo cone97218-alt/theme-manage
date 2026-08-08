@@ -857,43 +857,37 @@
     flex-shrink: 0 !important;
 }
 
-/* 换行排版模式（换 2 行：第 1 行主题名；第 2 行标签与按键，按键右对齐） */
-.two-line-layout .theme-item,
+/* 换行排版模式（美化名单独第 1 行，标签与按钮合占第 2 行，按钮靠右对齐） */
+.theme-content.two-line-layout .theme-item,
 .theme-item.two-line-layout {
-    display: flex !important;
     flex-wrap: wrap !important;
-    padding: 6px 10px !important;
-    gap: 4px 0 !important;
-    align-items: center !important;
+    padding: 8px 10px !important;
+    gap: 4px 8px !important;
 }
 
-.two-line-layout .theme-item-name,
+/* 第 1 行：美化名称独占一行 */
+.theme-content.two-line-layout .theme-item-name,
 .theme-item.two-line-layout .theme-item-name {
     width: 100% !important;
     flex: 0 0 100% !important;
     max-width: 100% !important;
+    font-size: inherit !important;
     display: flex !important;
-    flex-wrap: wrap !important;
     align-items: center !important;
+    justify-content: space-between !important;
     margin-bottom: 2px !important;
 }
 
-.two-line-layout .theme-item-name-text,
-.theme-item.two-line-layout .theme-item-name-text {
-    font-size: inherit !important;
-    font-weight: normal !important;
-}
-
-.two-line-layout .theme-item-tags,
+/* 第 2 行：标签在左侧，按键在右侧 (右对齐) */
+.theme-content.two-line-layout .theme-item-tags,
 .theme-item.two-line-layout .theme-item-tags {
-    margin-left: 0 !important;
     margin-right: auto !important;
     display: inline-flex !important;
-    align-items: center !important;
+    flex-wrap: wrap !important;
     gap: 4px !important;
 }
 
-.two-line-layout .theme-item-buttons,
+.theme-content.two-line-layout .theme-item-buttons,
 .theme-item.two-line-layout .theme-item-buttons {
     margin-left: auto !important;
     margin-right: 0 !important;

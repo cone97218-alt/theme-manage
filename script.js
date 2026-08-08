@@ -1159,7 +1159,6 @@
                                 <button id="tm-toggle-color-transfer-btn" class="menu_button" title="开启/禁用提取配色功能"><i class="fa-solid fa-palette"></i> 配色</button>
                                 <button id="tm-toggle-daynight-binding-btn" class="menu_button" title="显示/隐藏卡片日夜绑定按钮"><i class="fa-solid fa-circle-half-stroke"></i> 日夜</button>
                                 <button id="tm-toggle-replace-avatar-btn" class="menu_button" title="显示/隐藏详情页替换按键"><i class="fa-solid fa-check"></i> 替换</button>
-                                <button id="tm-toggle-twoline-layout-btn" class="menu_button" title="美化名单独占一行，标签与功能图标另起一行排版"><i class="fa-solid fa-align-left"></i> 排版</button>
                                 <button id="manage-tags-btn" class="menu_button" title="管理标签"><i class="fa-solid fa-tags"></i> 标签</button>
                                 <button id="tm-auto-group-btn" class="menu_button" style="background: rgba(0, 123, 255, 0.18) !important; color: #4dabf7 !important; border: 1px solid rgba(0, 123, 255, 0.3) !important;" title="自动提取美化名中的共同词组并向导生成标签/分类"><i class="fa-solid fa-wand-magic-sparkles"></i> 分组</button>
                                 <button id="tm-export-settings-btn" class="menu_button" title="导出配置文件"><i class="fa-solid fa-file-export"></i> 导出</button>
@@ -1720,17 +1719,14 @@
                         <div class="theme-item-name">
                             <span class="theme-item-name-text"></span><span class="theme-usage-count" style="display:none;"></span>
                         </div>
-                        <div class="theme-item-sub-row">
-                            <div class="theme-item-tags" style="display:none;"></div>
-                            <div class="theme-item-buttons">
-                                <button class="set-tag-btn" title="分类标签"><i class="fa-solid fa-tags"></i></button>
-                                <button class="link-bg-btn" title="关联背景图"><i class="fa-solid fa-link"></i></button>
-                                <button class="link-daynight-btn" title="绑定日夜美化"><i class="fa-solid fa-circle-half-stroke"></i></button>
-                                <button class="favorite-btn" title="收藏"><i class="fa-regular fa-star"></i></button>
-                                <button class="color-transfer-btn" title="提取配色" style="display:none;"><i class="fa-solid fa-palette"></i></button>
-                                <button class="rename-btn" title="重命名"><i class="fa-solid fa-pen"></i></button>
-                                <button class="delete-btn" title="删除"><i class="fa-solid fa-trash-can"></i></button>
-                            </div>
+                        <div class="theme-item-buttons">
+                            <button class="set-tag-btn" title="分类标签"><i class="fa-solid fa-tags"></i></button>
+                            <button class="link-bg-btn" title="关联背景图"><i class="fa-solid fa-link"></i></button>
+                            <button class="link-daynight-btn" title="绑定日夜美化"><i class="fa-solid fa-circle-half-stroke"></i></button>
+                            <button class="favorite-btn" title="收藏"><i class="fa-regular fa-star"></i></button>
+                            <button class="color-transfer-btn" title="提取配色" style="display:none;"><i class="fa-solid fa-palette"></i></button>
+                            <button class="rename-btn" title="重命名"><i class="fa-solid fa-pen"></i></button>
+                            <button class="delete-btn" title="删除"><i class="fa-solid fa-trash-can"></i></button>
                         </div>`;
                     _themeItemTemplate = tpl;
                     return tpl;
@@ -1743,10 +1739,8 @@
 
                     const nameDiv = item.children[0];
                     const nameSpan = nameDiv.children[0];
-                    const usageSpan = nameDiv.children[1];
-                    const subRowDiv = item.children[1];
-                    const tagsDiv = subRowDiv.children[0];
-                    const buttonsDiv = subRowDiv.children[1];
+                    const usageSpan = nameDiv.children[1]; // .theme-usage-count
+                    const buttonsDiv = item.children[1]; // item level: nameDiv=0, buttonsDiv=1
                     const setTagBtn = buttonsDiv.children[0];
                     const linkBgBtn = buttonsDiv.children[1];
                     const linkDaynightBtn = buttonsDiv.children[2];
@@ -1772,22 +1766,18 @@
 
                     // 设置标签药丸
                     if (theme.tags && theme.tags.length > 0) {
-                        tagsDiv.innerHTML = '';
-                        let hasTags = false;
+                        const tagsDiv = document.createElement('div');
+                        tagsDiv.className = 'theme-item-tags';
                         theme.tags.forEach(tagId => {
                             const tagObj = tagsMap.get(tagId);
                             if (tagObj) {
-                                hasTags = true;
                                 const pill = document.createElement('span');
                                 pill.className = 'theme-item-tag-pill';
                                 pill.textContent = tagObj.name;
                                 tagsDiv.appendChild(pill);
                             }
                         });
-                        tagsDiv.style.display = hasTags ? 'flex' : 'none';
-                    } else {
-                        tagsDiv.style.display = 'none';
-                        tagsDiv.innerHTML = '';
+                        nameDiv.appendChild(tagsDiv);
                     }
 
                     // 设置收藏状态
@@ -2080,25 +2070,25 @@
                         const theme = allParsedThemesMap.get(themeName);
                         if (!theme) continue;
 
-                        const tagsDiv = item.querySelector('.theme-item-tags');
-                        if (tagsDiv) {
-                            tagsDiv.innerHTML = '';
-                            if (theme.tags && theme.tags.length > 0) {
-                                let hasTags = false;
-                                theme.tags.forEach(tagId => {
-                                    const tagObj = tagsById.get(tagId);
-                                    if (tagObj) {
-                                        hasTags = true;
-                                        const pill = document.createElement('span');
-                                        pill.className = 'theme-item-tag-pill';
-                                        pill.textContent = tagObj.name;
-                                        tagsDiv.appendChild(pill);
-                                    }
-                                });
-                                tagsDiv.style.display = hasTags ? 'flex' : 'none';
-                            } else {
-                                tagsDiv.style.display = 'none';
-                            }
+                        // 移除旧标签
+                        const nameDiv = item.children[0];
+                        const oldTagsDiv = nameDiv.querySelector('.theme-item-tags');
+                        if (oldTagsDiv) oldTagsDiv.remove();
+
+                        // 添加新标签
+                        if (theme.tags && theme.tags.length > 0) {
+                            const tagsDiv = document.createElement('div');
+                            tagsDiv.className = 'theme-item-tags';
+                            theme.tags.forEach(tagId => {
+                                const tagObj = tagsById.get(tagId); // O(1) 查找
+                                if (tagObj) {
+                                    const pill = document.createElement('span');
+                                    pill.className = 'theme-item-tag-pill';
+                                    pill.textContent = tagObj.name;
+                                    tagsDiv.appendChild(pill);
+                                }
+                            });
+                            nameDiv.appendChild(tagsDiv);
                         }
                     }
 
@@ -2795,6 +2785,11 @@
                     syncDiskBtn.addEventListener('click', () => hardResyncThemes(true));
                 }
 
+                const autoGroupBtn = managerPanel.querySelector('#tm-auto-group-btn');
+                if (autoGroupBtn) {
+                    autoGroupBtn.addEventListener('click', () => openAutoGroupWizard());
+                }
+
                 const twoLineBtn = managerPanel.querySelector('#tm-toggle-twoline-layout-btn');
                 if (twoLineBtn) {
                     if (isTwoLineLayout) twoLineBtn.classList.add('active');
@@ -2803,20 +2798,7 @@
                         localStorage.setItem(TWO_LINE_LAYOUT_KEY, isTwoLineLayout ? 'true' : 'false');
                         twoLineBtn.classList.toggle('active', isTwoLineLayout);
                         if (contentWrapper) contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
-                        toastr.info(isTwoLineLayout ? '已开启换行排版模式（美化名单独占一行）' : '已恢复单行排版模式');
-                    });
-                }
-                const autoGroupBtn = managerPanel.querySelector('#tm-auto-group-btn');
-                if (autoGroupBtn) {
-                    autoGroupBtn.addEventListener('click', () => openAutoGroupWizard());
-                }
-
-                const twoLineChk = managerPanel.querySelector('#tm-twoline-layout-chk');
-                if (twoLineChk) {
-                    twoLineChk.addEventListener('change', () => {
-                        isTwoLineLayout = twoLineChk.checked;
-                        localStorage.setItem(TWO_LINE_LAYOUT_KEY, isTwoLineLayout ? 'true' : 'false');
-                        if (contentWrapper) contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
+                        toastr.info(`美化列表已切换为: ${isTwoLineLayout ? '换行排版模式' : '常规单行模式'}`);
                     });
                 }
 
@@ -3934,13 +3916,11 @@
 
                     const popupRes = await callGenericPopup(setupHtml, 'confirm', null, {
                         title: '分组提取设置',
-                        okButton: '<i class="fa-solid fa-play"></i> 开始分析提取',
-                        cancelButton: '<i class="fa-solid fa-xmark"></i> 取消',
+                        okButton: '▶ 开始分析提取',
+                        cancelButton: '✕ 取消',
                         wide: true,
                         onOpen: (popup) => {
-                            const dlg = getPopupContainer(popup);
-                            let isBatchDeleteMode = false;
-                            const selectedBatchTagIds = new Set();
+                            const dlg = popup.dlg;
                             if (dlg) {
                                 dlg.style.width = '80vw';
                                 dlg.style.height = '80vh';
@@ -4094,8 +4074,8 @@
 
                     const popupRes = await callGenericPopup(wizardHtml, 'confirm', null, {
                         title: `美化分组审核 (${currentIndex + 1}/${candidates.length})`,
-                        okButton: '<i class="fa-solid fa-check"></i> 通过并创建/合并',
-                        cancelButton: '<i class="fa-solid fa-xmark"></i> 不通过 / 跳过',
+                        okButton: '✔ 通过并创建/合并',
+                        cancelButton: '✖ 不通过 / 跳过',
                         wide: true,
                         onOpen: (popup) => {
                             const dlg = popup.dlg;
@@ -4278,40 +4258,11 @@
                     }
                 }
 
-                
-
-function getPopupContainer(popup) {
-    if (!popup) return document;
-    if (popup.dlg) {
-        if (popup.dlg instanceof Element) return popup.dlg;
-        if (popup.dlg[0] instanceof Element) return popup.dlg[0];
-        if (typeof popup.dlg.find === 'function') return popup.dlg[0] || document;
-    }
-    if (popup instanceof Element) return popup;
-    if (popup[0] instanceof Element) return popup[0];
-    if (typeof popup.find === 'function') return popup[0] || document;
-    return document;
-}
-
-function normalizeTagHierarchy(tags) {
-    if (!Array.isArray(tags)) return [];
-    tags.forEach((t, idx) => {
-        if (!t.id) t.id = 'tag_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
-    });
-    const validIds = new Set(tags.map(t => String(t.id)));
-    // 自动修复孤立子标签：若 parentId 指向的父级标签不存在，则自动提升为一级主标签
-    tags.forEach(t => {
-        if (t.parentId && (!validIds.has(String(t.parentId)) || String(t.parentId) === String(t.id))) {
-            t.parentId = null;
-        }
-    });
-    return tags;
-}
-
-async function openManageTagsPopup() {
-                    invalidateTagsCache();
-                    let tags = normalizeTagHierarchy(loadThemeTags());
+                async function openManageTagsPopup() {
+                    let tags = loadThemeTags();
                     let subtagsEnabled = isSubtagsEnabled();
+                    let isBatchDeleteMode = false;
+                    const selectedTagIds = new Set();
 
                     let popupHtml = `
                         <div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; border-bottom:1px solid rgba(128,128,128,0.2); padding-bottom:10px;">
@@ -4319,7 +4270,20 @@ async function openManageTagsPopup() {
                                 <input type="checkbox" id="chk-enable-subtags" ${subtagsEnabled ? 'checked' : ''}>
                                 <span>开启二级目录模式</span> <small style="opacity:0.6; font-weight:normal;">(支持一级目录/二级标签)</small>
                             </label>
-                            <button id="tm-tags-batch-delete-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:3px 10px; height:28px; line-height:1; display:inline-flex; align-items:center; gap:4px; flex-shrink:0; white-space:nowrap; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; border:1px solid rgba(220,53,69,0.3) !important;"><i class="fa-solid fa-trash-can"></i> 批量删除</button>
+                            <div style="display:flex; gap:6px; align-items:center;">
+                                <button id="batch-delete-tags-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:2px 8px; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important;"><i class="fa-solid fa-trash-can"></i> 批量删除标签</button>
+                                <button id="modal-auto-group-btn" class="menu_button" style="margin:0; font-size:12px; padding:2px 8px; background:rgba(0,123,255,0.15) !important; color:#4dabf7 !important;"><i class="fa-solid fa-wand-magic-sparkles"></i> 智能提取分组</button>
+                            </div>
+                        </div>
+                        <div id="tm-batch-delete-bar" style="display:none; background:rgba(220,53,69,0.12); padding:8px 12px; border-radius:6px; margin-bottom:10px; justify-content:space-between; align-items:center; border:1px solid rgba(220,53,69,0.25);">
+                            <span style="font-size:12px; font-weight:bold; color:#ff8888;">
+                                <i class="fa-solid fa-list-check" style="margin-right:4px;"></i> 已勾选 <b id="tm-batch-tag-count">0</b> 个标签
+                            </span>
+                            <div style="display:flex; gap:6px;">
+                                <button id="tm-batch-tag-select-all" class="menu_button" style="margin:0; font-size:11px; padding:2px 6px;">全选</button>
+                                <button id="tm-confirm-batch-delete" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; background:rgba(220,53,69,0.3) !important; color:#ff8888 !important;" disabled><i class="fa-solid fa-trash"></i> 确认删除选中</button>
+                                <button id="tm-cancel-batch-delete" class="menu_button" style="margin:0; font-size:11px; padding:2px 6px;">退出批量</button>
+                            </div>
                         </div>
                         <div style="margin-bottom:15px; display:flex; gap:8px; align-items:center;">
                             <input type="text" id="new-tag-name" class="text_pole" placeholder="${subtagsEnabled ? '新一级标签名称...' : '新标签名称...'}" style="flex-grow:1; min-width:0;">
@@ -4343,26 +4307,19 @@ async function openManageTagsPopup() {
                                 const listContainer = dlg.querySelector('#tags-management-list');
                                 if (!listContainer) return;
 
-                                invalidateTagsCache();
-                                tags = normalizeTagHierarchy(loadThemeTags());
-
-                                if (!tags || tags.length === 0) {
-                                    listContainer.innerHTML = `<div style="text-align:center; padding:30px 10px; opacity:0.6; font-size:13px; background:rgba(255,255,255,0.02); border-radius:6px; margin:10px 0;">
-                                        <i class="fa-solid fa-tags" style="font-size:24px; margin-bottom:8px; display:block; color:var(--SmartThemeQuoteColor, #4a90e2);"></i>
-                                        暂无任何标签分类<br>
-                                        <small style="opacity:0.75;">请在上方输入名称并点击「${subtagsEnabled ? '+添加一级标签' : '+添加标签'}」，或在主界面使用「分组」向导生成分类。</small>
-                                    </div>`;
-                                    return;
-                                }
+                                const batchBar = dlg.querySelector('#tm-batch-delete-bar');
+                                if (batchBar) batchBar.style.display = isBatchDeleteMode ? 'flex' : 'none';
 
                                 if (!subtagsEnabled) {
                                     let html = '<ul style="list-style:none; padding:0; margin:0;">';
                                     tags.forEach((t, idx) => {
                                         const kwCount = t.keywords ? t.keywords.length : 0;
+                                        const isChecked = selectedTagIds.has(t.id);
                                         html += `
                                             <li class="tm-flat-tag-item" data-id="${t.id}" data-index="${idx}" style="display:flex; justify-content:space-between; padding:6px 8px; background:rgba(255,255,255,0.04); margin-bottom:4px; border-radius:4px; align-items:center;">
                                                 <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
-                                                    ${isBatchDeleteMode ? `<input type="checkbox" class="tm-tag-batch-chk" data-id="${t.id}" ${selectedBatchTagIds.has(t.id) ? 'checked' : ''} style="margin:0 4px 0 0; cursor:pointer;">` : ''}<i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
+                                                    ${isBatchDeleteMode ? `<input type="checkbox" class="tm-batch-tag-chk" data-id="${t.id}" ${isChecked ? 'checked' : ''} style="margin:0;">` : ''}
+                                                    <i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
                                                     <span style="word-break: break-all; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(t.name)}</span>
                                                     <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${t.themes ? t.themes.length : 0})</small>
                                                     ${kwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${kwCount}词]</small>` : ''}
@@ -4379,35 +4336,21 @@ async function openManageTagsPopup() {
                                     });
                                     html += '</ul>';
                                     listContainer.innerHTML = html;
-                                    listContainer.querySelectorAll('.tm-tag-batch-chk').forEach(chk => {
-                                        chk.addEventListener('change', (e) => {
-                                            const id = e.target.dataset.id;
-                                            if (e.target.checked) selectedBatchTagIds.add(id);
-                                            else selectedBatchTagIds.delete(id);
-                                            const btn = dlg.querySelector('#tm-tags-batch-delete-mode-btn');
-                                            if (btn && isBatchDeleteMode) {
-                                                btn.innerHTML = `<i class="fa-solid fa-check"></i> 确认删除已选 (${selectedBatchTagIds.size})`;
-                                            }
-                                        });
-                                    });
                                 } else {
                                     let html = '<div class="tm-subtags-tree">';
-                                    let l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
-                                    // 容错兜底：若开启了二级目录模式但所有标签均为孤立状态，强行修正为一级主标签展示，绝不漏显任何标签
-                                    if (l1Tags.length === 0 && tags.length > 0) {
-                                        tags.forEach(t => { t.parentId = null; });
-                                        l1Tags = tags;
-                                    }
+                                    const l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
 
                                     l1Tags.forEach((l1Tag, l1Idx) => {
                                         const kwCount = l1Tag.keywords ? l1Tag.keywords.length : 0;
                                         const childTags = tags.filter(t => t.parentId === l1Tag.id);
+                                        const isL1Checked = selectedTagIds.has(l1Tag.id);
 
                                         html += `
                                             <div class="tm-level1-card" data-id="${l1Tag.id}" data-index="${l1Idx}">
                                                 <div class="tm-level1-header" data-id="${l1Tag.id}">
                                                     <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
-                                                        ${isBatchDeleteMode ? `<input type="checkbox" class="tm-tag-batch-chk" data-id="${l1Tag.id}" ${selectedBatchTagIds.has(l1Tag.id) ? 'checked' : ''} style="margin:0 4px 0 0; cursor:pointer;">` : ''}<i class="fa-solid fa-folder-open" style="color:var(--SmartThemeQuoteColor, #4a90e2); flex-shrink:0;"></i>
+                                                        ${isBatchDeleteMode ? `<input type="checkbox" class="tm-batch-tag-chk" data-id="${l1Tag.id}" ${isL1Checked ? 'checked' : ''} style="margin:0;">` : ''}
+                                                        <i class="fa-solid fa-folder-open" style="color:var(--SmartThemeQuoteColor, #4a90e2); flex-shrink:0;"></i>
                                                         <span style="font-weight:bold; font-size:13px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(l1Tag.name)}</span>
                                                         <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(二级:${childTags.length}/主题:${l1Tag.themes ? l1Tag.themes.length : 0})</small>
                                                         ${kwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${kwCount}词]</small>` : ''}
@@ -4430,10 +4373,12 @@ async function openManageTagsPopup() {
                                         } else {
                                             childTags.forEach((cTag, cIdx) => {
                                                 const cKwCount = cTag.keywords ? cTag.keywords.length : 0;
+                                                const isL2Checked = selectedTagIds.has(cTag.id);
                                                 html += `
                                                     <div class="tm-level2-item" data-id="${cTag.id}" data-parent-id="${l1Tag.id}" data-index="${cIdx}">
                                                         <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
-                                                            ${isBatchDeleteMode ? `<input type="checkbox" class="tm-tag-batch-chk" data-id="${cTag.id}" ${selectedBatchTagIds.has(cTag.id) ? 'checked' : ''} style="margin:0 4px 0 0; cursor:pointer;">` : ''}<i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
+                                                            ${isBatchDeleteMode ? `<input type="checkbox" class="tm-batch-tag-chk" data-id="${cTag.id}" ${isL2Checked ? 'checked' : ''} style="margin:0;">` : ''}
+                                                            <i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
                                                             <span style="text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(cTag.name)}</span>
                                                             <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${cTag.themes ? cTag.themes.length : 0})</small>
                                                             ${cKwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${cKwCount}词]</small>` : ''}
@@ -4462,7 +4407,26 @@ async function openManageTagsPopup() {
                                 BindEvents();
                             };
 
-                            function BindEvents() {
+                            const updateBatchCount = () => {
+                                const countEl = dlg.querySelector('#tm-batch-tag-count');
+                                const confirmBtn = dlg.querySelector('#tm-confirm-batch-delete');
+                                if (countEl) countEl.textContent = selectedTagIds.size;
+                                if (confirmBtn) {
+                                    confirmBtn.disabled = selectedTagIds.size === 0;
+                                    confirmBtn.style.opacity = selectedTagIds.size === 0 ? '0.4' : '1';
+                                }
+                            };
+
+                            const BindEvents = () => {
+                                // 批量勾选事件
+                                dlg.querySelectorAll('.tm-batch-tag-chk').forEach(chk => {
+                                    chk.addEventListener('change', (e) => {
+                                        const id = e.target.dataset.id;
+                                        if (e.target.checked) selectedTagIds.add(id);
+                                        else selectedTagIds.delete(id);
+                                        updateBatchCount();
+                                    });
+                                });
                                 // 删除
                                 dlg.querySelectorAll('.delete-tag-inline').forEach(btn => {
                                     btn.addEventListener('click', (e) => {
@@ -4740,6 +4704,57 @@ async function openManageTagsPopup() {
                                 });
                             };
 
+                            const batchModeBtn = dlg.querySelector('#batch-delete-tags-mode-btn');
+                            if (batchModeBtn) {
+                                batchModeBtn.addEventListener('click', () => {
+                                    isBatchDeleteMode = !isBatchDeleteMode;
+                                    if (!isBatchDeleteMode) selectedTagIds.clear();
+                                    renderList();
+                                });
+                            }
+
+                            const batchSelectAllBtn = dlg.querySelector('#tm-batch-tag-select-all');
+                            if (batchSelectAllBtn) {
+                                batchSelectAllBtn.addEventListener('click', () => {
+                                    if (selectedTagIds.size === tags.length) {
+                                        selectedTagIds.clear();
+                                    } else {
+                                        tags.forEach(t => selectedTagIds.add(t.id));
+                                    }
+                                    renderList();
+                                    updateBatchCount();
+                                });
+                            }
+
+                            const cancelBatchDeleteBtn = dlg.querySelector('#tm-cancel-batch-delete');
+                            if (cancelBatchDeleteBtn) {
+                                cancelBatchDeleteBtn.addEventListener('click', () => {
+                                    isBatchDeleteMode = false;
+                                    selectedTagIds.clear();
+                                    renderList();
+                                });
+                            }
+
+                            const confirmBatchDeleteBtn = dlg.querySelector('#tm-confirm-batch-delete');
+                            if (confirmBatchDeleteBtn) {
+                                confirmBatchDeleteBtn.addEventListener('click', () => {
+                                    if (selectedTagIds.size === 0) return;
+                                    if (confirm(`确定要批量删除选中的 ${selectedTagIds.size} 个标签吗？(删除标签不会影响美化主题本身)`)) {
+                                        const removeSet = new Set(selectedTagIds);
+                                        tags.forEach(t => {
+                                            if (removeSet.has(t.parentId)) t.parentId = null;
+                                        });
+                                        tags = tags.filter(t => !removeSet.has(t.id));
+                                        saveThemeTags(tags);
+                                        selectedTagIds.clear();
+                                        isBatchDeleteMode = false;
+                                        renderList();
+                                        softRefreshUI();
+                                        toastr.success('已成功批量删除选中的标签！');
+                                    }
+                                });
+                            }
+
                             const chkSubtags = dlg.querySelector('#chk-enable-subtags');
                             if (chkSubtags) {
                                 chkSubtags.addEventListener('change', () => {
@@ -4768,44 +4783,6 @@ async function openManageTagsPopup() {
                                 renderList();
                                 softRefreshUI();
                             });
-
-                            const batchDeleteModeBtn = dlg.querySelector('#tm-tags-batch-delete-mode-btn');
-                            if (batchDeleteModeBtn) {
-                                batchDeleteModeBtn.addEventListener('click', async () => {
-                                    if (!isBatchDeleteMode) {
-                                        isBatchDeleteMode = true;
-                                        selectedBatchTagIds.clear();
-                                        batchDeleteModeBtn.innerHTML = `<i class="fa-solid fa-check"></i> 确认删除已选 (${selectedBatchTagIds.size})`;
-                                        batchDeleteModeBtn.style.cssText = 'margin:0; font-size:12px; padding:3px 10px; height:28px; line-height:1; display:inline-flex; align-items:center; gap:4px; flex-shrink:0; white-space:nowrap; background:rgba(40,167,69,0.25) !important; color:#72e48e !important; border:1px solid rgba(40,167,69,0.4) !important;';
-                                        renderList();
-                                    } else {
-                                        if (selectedBatchTagIds.size === 0) {
-                                            isBatchDeleteMode = false;
-                                            batchDeleteModeBtn.innerHTML = `<i class="fa-solid fa-trash-can"></i> 批量删除`;
-                                            batchDeleteModeBtn.style.cssText = 'margin:0; font-size:12px; padding:3px 10px; height:28px; line-height:1; display:inline-flex; align-items:center; gap:4px; flex-shrink:0; white-space:nowrap; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; border:1px solid rgba(220,53,69,0.3) !important;';
-                                            renderList();
-                                            return;
-                                        }
-                                        const confirmRes = await callGenericPopup(
-                                            `<div style="padding:6px; font-size:13px;">确定要批量删除所选的 <b>${selectedBatchTagIds.size}</b> 个标签分类吗？<br><small style="opacity:0.7;">（对于选中的一级分类，其归属的二级子标签也会一并删除）</small></div>`,
-                                            'confirm',
-                                            null,
-                                            { title: '确认批量删除标签', okButton: '确认删除', cancelButton: '取消' }
-                                        );
-                                        if (confirmRes) {
-                                            tags = tags.filter(t => !selectedBatchTagIds.has(t.id) && (!t.parentId || !selectedBatchTagIds.has(t.parentId)));
-                                            saveThemeTags(tags);
-                                            isBatchDeleteMode = false;
-                                            selectedBatchTagIds.clear();
-                                            batchDeleteModeBtn.innerHTML = `<i class="fa-solid fa-trash-can"></i> 批量删除`;
-                                            batchDeleteModeBtn.style.cssText = 'margin:0; font-size:12px; padding:3px 10px; height:28px; line-height:1; display:inline-flex; align-items:center; gap:4px; flex-shrink:0; white-space:nowrap; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; border:1px solid rgba(220,53,69,0.3) !important;';
-                                            renderList();
-                                            softRefreshUI([]);
-                                            toastr.success('已成功批量删除选定的标签！');
-                                        }
-                                    }
-                                });
-                            }
 
                             const applyMappingsBtn = dlg.querySelector('#apply-keyword-mappings-btn');
                             if (applyMappingsBtn) {
