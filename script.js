@@ -4053,7 +4053,7 @@
                     '美化', '主题', '预设', '整合', '重置', '修改', '修复', '最终', '完整', '通用', '版本', '备份', '副本', '版', '新'
                 ]);
 
-                function extractCandidateThemeGroups(themePool, minMatch = 2, targetLevel = 'l1', parentId = null) {
+                function extractCandidateThemeGroups(themePool, minMatch = 2, targetLevel = 'l1', parentId = null, maxCandidates = 200) {
                     const list = themePool || allParsedThemes || [];
                     const candidateMap = new Map(); // kw -> Set(themeValue)
 
@@ -4388,6 +4388,12 @@
                     });
 
                     if (!popupRes) return;
+
+                    const maxCandidatesSelectEl = document.querySelector('#tm-auto-max-candidates');
+                    if (maxCandidatesSelectEl) maxCandidates = parseInt(maxCandidatesSelectEl.value);
+
+                    const minMatchInputEl = document.querySelector('#tm-auto-min-match');
+                    if (minMatchInputEl) minMatch = parseInt(minMatchInputEl.value) || 2;
 
                     showLoader();
                     setTimeout(() => {
