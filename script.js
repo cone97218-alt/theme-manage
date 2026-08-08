@@ -4877,14 +4877,15 @@
                             </label>
                             <button id="batch-delete-tags-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:4px 12px; white-space:nowrap; word-break:keep-all; flex-shrink:0; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; display:inline-flex !important; flex-direction:row !important; align-items:center !important; justify-content:center !important; writing-mode:horizontal-tb !important; width:auto !important; height:auto !important; min-height:28px !important; gap:4px;"><i class="fa-solid fa-trash-can" style="margin-right:4px;"></i> 批量删除标签</button>
                         </div>
-                        <div id="tm-batch-delete-bar" style="display:none; background:rgba(220,53,69,0.12); padding:8px 12px; border-radius:6px; margin-bottom:10px; justify-content:space-between; align-items:center; border:1px solid rgba(220,53,69,0.25);">
-                            <span style="font-size:12px; font-weight:bold; color:#ff8888;">
-                                <i class="fa-solid fa-list-check" style="margin-right:4px;"></i> 已勾选 <b id="tm-batch-tag-count">0</b> 个标签
+                        <div id="tm-batch-delete-bar" style="display:none; background:rgba(220,53,69,0.12); padding:8px 12px; border-radius:6px; margin-bottom:10px; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; border:1px solid rgba(220,53,69,0.25); writing-mode:horizontal-tb !important;">
+                            <span style="font-size:12px; font-weight:bold; color:#ff8888; white-space:nowrap;">
+                                <i class="fa-solid fa-list-check" style="margin-right:4px;"></i> 已勾选 <b id="tm-batch-tag-count">0</b> / <span id="tm-batch-tag-total">0</span> 个标签 <small style="opacity:0.75; font-weight:normal; margin-left:6px;">(支持 Shift 键连选)</small>
                             </span>
-                            <div style="display:flex; gap:6px;">
-                                <button id="tm-batch-tag-select-all" class="menu_button" style="margin:0; font-size:11px; padding:2px 6px;">全选</button>
-                                <button id="tm-confirm-batch-delete" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; background:rgba(220,53,69,0.3) !important; color:#ff8888 !important;" disabled><i class="fa-solid fa-trash"></i> 确认删除选中</button>
-                                <button id="tm-cancel-batch-delete" class="menu_button" style="margin:0; font-size:11px; padding:2px 6px;">退出批量</button>
+                            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                                <button id="tm-batch-tag-select-all" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;"><i class="fa-solid fa-check-double"></i> 全选</button>
+                                <button id="tm-batch-tag-invert-select" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;"><i class="fa-solid fa-arrows-rotate"></i> 反选</button>
+                                <button id="tm-confirm-batch-delete" class="menu_button" style="margin:0; font-size:11px; padding:2px 10px; background:rgba(220,53,69,0.3) !important; color:#ff8888 !important; white-space:nowrap;" disabled><i class="fa-solid fa-trash"></i> 确认删除选中</button>
+                                <button id="tm-cancel-batch-delete" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;">退出批量</button>
                             </div>
                         </div>
                         <div style="margin-bottom:15px; display:flex; gap:8px; align-items:center;">
@@ -5009,10 +5010,14 @@
                                 BindEvents();
                             };
 
+                            let lastCheckedIdx = -1;
+
                             const updateBatchCount = () => {
                                 const countEl = dlg.querySelector('#tm-batch-tag-count');
+                                const totalEl = dlg.querySelector('#tm-batch-tag-total');
                                 const confirmBtn = dlg.querySelector('#tm-confirm-batch-delete');
                                 if (countEl) countEl.textContent = selectedTagIds.size;
+                                if (totalEl) totalEl.textContent = tags.length;
                                 if (confirmBtn) {
                                     confirmBtn.disabled = selectedTagIds.size === 0;
                                     confirmBtn.style.opacity = selectedTagIds.size === 0 ? '0.4' : '1';
@@ -5020,12 +5025,40 @@
                             };
 
                             const BindEvents = () => {
-                                // 批量勾选事件
-                                dlg.querySelectorAll('.tm-batch-tag-chk').forEach(chk => {
-                                    chk.addEventListener('change', (e) => {
-                                        const id = e.target.dataset.id;
-                                        if (e.target.checked) selectedTagIds.add(id);
-                                        else selectedTagIds.delete(id);
+                                // 批量勾选与 Shift 连选逻辑
+                                const allChks = Array.from(dlg.querySelectorAll('.tm-batch-tag-chk'));
+                                allChks.forEach((chk, idx) => {
+                                    chk.setAttribute('data-order-idx', idx);
+
+                                    chk.addEventListener('click', (e) => {
+                                        const id = chk.dataset.id;
+                                        const isChecked = chk.checked;
+
+                                        if (e.shiftKey && lastCheckedIdx !== -1) {
+                                            const start = Math.min(lastCheckedIdx, idx);
+                                            const end = Math.max(lastCheckedIdx, idx);
+
+                                            for (let i = start; i <= end; i++) {
+                                                const targetChk = allChks[i];
+                                                if (targetChk) {
+                                                    targetChk.checked = isChecked;
+                                                    const tid = targetChk.dataset.id;
+                                                    if (isChecked) {
+                                                        selectedTagIds.add(tid);
+                                                    } else {
+                                                        selectedTagIds.delete(tid);
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            if (isChecked) {
+                                                selectedTagIds.add(id);
+                                            } else {
+                                                selectedTagIds.delete(id);
+                                            }
+                                        }
+
+                                        lastCheckedIdx = idx;
                                         updateBatchCount();
                                     });
                                 });
@@ -5318,11 +5351,26 @@
                             const batchSelectAllBtn = dlg.querySelector('#tm-batch-tag-select-all');
                             if (batchSelectAllBtn) {
                                 batchSelectAllBtn.addEventListener('click', () => {
-                                    if (selectedTagIds.size === tags.length) {
+                                    if (selectedTagIds.size === tags.length && tags.length > 0) {
                                         selectedTagIds.clear();
                                     } else {
                                         tags.forEach(t => selectedTagIds.add(t.id));
                                     }
+                                    renderList();
+                                    updateBatchCount();
+                                });
+                            }
+
+                            const batchInvertBtn = dlg.querySelector('#tm-batch-tag-invert-select');
+                            if (batchInvertBtn) {
+                                batchInvertBtn.addEventListener('click', () => {
+                                    tags.forEach(t => {
+                                        if (selectedTagIds.has(t.id)) {
+                                            selectedTagIds.delete(t.id);
+                                        } else {
+                                            selectedTagIds.add(t.id);
+                                        }
+                                    });
                                     renderList();
                                     updateBatchCount();
                                 });
