@@ -1148,7 +1148,7 @@
                                 <button id="tm-toggle-daynight-binding-btn" class="menu_button" title="显示/隐藏卡片日夜绑定按钮"><i class="fa-solid fa-circle-half-stroke"></i> 日夜</button>
                                 <button id="tm-toggle-replace-avatar-btn" class="menu_button" title="显示/隐藏详情页替换按键"><i class="fa-solid fa-check"></i> 替换</button>
                                 <button id="manage-tags-btn" class="menu_button" title="管理标签"><i class="fa-solid fa-tags"></i> 标签</button>
-                                <button id="tm-auto-group-btn" class="menu_button" style="background: rgba(0, 123, 255, 0.18) !important; color: #4dabf7 !important; border: 1px solid rgba(0, 123, 255, 0.3) !important;" title="自动提取美化名中的共同词组并向导生成标签/分类"><i class="fa-solid fa-wand-magic-sparkles"></i> 自动分组</button>
+                                <button id="tm-auto-group-btn" class="menu_button" style="background: rgba(0, 123, 255, 0.18) !important; color: #4dabf7 !important; border: 1px solid rgba(0, 123, 255, 0.3) !important;" title="自动提取美化名中的共同词组并向导生成标签/分类"><i class="fa-solid fa-wand-magic-sparkles"></i> 分组</button>
                                 <button id="tm-export-settings-btn" class="menu_button" title="导出配置文件"><i class="fa-solid fa-file-export"></i> 导出</button>
                                 <button id="tm-import-settings-btn" class="menu_button" title="从配置文件中导入插件设置"><i class="fa-solid fa-file-import"></i> 导入</button>
                                 <button id="tm-sync-disk-btn" class="menu_button" style="background: rgba(40, 167, 69, 0.18) !important; color: #72e48e !important; border: 1px solid rgba(40, 167, 69, 0.3) !important;" title="重新从磁盘读取主题并强行对齐界面与物理文件"><i class="fa-solid fa-arrows-rotate"></i> 对照磁盘</button>
@@ -3693,15 +3693,15 @@
                     return changed;
                 }
 
-                // === 自动分组：从全量美化名称中自动提取重复词组/标签 ===
-                function extractCandidateThemeGroups(minMatch = 2) {
-                    const themeList = allParsedThemes || [];
+                // === 分组提取算法 (带 700+ 超大数量级异步切分与性能优化) ===
+                function extractCandidateThemeGroups(themePool, minMatch = 2) {
+                    const list = themePool || allParsedThemes || [];
                     const candidateMap = new Map(); // kw -> Set(themeName)
 
                     // 1. 匹配各类括号里面的独立标记词（如 【黑金】 [Cyberpunk] (v2) 《动漫》 <Lite>）
                     const bracketRegex = /[\[【（(《<](.+?)[\]】）)》>]/g;
 
-                    themeList.forEach(t => {
+                    list.forEach(t => {
                         const name = t.display || t.value;
                         if (!name) return;
 
@@ -3721,7 +3721,6 @@
                         const tokens = cleanName.split(/[\s_\-\+\/\\]+/).map(s => s.trim()).filter(Boolean);
 
                         tokens.forEach(token => {
-                            // 过滤纯数字、扩展名、通用无关词
                             if (token.length >= 2 && token.length <= 15) {
                                 if (!/^\d+$/.test(token) && !/^(json|v\d+|theme|preset|copy|new|fixed|final|360px|1080p)$/i.test(token)) {
                                     if (!candidateMap.has(token)) candidateMap.set(token, new Set());
@@ -3742,12 +3741,12 @@
                         }
                     });
 
-                    // 按包含的美化数量降序排列
+                    // 按包含的美化数量降序排列，最多截取前 120 个最热门候选
                     result.sort((a, b) => b.themes.length - a.themes.length);
-                    return result;
+                    return result.slice(0, 120);
                 }
 
-                // === 自动分组向导 Step 1: 设置目标层级与门槛 ===
+                // === 分组向导 Step 1: 设置基数范围、目标层级与门槛 ===
                 async function openAutoGroupWizard() {
                     if (!allParsedThemes || allParsedThemes.length === 0) {
                         toastr.info('当前没有可供提取标签的美化主题。');
@@ -3762,23 +3761,52 @@
                         l1SelectOptionsHtml = '<option value="">(尚未创建一级主标签)</option>';
                     }
 
+                    let allTagsSelectOptionsHtml = existingTags.map(t => `<option value="${t.id}">${escapeHtml(t.name)} (${t.themes ? t.themes.length : 0})</option>`).join('');
+                    if (!allTagsSelectOptionsHtml) {
+                        allTagsSelectOptionsHtml = '<option value="">(暂无已选标签)</option>';
+                    }
+
+                    const selectedCount = selectedForBatch ? selectedForBatch.size : 0;
+                    const filteredCount = typeof filteredThemes !== 'undefined' ? filteredThemes.length : allParsedThemes.length;
+                    const scopeFilteredLabel = selectedCount > 0 ? `当前批量勾选的美化 (共 ${selectedCount} 个)` : `当前界面已筛选的美化 (共 ${filteredCount} 个)`;
+
                     const setupHtml = `
                         <div style="padding:4px;">
                             <h4 style="margin:0 0 10px 0; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
-                                <i class="fa-solid fa-wand-magic-sparkles" style="color:#ffc107;"></i> 自动提取美化分组向导
+                                <i class="fa-solid fa-wand-magic-sparkles" style="color:#ffc107;"></i> 智能美化分组向导
                             </h4>
-                            <p style="font-size:12px; opacity:0.85; margin-bottom:12px; line-height:1.5;">
-                                系统将扫描全量美化名字中的共同词组与括号标记。分析完成后，您可对提取出的候选分组进行<b>逐个审核通过/不通过</b>。
-                            </p>
                             <div style="background:rgba(255,255,255,0.04); border-radius:6px; padding:12px; margin-bottom:14px; display:flex; flex-direction:column; gap:12px;">
                                 <div>
-                                    <div style="font-size:13px; font-weight:bold; margin-bottom:6px;">1. 选择生成标签的目标层级：</div>
-                                    <div style="display:flex; flex-direction:column; gap:8px; padding-left:8px;">
-                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                    <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--SmartThemeQuoteColor, #4a90e2);">1. 选择分析的美化基数范围：</div>
+                                    <div style="display:flex; flex-direction:column; gap:6px; padding-left:8px;">
+                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
+                                            <input type="radio" name="tm-auto-scope" value="all" checked style="margin:0;">
+                                            <span>全部美化主题 (共 <b>${allParsedThemes.length}</b> 个)</span>
+                                        </label>
+                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
+                                            <input type="radio" name="tm-auto-scope" value="filtered" style="margin:0;">
+                                            <span>${scopeFilteredLabel}</span>
+                                        </label>
+                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
+                                            <input type="radio" name="tm-auto-scope" value="tag" style="margin:0;">
+                                            <span>特定标签下的美化</span>
+                                        </label>
+                                        <div id="tm-auto-scope-tag-container" style="margin-left:24px; display:none;">
+                                            <select id="tm-auto-scope-tag-select" class="text_pole" style="font-size:12px; height:28px; padding:2px 8px; width:100%; max-width:240px;">
+                                                ${allTagsSelectOptionsHtml}
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                                <hr style="border:0; border-top:1px solid rgba(128,128,128,0.2); margin:0;">
+                                <div>
+                                    <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--SmartThemeQuoteColor, #4a90e2);">2. 选择生成标签的目标层级：</div>
+                                    <div style="display:flex; flex-direction:column; gap:6px; padding-left:8px;">
+                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
                                             <input type="radio" name="tm-auto-level" value="l1" checked style="margin:0;">
                                             <span>创建为 <b>一级主标签/分类</b></span>
                                         </label>
-                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:12px; cursor:pointer;">
                                             <input type="radio" name="tm-auto-level" value="l2" style="margin:0;">
                                             <span>创建为 <b>二级子标签</b> (归属于选定的主分类)</span>
                                         </label>
@@ -3791,7 +3819,7 @@
                                 </div>
                                 <hr style="border:0; border-top:1px solid rgba(128,128,128,0.2); margin:0;">
                                 <div>
-                                    <div style="font-size:13px; font-weight:bold; margin-bottom:6px;">2. 提取门槛：</div>
+                                    <div style="font-size:13px; font-weight:bold; margin-bottom:6px; color:var(--SmartThemeQuoteColor, #4a90e2);">3. 提取门槛：</div>
                                     <div style="display:inline-flex; align-items:center; gap:8px; font-size:12px; padding-left:8px;">
                                         <span>至少重合包含：</span>
                                         <input type="number" id="tm-auto-min-match" class="text_pole" value="2" min="2" max="50" style="width:55px; text-align:center; height:26px; padding:0; margin:0;">
@@ -3803,7 +3831,7 @@
                     `;
 
                     await callGenericPopup(setupHtml, 'confirm', null, {
-                        title: '自动分组设置',
+                        title: '分组提取设置',
                         okButton: '开始分析提取',
                         cancelButton: '取消',
                         wide: false,
@@ -3813,9 +3841,18 @@
                                 dlg.style.width = '90%';
                                 dlg.style.maxWidth = '460px';
                             }
-                            const radios = dlg.querySelectorAll('input[name="tm-auto-level"]');
+
+                            const scopeRadios = dlg.querySelectorAll('input[name="tm-auto-scope"]');
+                            const scopeTagContainer = dlg.querySelector('#tm-auto-scope-tag-container');
+                            scopeRadios.forEach(r => {
+                                r.addEventListener('change', () => {
+                                    scopeTagContainer.style.display = (r.value === 'tag' && r.checked) ? 'block' : 'none';
+                                });
+                            });
+
+                            const levelRadios = dlg.querySelectorAll('input[name="tm-auto-level"]');
                             const parentContainer = dlg.querySelector('#tm-auto-parent-container');
-                            radios.forEach(r => {
+                            levelRadios.forEach(r => {
                                 r.addEventListener('change', () => {
                                     parentContainer.style.display = (r.value === 'l2' && r.checked) ? 'block' : 'none';
                                 });
@@ -3825,31 +3862,67 @@
                             if (okBtn) {
                                 okBtn.addEventListener('click', (e) => {
                                     e.preventDefault();
+                                    const selectedScope = dlg.querySelector('input[name="tm-auto-scope"]:checked').value;
                                     const selectedLevel = dlg.querySelector('input[name="tm-auto-level"]:checked').value;
                                     const parentId = selectedLevel === 'l2' ? dlg.querySelector('#tm-auto-parent-select').value : null;
                                     const minMatch = parseInt(dlg.querySelector('#tm-auto-min-match').value) || 2;
 
                                     popup.close();
 
-                                    const candidates = extractCandidateThemeGroups(minMatch);
-                                    if (candidates.length === 0) {
-                                        toastr.info(`未分析到重合数 ≥ ${minMatch} 的词组分类。`);
-                                        return;
-                                    }
+                                    // 显示加载器并使用 setTimeout 挂起计算，防止 700+ 美化在移动端卡死
+                                    showLoader();
+                                    setTimeout(() => {
+                                        try {
+                                            let pool = [];
+                                            if (selectedScope === 'filtered') {
+                                                if (selectedForBatch && selectedForBatch.size > 0) {
+                                                    const set = new Set(selectedForBatch);
+                                                    pool = allParsedThemes.filter(t => set.has(t.value));
+                                                } else if (typeof filteredThemes !== 'undefined' && filteredThemes.length > 0) {
+                                                    pool = filteredThemes;
+                                                } else {
+                                                    pool = allParsedThemes;
+                                                }
+                                            } else if (selectedScope === 'tag') {
+                                                const scopeTagId = dlg.querySelector('#tm-auto-scope-tag-select').value;
+                                                const scopeTag = existingTags.find(tg => tg.id === scopeTagId);
+                                                if (scopeTag && scopeTag.themes) {
+                                                    const tagThemesSet = new Set(scopeTag.themes);
+                                                    pool = allParsedThemes.filter(t => tagThemesSet.has(t.value));
+                                                } else {
+                                                    pool = allParsedThemes;
+                                                }
+                                            } else {
+                                                pool = allParsedThemes;
+                                            }
 
-                                    runAutoGroupReviewStep(candidates, 0, selectedLevel, parentId, 0, 0);
+                                            const candidates = extractCandidateThemeGroups(pool, minMatch);
+                                            hideLoader();
+
+                                            if (candidates.length === 0) {
+                                                toastr.info(`在选定的 ${pool.length} 个美化中，未分析到重合数 ≥ ${minMatch} 的词组分类。`);
+                                                return;
+                                            }
+
+                                            runAutoGroupReviewStep(candidates, 0, selectedLevel, parentId, 0, 0);
+                                        } catch (err) {
+                                            hideLoader();
+                                            console.error('分组提取失败:', err);
+                                            toastr.error('分组提取发生异常: ' + (err.message || err));
+                                        }
+                                    }, 80);
                                 });
                             }
                         }
                     });
                 }
 
-                // === 自动分组向导 Step 2: 逐个审核通过/不通过 ===
+                // === 分组向导 Step 2: 逐个审核通过/不通过 ===
                 async function runAutoGroupReviewStep(candidates, currentIndex, level, parentId, createdTagsCount, assignedThemesCount) {
                     if (currentIndex >= candidates.length) {
                         renderTagsUI();
                         updateActiveState();
-                        toastr.success(`🎉 自动分组已全部完成！共创建/更新了 ${createdTagsCount} 个标签。`);
+                        toastr.success(`🎉 分组完成！共创建/更新了 ${createdTagsCount} 个标签分类。`);
                         return;
                     }
 
@@ -3874,7 +3947,7 @@
                                     </span>
                                     <span style="font-size:12px; font-weight:normal; opacity:0.8;">匹配 <b>${candidate.themes.length}</b> 个美化</span>
                                 </div>
-                                <div style="font-size:11px; opacity:0.7; margin-bottom:6px;">勾选下方需要纳入此标签的美化主题：</div>
+                                <div style="font-size:11px; opacity:0.7; margin-bottom:6px;">勾选下方需要纳入此标签的美化主题（美化可同时拥有多个标签）：</div>
                                 <div style="max-height:170px; overflow-y:auto; background:rgba(0,0,0,0.15); padding:6px; border-radius:4px; display:flex; flex-direction:column; gap:4px;">
                                     ${candidate.themes.map(tName => `
                                         <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 6px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none;">
@@ -3895,7 +3968,7 @@
                     `;
 
                     await callGenericPopup(wizardHtml, 'confirm', null, {
-                        title: `自动分组审核 (${currentIndex + 1}/${candidates.length})`,
+                        title: `美化分组审核 (${currentIndex + 1}/${candidates.length})`,
                         okButton: false,
                         cancelButton: '退出向导',
                         wide: true,
@@ -3969,7 +4042,7 @@
                                 popup.close();
                                 renderTagsUI();
                                 updateActiveState();
-                                toastr.success(`🎉 向导完成！自动生成并挂载了 ${createdTagsCount + passCount} 个标签分类。`);
+                                toastr.success(`🎉 分组向导完成！共自动生成并挂载了 ${createdTagsCount + passCount} 个标签分类。`);
                             });
                         }
                     });
