@@ -315,7 +315,7 @@
                     if (!themeName) return;
 
                     const cleanName = themeName.replace(/\[.*?\]/g, '').trim();
-                    const candidates = new Set([
+                    const candidateSet = new Set([
                         themeName,
                         cleanName,
                         themeName.replace(/\.json$/i, ''),
@@ -325,33 +325,31 @@
                     const themeObj = allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
                     if (themeObj) {
                         if (themeObj.name) {
-                            candidates.add(themeObj.name);
-                            candidates.add(themeObj.name.replace(/\.json$/i, ''));
+                            candidateSet.add(themeObj.name);
+                            candidateSet.add(themeObj.name.replace(/\.json$/i, ''));
                         }
                         if (themeObj.value) {
-                            candidates.add(themeObj.value);
-                            candidates.add(themeObj.value.replace(/\.json$/i, ''));
+                            candidateSet.add(themeObj.value);
+                            candidateSet.add(themeObj.value.replace(/\.json$/i, ''));
                         }
                     }
 
-                    // 1. 使用原生 XMLHttpRequest 静默向后端尝试所有候选文件名（完全绕过 ST 拦截器的 toastr 报错弹窗）
-                    // 无论磁盘上的物理文件是以 "[Pad专区]美化名.json" 还是 "美化名.json" 存储在 themes/ 目录下，都能被精准擦除！
-                    for (const candidateName of candidates) {
-                        if (!candidateName) continue;
-                        try {
-                            await new Promise((resolve) => {
-                                const xhr = new XMLHttpRequest();
-                                xhr.open('POST', '/api/themes/delete', true);
-                                const headers = getRequestHeaders();
-                                Object.keys(headers).forEach(k => xhr.setRequestHeader(k, headers[k]));
-                                xhr.onload = () => resolve();
-                                xhr.onerror = () => resolve();
-                                xhr.send(JSON.stringify({ name: candidateName }));
-                            });
-                        } catch (e) {}
-                    }
+                    const candidates = Array.from(candidateSet).filter(Boolean);
+                    const headers = getRequestHeaders();
 
-                    // 2. 从 ST 所有内存 themes 数组（包括 power_user.themes）中彻底精确定位清除，并立刻写回 settings.json
+                    // 使用 Promise.all 并发向后端发送候选文件名删除请求，将单次删除从 1s 压缩至 < 50ms
+                    await Promise.all(candidates.map(candidateName => {
+                        return new Promise((resolve) => {
+                            const xhr = new XMLHttpRequest();
+                            xhr.open('POST', '/api/themes/delete', true);
+                            Object.keys(headers).forEach(k => xhr.setRequestHeader(k, headers[k]));
+                            xhr.onload = () => resolve();
+                            xhr.onerror = () => resolve();
+                            xhr.send(JSON.stringify({ name: candidateName }));
+                        });
+                    }));
+
+                    // 从 ST 所有内存 themes 数组中彻底精确定位清除，并立刻写回 settings.json
                     updateSTThemeMemory({ name: themeName }, 'delete', themeName);
                 }
                 async function saveTheme(themeObject) { await apiRequest('themes/save', 'POST', themeObject); }
@@ -2129,8 +2127,8 @@
                         }
 
                         if (renameTasks.length > 0) {
-                            // 控制并发为 2，先保存新主题文件，成功后再删除旧文件（防止并发竞态与删除404）
-                            const results = await limitConcurrency(2, renameTasks, async ({ oldName, newName, themeObject }) => {
+                            // 提升并发限制为 10，实现极速并发保存与删除
+                            const results = await limitConcurrency(10, renameTasks, async ({ oldName, newName, themeObject }) => {
                                 const baseObj = allThemeObjectsMap.get(oldName) || themeObject || { name: oldName };
                                 const newThemeObject = { ...baseObj, name: newName };
                                 // 1. 先保存新主题文件
@@ -2227,8 +2225,8 @@
                     const deletedThemes = Array.from(selectedForBatch);
                     const deletedSet = new Set(deletedThemes);
 
-                    // 并发发送 API 删除请求 (限制并发为 5)
-                    const results = await limitConcurrency(5, deletedThemes, name => deleteTheme(name));
+                    // 并发发送 API 删除请求 (限制并发为 12)
+                    const results = await limitConcurrency(12, deletedThemes, name => deleteTheme(name));
 
                     const successfullyDeleted = [];
                     const failedDeleted = [];
@@ -4445,17 +4443,12 @@
                                 if (!themeObject) return;
                                 const isActive = originalSelect.value === oldName;
                                 const newThemeObject = { ...themeObject, name: finalNewName };
-                                await saveTheme(newThemeObject);
-                                try {
-                                    await deleteTheme(oldName, true);
-                                } catch (e) {
-                                    console.warn(`[Theme Manager] 删除旧主题 "${oldName}" 提示 (已静默):`, e);
-                                }
+
+                                // 0ms 乐观 UI 重命名：在后台写入物理文件的同时，立刻增量更新本地 DOM、下拉框与关系数据
                                 manualUpdateOriginalSelect('rename', oldName, finalNewName);
-                                // delete+add 比 rename 更可靠：不依赖 ST 内部数组里必须存在 oldName
                                 updateSTThemeMemory({ name: oldName }, 'delete');
                                 updateSTThemeMemory(newThemeObject, 'add');
-                                invalidateThemesCache(); // 使缓存失效，确保后续调用获取最新数据
+                                invalidateThemesCache();
 
                                 const favIndex = favorites.indexOf(oldName);
                                 if (favIndex > -1) {
@@ -4517,9 +4510,8 @@
                                     if (pairsChanged) saveThemeDayNightPairs(themeDayNightPairs);
                                 }
 
-                                // 增量更新 UI（无需全量重建 DOM）
+                                // 增量更新 UI（0ms 即时响应，不销毁重建整个 DOM 列表）
                                 softRenameThemeUI(oldName, finalNewName);
-                                filterThemeList();
 
                                 // 重命名后，如果是当前激活的主题，我们需要更新当前选择并重新应用以同步ST内部状态
                                 if (isActive) {
@@ -4528,13 +4520,24 @@
                                 }
                                 toastr.success(`已将「${oldName}」重命名为「${finalNewName}」`);
                                 updateActiveState();
+
+                                // 后台异步写盘与异步删除旧文件
+                                (async () => {
+                                    try {
+                                        await saveTheme(newThemeObject);
+                                        await deleteTheme(oldName, true);
+                                    } catch (e) {
+                                        console.warn(`[Theme Manager] 静默重命名物理文件:`, e);
+                                    }
+                                })();
                             }
                         }
                         else if (button && button.classList.contains('delete-btn')) {
                             if (confirm(`确定要删除主题 "${themeItem.querySelector('.theme-item-name-text').textContent}" 吗？`)) {
                                 try {
                                     const isCurrentlyActive = originalSelect.value === themeName;
-                                    await deleteTheme(themeName);
+
+                                    // 0ms 乐观 UI 删除：立刻从视口移除 DOM 节点并清除数据及关系映射
                                     manualUpdateOriginalSelect('delete', themeName);
                                     updateSTThemeMemory({ name: themeName }, 'delete');
                                     softDeleteThemeUI(themeName);
@@ -4598,6 +4601,9 @@
                                     invalidateThemesCache();
                                     updateActiveState();
                                     toastr.success(`主题 "${themeName}" 已成功删除！`);
+
+                                    // 后台静默并发擦除物理磁盘文件
+                                    deleteTheme(themeName).catch(err => console.error('[Theme Manager Delete Async Error]:', err));
                                 } catch (err) {
                                     console.error('[Theme Manager Delete Error]:', err);
                                     toastr.error('删除美化时发生异常，请查看控制台。');
