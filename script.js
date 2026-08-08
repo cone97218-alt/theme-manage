@@ -3839,7 +3839,9 @@
                         </div>
                     `;
 
-                    await callGenericPopup(setupHtml, 'confirm', null, {
+                    let userSelectedData = null;
+
+                    const confirmed = await callGenericPopup(setupHtml, 'confirm', null, {
                         title: '分组提取设置',
                         okButton: '开始分析提取',
                         cancelButton: '取消',
@@ -3869,61 +3871,54 @@
 
                             const okBtn = dlg.querySelector('.popup-button-ok');
                             if (okBtn) {
-                                okBtn.addEventListener('click', (e) => {
-                                    e.preventDefault();
-                                    const selectedScope = dlg.querySelector('input[name="tm-auto-scope"]:checked').value;
-                                    const selectedLevel = dlg.querySelector('input[name="tm-auto-level"]:checked').value;
-                                    const parentId = selectedLevel === 'l2' ? dlg.querySelector('#tm-auto-parent-select').value : null;
-                                    const minMatch = parseInt(dlg.querySelector('#tm-auto-min-match').value) || 2;
-
-                                    popup.close();
-
-                                    // 显示加载器，等待 250ms 让上一个弹窗从 DOM 完结动画中销毁，避免死锁
-                                    showLoader();
-                                    setTimeout(() => {
-                                        try {
-                                            let pool = [];
-                                            if (selectedScope === 'filtered') {
-                                                if (selectedForBatch && selectedForBatch.size > 0) {
-                                                    const set = new Set(selectedForBatch);
-                                                    pool = allParsedThemes.filter(t => set.has(t.value));
-                                                } else if (typeof filteredThemes !== 'undefined' && filteredThemes.length > 0) {
-                                                    pool = filteredThemes;
-                                                } else {
-                                                    pool = allParsedThemes;
-                                                }
-                                            } else if (selectedScope === 'tag') {
-                                                const scopeTagId = dlg.querySelector('#tm-auto-scope-tag-select').value;
-                                                const scopeTag = existingTags.find(tg => tg.id === scopeTagId);
-                                                if (scopeTag && scopeTag.themes) {
-                                                    const tagThemesSet = new Set(scopeTag.themes);
-                                                    pool = allParsedThemes.filter(t => tagThemesSet.has(t.value));
-                                                } else {
-                                                    pool = allParsedThemes;
-                                                }
-                                            } else {
-                                                pool = allParsedThemes;
-                                            }
-
-                                            const candidates = extractCandidateThemeGroups(pool, minMatch);
-                                            hideLoader();
-
-                                            if (candidates.length === 0) {
-                                                toastr.info(`在选定的 ${pool.length} 个美化中，未分析到重合数 ≥ ${minMatch} 的词组分类。`);
-                                                return;
-                                            }
-
-                                            runAutoGroupReviewStep(candidates, 0, selectedLevel, parentId, 0, 0);
-                                        } catch (err) {
-                                            hideLoader();
-                                            console.error('分组提取失败:', err);
-                                            toastr.error('分组提取发生异常: ' + (err.message || err));
-                                        }
-                                    }, 250);
+                                okBtn.addEventListener('click', () => {
+                                    userSelectedData = {
+                                        scope: dlg.querySelector('input[name="tm-auto-scope"]:checked').value,
+                                        level: dlg.querySelector('input[name="tm-auto-level"]:checked').value,
+                                        parentId: dlg.querySelector('#tm-auto-parent-select') ? dlg.querySelector('#tm-auto-parent-select').value : null,
+                                        minMatch: parseInt(dlg.querySelector('#tm-auto-min-match').value) || 2,
+                                        scopeTagId: dlg.querySelector('#tm-auto-scope-tag-select') ? dlg.querySelector('#tm-auto-scope-tag-select').value : null
+                                    };
                                 });
                             }
                         }
                     });
+
+                    if (!confirmed || !userSelectedData) return;
+
+                    // 150ms 优雅等待设置弹窗彻底淡出，避免弹窗重叠死锁
+                    await new Promise(r => setTimeout(r, 150));
+
+                    let pool = [];
+                    if (userSelectedData.scope === 'filtered') {
+                        if (selectedForBatch && selectedForBatch.size > 0) {
+                            const set = new Set(selectedForBatch);
+                            pool = allParsedThemes.filter(t => set.has(t.value));
+                        } else if (typeof filteredThemes !== 'undefined' && filteredThemes.length > 0) {
+                            pool = filteredThemes;
+                        } else {
+                            pool = allParsedThemes;
+                        }
+                    } else if (userSelectedData.scope === 'tag' && userSelectedData.scopeTagId) {
+                        const scopeTag = existingTags.find(tg => tg.id === userSelectedData.scopeTagId);
+                        if (scopeTag && scopeTag.themes) {
+                            const tagThemesSet = new Set(scopeTag.themes);
+                            pool = allParsedThemes.filter(t => tagThemesSet.has(t.value));
+                        } else {
+                            pool = allParsedThemes;
+                        }
+                    } else {
+                        pool = allParsedThemes;
+                    }
+
+                    const candidates = extractCandidateThemeGroups(pool, userSelectedData.minMatch);
+
+                    if (candidates.length === 0) {
+                        toastr.info(`在选定的 ${pool.length} 个美化中，未分析到重合数 ≥ ${userSelectedData.minMatch} 的词组分类。`);
+                        return;
+                    }
+
+                    runAutoGroupReviewStep(candidates, 0, userSelectedData.level, userSelectedData.parentId, 0, 0);
                 }
 
                 // === 分组向导 Step 2: 逐个审核通过/不通过 ===
