@@ -292,7 +292,10 @@
 
                 async function apiRequest(endpoint, method = 'POST', body = {}, suppressToast = false) {
                     try {
-                        const headers = getRequestHeaders();
+                        const headers = getRequestHeaders() || {};
+                        if (!headers['Content-Type'] && !headers['content-type']) {
+                            headers['Content-Type'] = 'application/json';
+                        }
                         const options = { method, headers, body: JSON.stringify(body) };
                         const response = await fetch(`/api/${endpoint}`, options);
                         const responseText = await response.text();
@@ -312,47 +315,124 @@
 
                 async function getAllThemesFromAPI() { return (await apiRequest('settings/get', 'POST', {})).themes || []; }
                 async function deleteTheme(themeName, themeObjParam = null) {
-                    if (!themeName) return;
+                    if (!themeName) return false;
 
-                    const cleanName = themeName.replace(/\[.*?\]/g, '').trim();
-                    const candidateSet = new Set([
-                        themeName,
-                        cleanName,
-                        themeName.replace(/\.json$/i, ''),
-                        cleanName.replace(/\.json$/i, '')
-                    ]);
+                    console.log(`[Theme Manager Delete] ══════════════════════════════════════`);
+                    console.log(`[Theme Manager Delete] 🗑️ 开始删除请求: themeName="${themeName}"`);
 
-                    const themeObj = themeObjParam || allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
-                    if (themeObj) {
-                        if (themeObj.name) {
-                            candidateSet.add(themeObj.name);
-                            candidateSet.add(themeObj.name.replace(/\.json$/i, ''));
-                        }
-                        if (themeObj.value) {
-                            candidateSet.add(themeObj.value);
-                            candidateSet.add(themeObj.value.replace(/\.json$/i, ''));
-                        }
+                    const candidates = [];
+                    const added = new Set();
+                    const addCandidate = (str) => {
+                        if (!str || typeof str !== 'string') return;
+                        const raw = str.trim();
+                        if (!raw) return;
+                        const clean = raw.replace(/\[.*?\]/g, '').trim();
+
+                        const baseVariants = new Set([raw, clean]);
+                        baseVariants.forEach(v => {
+                            if (!v) return;
+                            const noExt = v.replace(/\.json$/i, '').trim();
+                            if (!noExt) return;
+
+                            if (!added.has(noExt)) { added.add(noExt); candidates.push(noExt); }
+                            if (noExt.includes(' ') || noExt.includes('_')) {
+                                const alt1 = noExt.replace(/\s+/g, '_');
+                                const alt2 = noExt.replace(/_/g, ' ');
+                                if (!added.has(alt1)) { added.add(alt1); candidates.push(alt1); }
+                                if (!added.has(alt2)) { added.add(alt2); candidates.push(alt2); }
+                            }
+                            if (noExt.includes(' ') || noExt.includes('-')) {
+                                const alt3 = noExt.replace(/\s+/g, '-');
+                                const alt4 = noExt.replace(/-/g, ' ');
+                                if (!added.has(alt3)) { added.add(alt3); candidates.push(alt3); }
+                                if (!added.has(alt4)) { added.add(alt4); candidates.push(alt4); }
+                            }
+                        });
+                    };
+
+                    let themeObj = themeObjParam;
+                    if (!themeObj) {
+                        themeObj = allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
+                    }
+                    if (!themeObj && Array.isArray(allThemeObjects)) {
+                        const cleanReqName = themeName.replace(/\[.*?\]/g, '').trim();
+                        themeObj = allThemeObjects.find(t => t && (t.name === themeName || t.name === cleanReqName || t.value === themeName || t.value === cleanReqName));
                     }
 
-                    const candidates = Array.from(candidateSet).filter(Boolean);
-                    const headers = getRequestHeaders();
+                    if (themeObj) {
+                        console.log(`[Theme Manager Delete] 找到关联的 themeObj:`, themeObj);
+                        if (themeObj.name) addCandidate(themeObj.name);
+                        if (themeObj.value) addCandidate(themeObj.value);
+                    } else {
+                        console.warn(`[Theme Manager Delete] ⚠️ 未能在内存映射中定位到 themeObj，使用 themeName 派生候选名。`);
+                    }
 
-                    // 使用 Promise.all 并发向后端发送候选文件名删除请求，将单次删除从 1s 压缩至 < 50ms
-                    await Promise.all(candidates.map(candidateName => {
-                        return new Promise((resolve) => {
-                            const xhr = new XMLHttpRequest();
-                            xhr.open('POST', '/api/themes/delete', true);
-                            Object.keys(headers).forEach(k => xhr.setRequestHeader(k, headers[k]));
-                            xhr.onload = () => resolve();
-                            xhr.onerror = () => resolve();
-                            xhr.send(JSON.stringify({ name: candidateName }));
-                        });
+                    addCandidate(themeName);
+
+                    console.log(`[Theme Manager Delete] 📋 生成的所有物理文件候选名列表 (${candidates.length} 个):`, candidates);
+
+                    if (candidates.length === 0) {
+                        console.error(`[Theme Manager Delete Error] ❌ 无法为主题 "${themeName}" 生成任何有效候选文件名。`);
+                        return false;
+                    }
+
+                    let isDeletedOnDisk = false;
+                    const attemptResults = [];
+
+                    // 使用 apiRequest (fetch API，完全兼容移动端浏览器与跨域/CSRF 标头)
+                    await Promise.all(candidates.map(async candidateName => {
+                        try {
+                            const res = await apiRequest('themes/delete', 'POST', { name: candidateName }, true);
+                            attemptResults.push({ candidate: candidateName, status: 200, res });
+                            isDeletedOnDisk = true;
+                            console.log(`[Theme Manager Delete] ✅ 成功删除了物理文件! 匹配候选名: "${candidateName}"`);
+                        } catch (err) {
+                            attemptResults.push({ candidate: candidateName, status: 'error', error: err.message });
+                            console.warn(`[Theme Manager Delete] ⚠️ 候选名 "${candidateName}" 请求失败:`, err.message);
+                        }
                     }));
+
+                    if (isDeletedOnDisk) {
+                        console.log(`[Theme Manager Delete] 🎉 主题 "${themeName}" 磁盘物理文件擦除确认成功！`);
+                    } else {
+                        console.error(`[Theme Manager Delete ERROR] ❌ 主题 "${themeName}" 物理磁盘擦除失败！所有候选文件名均被后端拒绝。详细响应:`, attemptResults);
+                    }
 
                     // 从 ST 所有内存 themes 数组中彻底精确定位清除，并立刻写回 settings.json
                     updateSTThemeMemory({ name: themeName }, 'delete', themeName);
+                    console.log(`[Theme Manager Delete] ══════════════════════════════════════`);
+                    return isDeletedOnDisk;
                 }
                 async function saveTheme(themeObject) { await apiRequest('themes/save', 'POST', themeObject); }
+
+                // === 移动端/跨端通用确认弹窗助手 ===
+                async function confirmAction(message, okText = '确认删除') {
+                    if (typeof callGenericPopup === 'function') {
+                        try {
+                            const res = await callGenericPopup(`
+                                <div style="text-align:center; padding:10px 5px;">
+                                    <h4 style="margin:0 0 10px 0; color:var(--SmartThemeQuoteColor, #4a90e2);"><i class="fa-solid fa-triangle-exclamation" style="color:#ff8888; margin-right:6px;"></i>确认操作</h4>
+                                    <p style="margin:0; font-size:13px; opacity:0.9;">${escapeHtml(message)}</p>
+                                </div>
+                            `, 'confirm', null, {
+                                okButton: okText,
+                                cancelButton: '取消',
+                                wide: false,
+                                onOpen: (popup) => {
+                                    const dlg = popup.dlg;
+                                    if (dlg) {
+                                        dlg.style.width = '90%';
+                                        dlg.style.maxWidth = '380px';
+                                    }
+                                }
+                            });
+                            return res === true;
+                        } catch (e) {
+                            console.warn('[Theme Manager] callGenericPopup 异常, 回退至 confirm:', e);
+                        }
+                    }
+                    return confirm(message);
+                }
 
                 // === 工具函数 ===
                 function escapeHtml(str) {
@@ -2219,43 +2299,21 @@
 
                 async function performBatchDelete() {
                     if (selectedForBatch.size === 0) { toastr.info('请先选择至少一个主题。'); return; }
-                    if (!confirm(`确定要删除选中的 ${selectedForBatch.size} 个主题吗？`)) return;
+                    const deleteCount = selectedForBatch.size;
+                    const confirmed = await confirmAction(`确定要删除选中的 ${deleteCount} 个主题吗？`);
+                    if (!confirmed) return;
 
-                    showLoader();
                     const deletedThemes = Array.from(selectedForBatch);
-                    const deletedSet = new Set(deletedThemes);
+                    const successSet = new Set(deletedThemes);
 
-                    // 并发发送 API 删除请求 (限制并发为 12)
-                    const results = await limitConcurrency(12, deletedThemes, name => deleteTheme(name));
-
-                    const successfullyDeleted = [];
-                    const failedDeleted = [];
-                    results.forEach((res, index) => {
-                        const name = deletedThemes[index];
-                        if (res.status === 'fulfilled') {
-                            successfullyDeleted.push(name);
-                        } else {
-                            failedDeleted.push(name);
-                            console.error(`删除主题 "${name}" 失败:`, res.reason);
-                        }
-                    });
-
-                    if (successfullyDeleted.length === 0) {
-                        hideLoader();
-                        toastr.error('批量删除全部失败，请检查后端权限或连接状况。');
-                        return;
-                    }
-
-                    const successSet = new Set(successfullyDeleted);
-                    let tagsToUpdate = loadThemeTags();
-
-                    // 判断被删除的主题中是否有当前激活的
-                    const isCurrentlyActiveDeleted = successSet.has(originalSelect.value);
+                    // 0ms 乐观 UI 更新：立刻清除选择状态与视口 DOM 节点
+                    selectedForBatch.clear();
+                    lastClickedThemeName = null;
 
                     // 1. 批量更新 ST 原生下拉框
                     _suspendObserver = true;
                     try {
-                        successfullyDeleted.forEach(themeName => {
+                        deletedThemes.forEach(themeName => {
                             const optionToDelete = findOptionByValue(originalSelect, themeName);
                             if (optionToDelete) optionToDelete.remove();
                         });
@@ -2273,13 +2331,13 @@
 
                         contexts.forEach(ctx => {
                             if (ctx && Array.isArray(ctx.themes)) {
-                                ctx.themes = ctx.themes.filter(t => !successSet.has(t.name));
+                                ctx.themes = ctx.themes.filter(t => !successSet.has(t.name) && !successSet.has(t.value));
                             }
                         });
 
                         if (typeof themes !== 'undefined' && Array.isArray(themes)) {
                             for (let i = themes.length - 1; i >= 0; i--) {
-                                if (successSet.has(themes[i].name)) {
+                                if (successSet.has(themes[i].name) || successSet.has(themes[i].value)) {
                                     themes.splice(i, 1);
                                 }
                             }
@@ -2288,23 +2346,21 @@
                         console.warn('[Theme Manager] 批量同步 ST 内部主题内存失败:', e);
                     }
 
-                    // 3. 批量删除主题 UI 状态
-                    successfullyDeleted.forEach(themeName => {
-                        // 从 DOM 移除
+                    // 3. 批量删除主题 UI 状态与缓存
+                    deletedThemes.forEach(themeName => {
                         const item = themeItemMap.get(themeName);
                         if (item) {
                             item.remove();
                             themeItemMap.delete(themeName);
                         }
 
-                        // 从数据缓存中移除
                         const idx = allParsedThemes.findIndex(t => t.value === themeName);
                         if (idx > -1) {
                             allParsedThemes.splice(idx, 1);
                             allParsedThemesMap.delete(themeName);
                         }
 
-                        const objIndex = allThemeObjects.findIndex(t => t.name === themeName);
+                        const objIndex = allThemeObjects.findIndex(t => t.name === themeName || t.value === themeName);
                         if (objIndex > -1) {
                             allThemeObjects.splice(objIndex, 1);
                         }
@@ -2319,6 +2375,7 @@
 
                     // 4. 清理收藏和标签数据
                     favorites = favorites.filter(f => !successSet.has(f));
+                    let tagsToUpdate = loadThemeTags();
                     tagsToUpdate.forEach(tag => {
                         if (tag.themes) {
                             tag.themes = tag.themes.filter(t => !successSet.has(t));
@@ -2330,33 +2387,35 @@
                     saveThemeTags(tagsToUpdate);
 
                     // 5. 切换激活状态，如果被删的主题是当前激活的
+                    const isCurrentlyActiveDeleted = successSet.has(originalSelect.value);
                     if (isCurrentlyActiveDeleted) {
                         const azureOption = findOptionByValue(originalSelect, 'Azure');
                         originalSelect.value = azureOption ? 'Azure' : (originalSelect.options[0]?.value || '');
                         triggerSelectChange(originalSelect);
                     }
 
-                    // 批量操作完成后统一触发持久化
-                    if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
-                        const ctx = SillyTavern.getContext();
-                        if (ctx.saveSettingsDebounced) ctx.saveSettingsDebounced();
-                    }
-
-                    selectedForBatch.clear();
-                    lastClickedThemeName = null;
-                    hideLoader();
-                    invalidateThemesCache();
-
-                    // 更新顶部标签按钮计数器
+                    // 0ms 瞬间完成 UI 刷新与提示
                     renderTagsUI(tagsToUpdate);
-
-                    if (failedDeleted.length > 0) {
-                        toastr.warning(`批量删除完成！成功 ${successfullyDeleted.length} 个，失败 ${failedDeleted.length} 个（${failedDeleted.join(', ')}）。`);
-                    } else {
-                        toastr.success(`批量删除完成！成功删除 ${successfullyDeleted.length} 个主题。`);
-                    }
-
                     updateActiveState();
+                    toastr.success(`已成功批量删除 ${deleteCount} 个美化主题！`);
+
+                    // 后台高并发 (25) 异步执行物理磁盘文件擦除
+                    (async () => {
+                        try {
+                            await limitConcurrency(25, deletedThemes, name => {
+                                const themeObj = allThemeObjectsMap.get(name) || allParsedThemesMap.get(name) || allThemeObjects.find(t => t && (t.name === name || t.value === name));
+                                return deleteTheme(name, themeObj);
+                            });
+
+                            if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                                const ctx = SillyTavern.getContext();
+                                if (ctx.saveSettingsDebounced) ctx.saveSettingsDebounced();
+                            }
+                            invalidateThemesCache();
+                        } catch (err) {
+                            console.error('[Theme Manager] 异步批量删除物理文件异常:', err);
+                        }
+                    })();
                 }
 
 
@@ -4335,12 +4394,13 @@
                 }
 
                 contentWrapper.addEventListener('click', async (event) => {
-                    if (preventNextClick) {
+                    const target = event.target;
+                    const button = target.closest('button');
+                    if (!button && preventNextClick) {
                         preventNextClick = false;
                         return;
                     }
-                    const target = event.target;
-                    const button = target.closest('button');
+                    preventNextClick = false;
                     const themeItem = target.closest('.theme-item');
 
                     if (!themeItem) return;
@@ -4533,7 +4593,9 @@
                             }
                         }
                         else if (button && button.classList.contains('delete-btn')) {
-                            if (confirm(`确定要删除主题 "${themeItem.querySelector('.theme-item-name-text').textContent}" 吗？`)) {
+                            const displayName = themeItem.querySelector('.theme-item-name-text')?.textContent || themeName;
+                            const confirmed = await confirmAction(`确定要删除主题 "${displayName}" 吗？`);
+                            if (confirmed) {
                                 try {
                                     const isCurrentlyActive = originalSelect.value === themeName;
                                     const targetThemeObj = allThemeObjectsMap.get(themeName) || allParsedThemesMap.get(themeName);
@@ -4603,10 +4665,17 @@
                                         triggerSelectChange(originalSelect);
                                     }
                                     invalidateThemesCache();
+                                    renderTagsUI();
                                     updateActiveState();
-                                    toastr.success(`主题 "${themeName}" 已成功删除！`);
 
-                                    deleteTask.catch(err => console.error('[Theme Manager Delete Async Error]:', err));
+                                    deleteTask.then(isDeleted => {
+                                        if (isDeleted) {
+                                            toastr.success(`主题 "${themeName}" 已成功从磁盘及系统中删除！`);
+                                        } else {
+                                            console.error(`[Theme Manager Delete ERROR] ❌ 主题 "${themeName}" 界面已移除，但物理文件未能成功在磁盘擦除！详见上方控制台日志。`);
+                                            toastr.error(`主题 "${themeName}" 物理擦除失败，请按 F12 查看控制台。`);
+                                        }
+                                    }).catch(err => console.error('[Theme Manager Delete Async Error]:', err));
                                 } catch (err) {
                                     console.error('[Theme Manager Delete Error]:', err);
                                     toastr.error('删除美化时发生异常，请查看控制台。');
