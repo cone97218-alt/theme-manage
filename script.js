@@ -4288,7 +4288,7 @@
                                 <input type="checkbox" id="chk-enable-subtags" ${subtagsEnabled ? 'checked' : ''}>
                                 <span>开启二级目录模式</span> <small style="opacity:0.6; font-weight:normal;">(支持一级目录/二级标签)</small>
                             </label>
-                            <button id="tm-tags-batch-delete-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:2px 8px; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; border:1px solid rgba(220,53,69,0.3) !important;"><i class="fa-solid fa-trash-can"></i> 批量删除</button>
+                            <button id="tm-tags-batch-delete-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:3px 10px; height:28px; line-height:1; display:inline-flex; align-items:center; gap:4px; flex-shrink:0; white-space:nowrap; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; border:1px solid rgba(220,53,69,0.3) !important;"><i class="fa-solid fa-trash-can"></i> 批量删除</button>
                         </div>
                         <div style="margin-bottom:15px; display:flex; gap:8px; align-items:center;">
                             <input type="text" id="new-tag-name" class="text_pole" placeholder="${subtagsEnabled ? '新一级标签名称...' : '新标签名称...'}" style="flex-grow:1; min-width:0;">
@@ -4312,12 +4312,23 @@
                                 const listContainer = dlg.querySelector('#tags-management-list');
                                 if (!listContainer) return;
 
+                                tags = loadThemeTags();
+
                                 // 自愈孤立标签：若归属父级已被删除，自动恢复为一级标签，防止标签消失
                                 tags.forEach(t => {
                                     if (t.parentId && !tags.some(p => p.id === t.parentId)) {
                                         t.parentId = null;
                                     }
                                 });
+
+                                if (!tags || tags.length === 0) {
+                                    listContainer.innerHTML = `<div style="text-align:center; padding:30px 10px; opacity:0.6; font-size:13px; background:rgba(255,255,255,0.02); border-radius:6px; margin:10px 0;">
+                                        <i class="fa-solid fa-tags" style="font-size:24px; margin-bottom:8px; display:block; color:var(--SmartThemeQuoteColor, #4a90e2);"></i>
+                                        暂无任何标签分类<br>
+                                        <small style="opacity:0.75;">请在上方输入名称并点击「${subtagsEnabled ? '+添加一级标签' : '+添加标签'}」，或在主界面使用「分组」向导生成分类。</small>
+                                    </div>`;
+                                    return;
+                                }
 
                                 if (!subtagsEnabled) {
                                     let html = '<ul style="list-style:none; padding:0; margin:0;">';
