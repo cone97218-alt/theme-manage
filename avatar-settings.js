@@ -222,41 +222,9 @@
         }
     }
 
-    const activeBlockObservers = new WeakMap();
-
-    // 针对每个角色消息块 (.mes:not([is_user="true"])) 建立独立、微秒级响应的专属 MutationObserver
-    function observeCharMessageBlock(mesEl) {
-        if (!mesEl || mesEl.nodeType !== Node.ELEMENT_NODE) return;
-        if (mesEl.getAttribute('is_user') === 'true') return;
-
-        // 1. 立即补全一次头像
-        tagMessageElementsWithCharName(mesEl);
-
-        // 2. 若该消息块已经绑定了专属 Observer 则跳过重复绑定
-        if (activeBlockObservers.has(mesEl)) return;
-
-        const observer = new MutationObserver(() => {
-            tagMessageElementsWithCharName(mesEl);
-        });
-
-        observer.observe(mesEl, {
-            childList: true,
-            subtree: true,
-            attributes: true,
-            attributeFilter: ['class', 'open', 'ch_name']
-        });
-
-        activeBlockObservers.set(mesEl, observer);
-    }
-
-    // 将消息 DOM 逐个遍历打标签并绑定专属 Char 消息块观察器
+    // 将消息 DOM 逐个遍历打标签
     function tagAllMessages() {
-        document.querySelectorAll('.mes').forEach(mesEl => {
-            tagMessageElementsWithCharName(mesEl);
-            if (mesEl.getAttribute('is_user') !== 'true') {
-                observeCharMessageBlock(mesEl);
-            }
-        });
+        document.querySelectorAll('.mes').forEach(tagMessageElementsWithCharName);
     }
 
     // 计算出唯一的存储 key (一切配置均与当前角色名称强绑定，彻底避免不同角色卡因头像文件名相同而串台的问题)
@@ -1040,6 +1008,7 @@
                     parentSelector = prefixes.map(p => UNIVERSAL_AVATAR_PARENT_SELECTORS.map(s => `${p}:has(img[src*="${targetCharName}"]) ${s}`).join(', ')).join(', ');
                 } else {
                     const prefixes = [
+                        `body[data-active-char="${targetCharName}"] #chat .mes:not([is_user="true"])`,
                         `#chat .mes[data-ch-name="${targetCharName}"]:not([is_user="true"])`,
                         `#chat .mes[ch_name="${targetCharName}"]:not([is_user="true"])`
                     ];
@@ -4089,6 +4058,7 @@
         const chatEl = document.getElementById('chat');
         if (chatEl) {
             const chatObserver = new MutationObserver((mutations) => {
+                const processedMesSet = new Set();
                 mutations.forEach(mutation => {
                     // 1. 处理新增 DOM 节点（包括思维链/流式生成的子元素和文本节点）
                     if (mutation.addedNodes) {
@@ -4096,34 +4066,27 @@
                             if (node.nodeType === Node.ELEMENT_NODE) {
                                 const mesEl = node.closest('.mes');
                                 if (mesEl) {
-                                    tagMessageElementsWithCharName(mesEl);
-                                    if (mesEl.getAttribute('is_user') !== 'true') observeCharMessageBlock(mesEl);
+                                    processedMesSet.add(mesEl);
                                 } else {
-                                    node.querySelectorAll('.mes').forEach(m => {
-                                        tagMessageElementsWithCharName(m);
-                                        if (m.getAttribute('is_user') !== 'true') observeCharMessageBlock(m);
-                                    });
+                                    node.querySelectorAll('.mes').forEach(m => processedMesSet.add(m));
                                 }
                             } else if (node.nodeType === Node.TEXT_NODE && node.parentElement) {
                                 const mesEl = node.parentElement.closest('.mes');
-                                if (mesEl) {
-                                    tagMessageElementsWithCharName(mesEl);
-                                    if (mesEl.getAttribute('is_user') !== 'true') observeCharMessageBlock(mesEl);
-                                }
+                                if (mesEl) processedMesSet.add(mesEl);
                             }
                         });
                     }
-                    // 2. 实时追踪包含思维链或流式替换 innerHTML 的变动
+                    // 2. 实时追踪包含思维链（.mes_reasoning_details / details open 展开与折叠）或流式替换 innerHTML 的变动
                     if (mutation.target && mutation.target.nodeType === Node.ELEMENT_NODE) {
                         const mesEl = mutation.target.closest('.mes');
-                        if (mesEl) {
-                            tagMessageElementsWithCharName(mesEl);
-                            if (mesEl.getAttribute('is_user') !== 'true') observeCharMessageBlock(mesEl);
-                        }
+                        if (mesEl) processedMesSet.add(mesEl);
                     }
                 });
+
+                // 对产生变动的所有消息块进行 0 延迟头像判定与补全替换
+                processedMesSet.forEach(tagMessageElementsWithCharName);
             });
-            chatObserver.observe(chatEl, { childList: true, subtree: true });
+            chatObserver.observe(chatEl, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'open', 'ch_name'] });
         }
     } catch (e) {
         console.warn('[Theme Manager Avatar] Failed to setup chat MutationObserver:', e);
@@ -4162,10 +4125,8 @@
         });
         if (eventTypes.STREAM_TOKEN_RECEIVED) {
             eventSource.on(eventTypes.STREAM_TOKEN_RECEIVED, () => {
-                const lastCharMes = document.querySelector('#chat .mes:not([is_user="true"]):last-child');
-                if (lastCharMes) {
-                    observeCharMessageBlock(lastCharMes);
-                }
+                const lastMes = document.querySelector('#chat .mes:last-child');
+                if (lastMes) tagMessageElementsWithCharName(lastMes);
             });
         }
         if (eventTypes.MESSAGE_UPDATED) {
