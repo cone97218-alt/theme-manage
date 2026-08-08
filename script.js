@@ -6807,6 +6807,7 @@
 
                 // 将 autoThemeModal 挂载到 document.body 顶层，彻底脱离父级 transform 包含块，确保 position: fixed 绝对相对于浏览器视口居中
                 if (autoThemeModal) {
+                    autoThemeModal.style.display = 'none';
                     document.body.appendChild(autoThemeModal);
                 }
 
@@ -6835,6 +6836,7 @@
 
                 // 将 daynightModal 挂载到 document.body 顶层
                 if (daynightModal) {
+                    daynightModal.style.display = 'none';
                     document.body.appendChild(daynightModal);
                 }
 
