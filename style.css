@@ -848,4 +848,42 @@
 
 
 
-
+
+
+/* 换行排版模式（美化名单独占一行，标签和操作图标在下方另起一行） */
+.two-line-layout .theme-item,
+.theme-item.two-line-layout {
+    flex-wrap: wrap !important;
+    padding: 8px 10px !important;
+    gap: 6px 0 !important;
+}
+
+.two-line-layout .theme-item-name,
+.theme-item.two-line-layout .theme-item-name {
+    width: 100% !important;
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    margin-bottom: 2px !important;
+}
+
+.two-line-layout .theme-item-name .theme-item-name-text,
+.theme-item.two-line-layout .theme-item-name .theme-item-name-text {
+    font-weight: bold !important;
+    font-size: 13px !important;
+    line-height: 1.4 !important;
+}
+
+.two-line-layout .theme-item-tags,
+.theme-item.two-line-layout .theme-item-tags {
+    margin-left: 0 !important;
+    margin-right: auto !important;
+}
+
+.two-line-layout .theme-item-buttons,
+.theme-item.two-line-layout .theme-item-buttons {
+    margin-left: auto !important;
+}

@@ -1159,6 +1159,7 @@
                                 <button id="tm-toggle-color-transfer-btn" class="menu_button" title="开启/禁用提取配色功能"><i class="fa-solid fa-palette"></i> 配色</button>
                                 <button id="tm-toggle-daynight-binding-btn" class="menu_button" title="显示/隐藏卡片日夜绑定按钮"><i class="fa-solid fa-circle-half-stroke"></i> 日夜</button>
                                 <button id="tm-toggle-replace-avatar-btn" class="menu_button" title="显示/隐藏详情页替换按键"><i class="fa-solid fa-check"></i> 替换</button>
+                                <button id="tm-toggle-twoline-layout-btn" class="menu_button" title="美化名单独占一行，标签与功能图标另起一行排版"><i class="fa-solid fa-align-left"></i> 排版</button>
                                 <button id="manage-tags-btn" class="menu_button" title="管理标签"><i class="fa-solid fa-tags"></i> 标签</button>
                                 <button id="tm-auto-group-btn" class="menu_button" style="background: rgba(0, 123, 255, 0.18) !important; color: #4dabf7 !important; border: 1px solid rgba(0, 123, 255, 0.3) !important;" title="自动提取美化名中的共同词组并向导生成标签/分类"><i class="fa-solid fa-wand-magic-sparkles"></i> 分组</button>
                                 <button id="tm-export-settings-btn" class="menu_button" title="导出配置文件"><i class="fa-solid fa-file-export"></i> 导出</button>
@@ -2785,6 +2786,17 @@
                     syncDiskBtn.addEventListener('click', () => hardResyncThemes(true));
                 }
 
+                const twoLineBtn = managerPanel.querySelector('#tm-toggle-twoline-layout-btn');
+                if (twoLineBtn) {
+                    if (isTwoLineLayout) twoLineBtn.classList.add('active');
+                    twoLineBtn.addEventListener('click', () => {
+                        isTwoLineLayout = !isTwoLineLayout;
+                        localStorage.setItem(TWO_LINE_LAYOUT_KEY, isTwoLineLayout ? 'true' : 'false');
+                        twoLineBtn.classList.toggle('active', isTwoLineLayout);
+                        if (contentWrapper) contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
+                        toastr.info(isTwoLineLayout ? '已开启换行排版模式（美化名单独占一行）' : '已恢复单行排版模式');
+                    });
+                }
                 const autoGroupBtn = managerPanel.querySelector('#tm-auto-group-btn');
                 if (autoGroupBtn) {
                     autoGroupBtn.addEventListener('click', () => openAutoGroupWizard());
@@ -3918,6 +3930,8 @@
                         wide: true,
                         onOpen: (popup) => {
                             const dlg = popup.dlg;
+                            let isBatchDeleteMode = false;
+                            const selectedBatchTagIds = new Set();
                             if (dlg) {
                                 dlg.style.width = '80vw';
                                 dlg.style.height = '80vh';
@@ -4261,11 +4275,20 @@
 
                     let popupHtml = `
                         <div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; border-bottom:1px solid rgba(128,128,128,0.2); padding-bottom:10px;">
-                            <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; font-weight:bold; user-select:none;">
-                                <input type="checkbox" id="chk-enable-subtags" ${subtagsEnabled ? 'checked' : ''}>
-                                <span>开启二级目录模式</span> <small style="opacity:0.6; font-weight:normal;">(支持一级目录/二级标签)</small>
-                            </label>
-                            <button id="modal-auto-group-btn" class="menu_button" style="margin:0; font-size:12px; padding:2px 8px; background:rgba(0,123,255,0.15) !important; color:#4dabf7 !important;"><i class="fa-solid fa-wand-magic-sparkles"></i> 智能提取分组</button>
+                            <div style="display:flex; gap:12px; align-items:center;">
+                                <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; font-weight:bold; user-select:none;">
+                                    <input type="checkbox" id="chk-enable-subtags" ${subtagsEnabled ? 'checked' : ''}>
+                                    <span>二级目录模式</span>
+                                </label>
+                                <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; font-weight:bold; user-select:none;">
+                                    <input type="checkbox" id="chk-modal-twoline" ${isTwoLineLayout ? 'checked' : ''}>
+                                    <span>换行排版</span>
+                                </label>
+                            </div>
+                            <div style="display:flex; gap:6px; align-items:center;">
+                                <button id="tm-tags-batch-delete-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:2px 8px; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; border:1px solid rgba(220,53,69,0.3) !important;"><i class="fa-solid fa-trash-can"></i> 批量删除</button>
+                                <button id="modal-auto-group-btn" class="menu_button" style="margin:0; font-size:12px; padding:2px 8px; background:rgba(0,123,255,0.15) !important; color:#4dabf7 !important;"><i class="fa-solid fa-wand-magic-sparkles"></i> 智能提取分组</button>
+                            </div>
                         </div>
                         <div style="margin-bottom:15px; display:flex; gap:8px; align-items:center;">
                             <input type="text" id="new-tag-name" class="text_pole" placeholder="${subtagsEnabled ? '新一级标签名称...' : '新标签名称...'}" style="flex-grow:1; min-width:0;">
@@ -4296,7 +4319,7 @@
                                         html += `
                                             <li class="tm-flat-tag-item" data-id="${t.id}" data-index="${idx}" style="display:flex; justify-content:space-between; padding:6px 8px; background:rgba(255,255,255,0.04); margin-bottom:4px; border-radius:4px; align-items:center;">
                                                 <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
-                                                    <i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
+                                                    ${isBatchDeleteMode ? `<input type="checkbox" class="tm-tag-batch-chk" data-id="${t.id}" ${selectedBatchTagIds.has(t.id) ? 'checked' : ''} style="margin:0 4px 0 0; cursor:pointer;">` : ''}<i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
                                                     <span style="word-break: break-all; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(t.name)}</span>
                                                     <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${t.themes ? t.themes.length : 0})</small>
                                                     ${kwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${kwCount}词]</small>` : ''}
@@ -4313,6 +4336,17 @@
                                     });
                                     html += '</ul>';
                                     listContainer.innerHTML = html;
+                                    listContainer.querySelectorAll('.tm-tag-batch-chk').forEach(chk => {
+                                        chk.addEventListener('change', (e) => {
+                                            const id = e.target.dataset.id;
+                                            if (e.target.checked) selectedBatchTagIds.add(id);
+                                            else selectedBatchTagIds.delete(id);
+                                            const btn = dlg.querySelector('#tm-tags-batch-delete-mode-btn');
+                                            if (btn && isBatchDeleteMode) {
+                                                btn.innerHTML = `<i class="fa-solid fa-check"></i> 确认删除已选 (${selectedBatchTagIds.size})`;
+                                            }
+                                        });
+                                    });
                                 } else {
                                     let html = '<div class="tm-subtags-tree">';
                                     const l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
@@ -4325,7 +4359,7 @@
                                             <div class="tm-level1-card" data-id="${l1Tag.id}" data-index="${l1Idx}">
                                                 <div class="tm-level1-header" data-id="${l1Tag.id}">
                                                     <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
-                                                        <i class="fa-solid fa-folder-open" style="color:var(--SmartThemeQuoteColor, #4a90e2); flex-shrink:0;"></i>
+                                                        ${isBatchDeleteMode ? `<input type="checkbox" class="tm-tag-batch-chk" data-id="${l1Tag.id}" ${selectedBatchTagIds.has(l1Tag.id) ? 'checked' : ''} style="margin:0 4px 0 0; cursor:pointer;">` : ''}<i class="fa-solid fa-folder-open" style="color:var(--SmartThemeQuoteColor, #4a90e2); flex-shrink:0;"></i>
                                                         <span style="font-weight:bold; font-size:13px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(l1Tag.name)}</span>
                                                         <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(二级:${childTags.length}/主题:${l1Tag.themes ? l1Tag.themes.length : 0})</small>
                                                         ${kwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${kwCount}词]</small>` : ''}
@@ -4351,7 +4385,7 @@
                                                 html += `
                                                     <div class="tm-level2-item" data-id="${cTag.id}" data-parent-id="${l1Tag.id}" data-index="${cIdx}">
                                                         <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
-                                                            <i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
+                                                            ${isBatchDeleteMode ? `<input type="checkbox" class="tm-tag-batch-chk" data-id="${cTag.id}" ${selectedBatchTagIds.has(cTag.id) ? "checked" : ""} style="margin:0 4px 0 0; cursor:pointer;">` : ""}<i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
                                                             <span style="text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(cTag.name)}</span>
                                                             <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${cTag.themes ? cTag.themes.length : 0})</small>
                                                             ${cKwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${cKwCount}词]</small>` : ''}
