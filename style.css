@@ -138,10 +138,11 @@
 }
 
 .theme-manager-actions button.selected,
+.theme-manager-actions button.active,
 #batch-actions-bar button {
-    background-color: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, 0.4));
+    background-color: var(--SmartThemeQuoteColor, rgba(0, 123, 255, 0.3)) !important;
     color: var(--SmartThemeBodyColor);
-    border: 1px solid var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.3));
+    border: 1px solid var(--SmartThemeQuoteColor, rgba(0, 123, 255, 0.5)) !important;
 }
 
 #batch-actions-bar {
@@ -896,3 +897,140 @@
     justify-content: flex-end !important;
     gap: 4px !important;
 }
+
+/* 标签管理弹窗 - 批量删除按钮横向文字排版 */
+#batch-delete-tags-mode-btn {
+    writing-mode: horizontal-tb !important;
+    display: inline-flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: center !important;
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+    height: auto !important;
+    min-height: 28px !important;
+    width: auto !important;
+    padding: 4px 12px !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+}
+
+#batch-delete-tags-mode-btn i {
+    margin-right: 4px !important;
+    display: inline-block !important;
+}
+
+/* 设置弹窗内所有文字与按钮排列样式 (精简紧凑版) */
+.tm-settings-popup {
+    width: 100% !important;
+    max-width: 680px !important;
+    box-sizing: border-box !important;
+    text-align: left !important;
+}
+
+.tm-settings-popup button,
+.tm-settings-popup label,
+.tm-settings-popup span,
+.tm-settings-popup h4 {
+    writing-mode: horizontal-tb !important;
+}
+
+.tm-settings-section-title {
+    font-size: 12.5px !important;
+    font-weight: bold !important;
+    opacity: 0.9 !important;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.2) !important;
+    padding-bottom: 5px !important;
+    margin: 0 0 8px 0 !important;
+    text-align: left !important;
+    display: block !important;
+}
+
+.tm-settings-section-note {
+    display: block !important;
+    font-size: 11px !important;
+    font-weight: normal !important;
+    opacity: 0.65 !important;
+    margin-top: 3px !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    line-height: 1.3 !important;
+}
+
+.tm-settings-buttons-flex {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    align-items: center !important;
+    margin-bottom: 14px !important;
+}
+
+.tm-settings-popup button {
+    display: inline-flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: center !important;
+    height: auto !important;
+    min-height: 28px !important;
+    padding: 4px 10px !important;
+    font-size: 11.5px !important;
+    margin: 0 !important;
+    width: auto !important;
+    flex: 0 0 auto !important;
+    box-sizing: border-box !important;
+    background: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, 0.2)) !important;
+    color: var(--SmartThemeBodyColor, #fff) !important;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(128, 128, 128, 0.3)) !important;
+    border-radius: 4px !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+    opacity: 0.9;
+    transition: all 0.15s ease;
+}
+
+.tm-settings-popup button:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.15) !important;
+}
+
+.tm-settings-popup button.active {
+    opacity: 1;
+    background: var(--SmartThemeQuoteColor, rgba(0, 123, 255, 0.35)) !important;
+    border-color: var(--SmartThemeQuoteColor, rgba(0, 123, 255, 0.6)) !important;
+    color: #ffffff !important;
+    font-weight: bold !important;
+}
+
+.tm-settings-popup button i {
+    margin-right: 4px !important;
+    margin-left: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    display: inline-block !important;
+    flex-shrink: 0 !important;
+}
+
+/* 隐藏胶囊标签模式（保留顶部筛选功能，仅隐藏卡片上的胶囊标签，标题与功能按键在同一排） */
+.theme-content.hide-tag-pills .theme-item-tags {
+    display: none !important;
+}
+
+.theme-content.hide-tag-pills .theme-item {
+    flex-wrap: nowrap !important;
+}
+
+.theme-content.hide-tag-pills .theme-item-name {
+    width: auto !important;
+    flex: 1 1 auto !important;
+    max-width: none !important;
+    margin-bottom: 0 !important;
+}
+
+.theme-content.hide-tag-pills .theme-item-buttons {
+    margin-left: auto !important;
+}
+
+
+

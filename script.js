@@ -199,8 +199,27 @@
                 const ENABLE_DAYNIGHT_BINDING_KEY = 'themeManager_enableDayNightBinding';
                 const ENABLE_REPLACE_AVATAR_BTN_KEY = 'themeManager_enableReplaceAvatarBtn';
                 const TWO_LINE_LAYOUT_KEY = 'themeManager_twoLineLayout';
+                const HIDE_TAG_PILLS_KEY = 'themeManager_hideTagPills';
 
                 let isTwoLineLayout = localStorage.getItem(TWO_LINE_LAYOUT_KEY) === 'true';
+                let hideTagPills = localStorage.getItem(HIDE_TAG_PILLS_KEY) === 'true';
+                if (isTwoLineLayout && hideTagPills) {
+                    hideTagPills = false;
+                    localStorage.setItem(HIDE_TAG_PILLS_KEY, 'false');
+                }
+
+                function closePopup(popup) {
+                    if (!popup) return;
+                    if (typeof popup.complete === 'function') {
+                        popup.complete();
+                    } else if (typeof popup.close === 'function') {
+                        popup.close();
+                    } else if (popup.dlg) {
+                        const closeBtn = popup.dlg.querySelector('.popup-button-ok, .popup-button-cancel, .popup-close');
+                        if (closeBtn) closeBtn.click();
+                    }
+                }
+
                 let themeDayNightPairs = loadThemeDayNightPairs();
                 let enableDayNightBinding = localStorage.getItem(ENABLE_DAYNIGHT_BINDING_KEY) !== 'false'; // 默认开启 (true)
 
@@ -1154,17 +1173,9 @@
                             <div class="tm-button-row">
                                 <button id="batch-edit-btn" class="menu_button" title="进入/退出批量编辑模式"><i class="fa-solid fa-pen-to-square"></i> 编辑</button>
                                 <button id="batch-import-btn" class="menu_button" title="从文件批量导入主题"><i class="fa-solid fa-folder-open"></i> 导入</button>
-                                <button id="tm-toggle-usage-count-btn" class="menu_button" title="显示/隐藏使用次数统计"><i class="fa-solid fa-chart-bar"></i> 统计</button>
-                                <button id="tm-toggle-avatar-helper-btn" class="menu_button" title="开启/完全禁用头像管理功能"><i class="fa-solid fa-check"></i> 头像</button>
-                                <button id="tm-toggle-color-transfer-btn" class="menu_button" title="开启/禁用提取配色功能"><i class="fa-solid fa-palette"></i> 配色</button>
-                                <button id="tm-toggle-daynight-binding-btn" class="menu_button" title="显示/隐藏卡片日夜绑定按钮"><i class="fa-solid fa-circle-half-stroke"></i> 日夜</button>
-                                <button id="tm-toggle-replace-avatar-btn" class="menu_button" title="显示/隐藏详情页替换按键"><i class="fa-solid fa-check"></i> 替换</button>
                                 <button id="manage-tags-btn" class="menu_button" title="管理标签"><i class="fa-solid fa-tags"></i> 标签</button>
-                                <button id="tm-auto-group-btn" class="menu_button" style="background: rgba(0, 123, 255, 0.18) !important; color: #4dabf7 !important; border: 1px solid rgba(0, 123, 255, 0.3) !important;" title="自动提取美化名中的共同词组并向导生成标签/分类"><i class="fa-solid fa-wand-magic-sparkles"></i> 分组</button>
-                                <button id="tm-export-settings-btn" class="menu_button" title="导出配置文件"><i class="fa-solid fa-file-export"></i> 导出</button>
-                                <button id="tm-import-settings-btn" class="menu_button" title="从配置文件中导入插件设置"><i class="fa-solid fa-file-import"></i> 导入</button>
-                                <button id="tm-sync-disk-btn" class="menu_button" style="background: rgba(40, 167, 69, 0.18) !important; color: #72e48e !important; border: 1px solid rgba(40, 167, 69, 0.3) !important;" title="重新从磁盘读取主题并强行对齐界面与物理文件"><i class="fa-solid fa-arrows-rotate"></i> 对照磁盘</button>
-                                <button id="tm-reset-all-system-btn" class="menu_button" style="background: rgba(220, 53, 69, 0.12) !important; color: #ff8888 !important; border: 1px solid rgba(220, 53, 69, 0.2) !important;" title="重置美化插件的所有数据"><i class="fa-solid fa-triangle-exclamation"></i> 重置</button>
+                                <button id="tm-auto-group-btn" class="menu_button" title="自动提取美化名中的共同词组并向导生成标签/分类"><i class="fa-solid fa-wand-magic-sparkles"></i> 分组</button>
+                                <button id="tm-settings-btn" class="menu_button" title="插件高级设置"><i class="fa-solid fa-gear"></i> 设置</button>
                             </div>
                         </div>
 
@@ -1308,6 +1319,7 @@
                 const contentWrapper = managerPanel.querySelector('.theme-content');
                 if (contentWrapper) {
                     contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
+                    contentWrapper.classList.toggle('hide-tag-pills', hideTagPills);
                 }
                 const searchBox = managerPanel.querySelector('#theme-search-box');
                 const randomBtn = managerPanel.querySelector('#random-theme-btn');
@@ -2222,11 +2234,13 @@
                     modeBtn.addEventListener('click', () => {
                         tagFilterMode = tagFilterMode === 'or' ? 'and' : 'or';
                         localStorage.setItem(TAG_FILTER_MODE_KEY, tagFilterMode);
-                        updateTagChipsActiveState();
-                        if (activeTagFilters.size > 0) {
-                            currentPage = 1;
-                            filterThemeList(0);
+                        if (tagFilterMode === 'or' && activeTagFilters.size > 1) {
+                            const firstTag = Array.from(activeTagFilters)[0];
+                            activeTagFilters.clear();
+                            activeTagFilters.add(firstTag);
                         }
+                        handleTagFilterChange();
+                        renderTagsUI();
                     });
                     container.appendChild(modeBtn);
 
@@ -2279,7 +2293,25 @@
                     });
                     container.appendChild(uncatChip);
 
+                    function syncActiveLevel1TagId(allTags) {
+                        if (!subtagsEnabled || activeTagFilters.size === 0) return;
+                        if (activeLevel1TagId && allTags.some(t => t.id === activeLevel1TagId)) return;
+                        for (const filterId of activeTagFilters) {
+                            if (typeof filterId === 'string' && filterId.startsWith('__SUB_UNCATEGORIZED__:')) {
+                                activeLevel1TagId = filterId.split(':')[1];
+                                return;
+                            }
+                            const tag = allTags.find(t => t.id === filterId);
+                            if (tag) {
+                                activeLevel1TagId = tag.parentId || tag.id;
+                                return;
+                            }
+                        }
+                    }
+
                     const tags = cachedTags || loadThemeTags();
+                    syncActiveLevel1TagId(tags);
+
                     if (tags.length > 0) {
                         const visibleLevel1Tags = subtagsEnabled
                             ? tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId))
@@ -2311,9 +2343,22 @@
                             chip.innerHTML = `${escapeHtml(tag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${count})</span>`;
                             chip.addEventListener('click', () => {
                                 if (subtagsEnabled) {
-                                    if (activeLevel1TagId === tag.id && activeTagFilters.has(tag.id)) {
-                                        activeLevel1TagId = null;
-                                        activeTagFilters.clear();
+                                    if (activeLevel1TagId === tag.id) {
+                                        if (tagFilterMode === 'or') {
+                                            if (activeTagFilters.has(tag.id)) {
+                                                activeLevel1TagId = null;
+                                                activeTagFilters.clear();
+                                            } else {
+                                                activeTagFilters.clear();
+                                                activeTagFilters.add(tag.id);
+                                            }
+                                        } else {
+                                            if (activeTagFilters.has(tag.id)) {
+                                                activeTagFilters.delete(tag.id);
+                                            } else {
+                                                activeTagFilters.add(tag.id);
+                                            }
+                                        }
                                     } else {
                                         activeLevel1TagId = tag.id;
                                         if (tagFilterMode === 'or') activeTagFilters.clear();
@@ -2722,7 +2767,8 @@
                     SHOW_USAGE_COUNT_KEY,
                     ENABLE_AVATAR_HELPER_KEY,
                     ENABLE_COLOR_TRANSFER_KEY,
-                    TWO_LINE_LAYOUT_KEY
+                    TWO_LINE_LAYOUT_KEY,
+                    HIDE_TAG_PILLS_KEY
                 ];
 
                 function exportSettings() {
@@ -2776,30 +2822,16 @@
                     }
                 }
 
-                managerPanel.querySelector('#tm-export-settings-btn').addEventListener('click', exportSettings);
-                managerPanel.querySelector('#tm-import-settings-btn').addEventListener('click', () => settingsFileInput.click());
                 settingsFileInput.addEventListener('change', importSettings);
-
-                const syncDiskBtn = managerPanel.querySelector('#tm-sync-disk-btn');
-                if (syncDiskBtn) {
-                    syncDiskBtn.addEventListener('click', () => hardResyncThemes(true));
-                }
 
                 const autoGroupBtn = managerPanel.querySelector('#tm-auto-group-btn');
                 if (autoGroupBtn) {
                     autoGroupBtn.addEventListener('click', () => openAutoGroupWizard());
                 }
 
-                const twoLineBtn = managerPanel.querySelector('#tm-toggle-twoline-layout-btn');
-                if (twoLineBtn) {
-                    if (isTwoLineLayout) twoLineBtn.classList.add('active');
-                    twoLineBtn.addEventListener('click', () => {
-                        isTwoLineLayout = !isTwoLineLayout;
-                        localStorage.setItem(TWO_LINE_LAYOUT_KEY, isTwoLineLayout ? 'true' : 'false');
-                        twoLineBtn.classList.toggle('active', isTwoLineLayout);
-                        if (contentWrapper) contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
-                        toastr.info(`美化列表已切换为: ${isTwoLineLayout ? '换行排版模式' : '常规单行模式'}`);
-                    });
+                const settingsBtn = managerPanel.querySelector('#tm-settings-btn');
+                if (settingsBtn) {
+                    settingsBtn.addEventListener('click', () => openSettingsPopup());
                 }
 
                 // ---------- 功能结束 ----------
@@ -3618,75 +3650,287 @@
                     openManageTagsPopup();
                 });
 
-                if (resetAllSystemBtn) {
-                    resetAllSystemBtn.addEventListener('click', async () => {
-                        const popupContent = document.createElement('div');
-                        popupContent.innerHTML = `
-                            <h4><i class="fa-solid fa-triangle-exclamation" style="color:#ff8888; margin-right:6px;"></i>重置美化插件数据</h4>
-                            <p style="font-size:12px; opacity:0.8; margin-bottom:12px; text-align:left;">请勾选您需要清除的数据模块（此操作不可逆）：</p>
-                            <div style="display:flex; flex-direction:column; gap:8px; margin:10px 0; text-align:left; padding-left:10px;">
-                                <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                    <input type="checkbox" id="reset-opt-tags" checked> 重置美化标签与分类设置
-                                </label>
-                                <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                    <input type="checkbox" id="reset-opt-bindings" checked> 重置角色卡美化自动映射
-                                </label>
-                                <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                    <input type="checkbox" id="reset-opt-avatars" checked> 重置头像高级设置（缩放/偏移/框/图库）
-                                </label>
-                            </div>
-                            <p style="font-size:11px; color:#ff8888; margin-top:10px; text-align:left;">确认重置后，网页将会自动刷新以载入默认状态。</p>
-                        `;
+                async function openResetSystemModal() {
+                    const popupContent = document.createElement('div');
+                    popupContent.innerHTML = `
+                        <h4><i class="fa-solid fa-triangle-exclamation" style="color:#ff8888; margin-right:6px;"></i>重置美化插件数据</h4>
+                        <p style="font-size:12px; opacity:0.8; margin-bottom:12px; text-align:left;">请勾选您需要清除的数据模块（此操作不可逆）：</p>
+                        <div style="display:flex; flex-direction:column; gap:8px; margin:10px 0; text-align:left; padding-left:10px;">
+                            <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                <input type="checkbox" id="reset-opt-tags" checked> 重置美化标签与分类设置
+                            </label>
+                            <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                <input type="checkbox" id="reset-opt-bindings" checked> 重置角色卡美化自动映射
+                            </label>
+                            <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                <input type="checkbox" id="reset-opt-avatars" checked> 重置头像高级设置（缩放/偏移/框/图库）
+                            </label>
+                        </div>
+                        <p style="font-size:11px; color:#ff8888; margin-top:10px; text-align:left;">确认重置后，网页将会自动刷新以载入默认状态。</p>
+                    `;
 
-                        await callGenericPopup(popupContent, 'confirm', null, {
-                            okButton: '确认重置',
-                            cancelButton: '取消',
-                            wide: true,
-                            onOpen: (popup) => {
-                                const dlg = popup.dlg;
-                                if (dlg) {
-                                    dlg.style.width = '90%';
-                                    dlg.style.maxWidth = '450px';
-                                }
-                                const okButton = dlg.querySelector('.popup-button-ok');
-                                if (okButton) {
-                                    okButton.style.backgroundColor = 'rgba(220, 53, 69, 0.8)';
-                                    okButton.style.color = '#fff';
-                                    okButton.addEventListener('click', (e) => {
-                                        e.preventDefault();
-                                        const doTags = dlg.querySelector('#reset-opt-tags').checked;
-                                        const doBindings = dlg.querySelector('#reset-opt-bindings').checked;
-                                        const doAvatars = dlg.querySelector('#reset-opt-avatars').checked;
-
-                                        let clearedCount = 0;
-                                        if (doTags) {
-                                            localStorage.removeItem('themeManager_themeTags');
-                                            localStorage.removeItem('themeManager_activeTagsFilters');
-                                            clearedCount++;
-                                        }
-                                        if (doBindings) {
-                                            localStorage.removeItem('themeManager_characterThemeBindings');
-                                            clearedCount++;
-                                        }
-                                        if (doAvatars) {
-                                            localStorage.removeItem('themeManager_avatarAdjustments');
-                                            localStorage.removeItem('themeManager_customFrames');
-                                            localStorage.removeItem('themeManager_avatarPanelGeometry');
-                                            localStorage.removeItem('themeManager_disableAvatarZoom');
-                                            clearedCount++;
-                                        }
-
-                                        if (clearedCount > 0) {
-                                            toastr.success('选定数据已成功重置，正在重新载入页面...');
-                                            setTimeout(() => location.reload(), 1000);
-                                        } else {
-                                            toastr.info('未勾选任何重置选项。');
-                                        }
-                                        popup.close();
-                                    });
-                                }
+                    await callGenericPopup(popupContent, 'confirm', null, {
+                        okButton: '确认重置',
+                        cancelButton: '取消',
+                        wide: true,
+                        onOpen: (popup) => {
+                            const dlg = popup.dlg;
+                            if (dlg) {
+                                dlg.style.width = '90%';
+                                dlg.style.maxWidth = '450px';
                             }
-                        });
+                            const okButton = dlg.querySelector('.popup-button-ok');
+                            if (okButton) {
+                                okButton.style.backgroundColor = 'rgba(220, 53, 69, 0.8)';
+                                okButton.style.color = '#fff';
+                                okButton.addEventListener('click', (e) => {
+                                    e.preventDefault();
+                                    const doTags = dlg.querySelector('#reset-opt-tags').checked;
+                                    const doBindings = dlg.querySelector('#reset-opt-bindings').checked;
+                                    const doAvatars = dlg.querySelector('#reset-opt-avatars').checked;
+
+                                    let clearedCount = 0;
+                                    if (doTags) {
+                                        localStorage.removeItem('themeManager_themeTags');
+                                        localStorage.removeItem('themeManager_activeTagsFilters');
+                                        clearedCount++;
+                                    }
+                                    if (doBindings) {
+                                        localStorage.removeItem('themeManager_characterThemeBindings');
+                                        clearedCount++;
+                                    }
+                                    if (doAvatars) {
+                                        localStorage.removeItem('themeManager_avatarAdjustments');
+                                        localStorage.removeItem('themeManager_customFrames');
+                                        localStorage.removeItem('themeManager_avatarPanelGeometry');
+                                        localStorage.removeItem('themeManager_disableAvatarZoom');
+                                        clearedCount++;
+                                    }
+
+                                    if (clearedCount > 0) {
+                                        toastr.success('选定数据已成功重置，正在重新载入页面...');
+                                        setTimeout(() => location.reload(), 1000);
+                                    } else {
+                                        toastr.info('未勾选任何重置选项。');
+                                    }
+                                    closePopup(popup);
+                                });
+                            }
+                        }
+                    });
+                }
+
+                async function openSettingsPopup() {
+                    const getPopupHtml = () => `
+                        <div class="tm-settings-popup" style="max-height: 75vh; overflow-y: auto; overflow-x: hidden; padding-right: 4px; box-sizing: border-box;">
+                            <div style="margin-bottom: 14px;">
+                                <h4 class="tm-settings-section-title">
+                                    <i class="fa-solid fa-sliders" style="margin-right: 6px;"></i> 视图与显示设置
+                                    <span class="tm-settings-section-note">(注：换行排版与隐藏胶囊为互斥功能，开启其一将自动关闭另一项)</span>
+                                </h4>
+                                <div class="tm-settings-buttons-flex">
+                                    <button id="tm-pop-toggle-twoline" class="menu_button ${isTwoLineLayout ? 'active' : ''}"><i class="fa-solid fa-align-left"></i> 换行排版 (${isTwoLineLayout ? '开启' : '关闭'})</button>
+                                    <button id="tm-pop-toggle-hidetags" class="menu_button ${hideTagPills ? 'active' : ''}"><i class="fa-solid fa-tag"></i> 隐藏胶囊 (${hideTagPills ? '开启' : '关闭'})</button>
+                                    <button id="tm-pop-toggle-usage" class="menu_button ${showUsageCount ? 'active' : ''}"><i class="fa-solid fa-chart-bar"></i> 使用统计 (${showUsageCount ? '开启' : '关闭'})</button>
+                                    <button id="tm-pop-toggle-daynight" class="menu_button ${enableDayNightBinding ? 'active' : ''}"><i class="fa-solid fa-circle-half-stroke"></i> 日夜图标 (${enableDayNightBinding ? '开启' : '关闭'})</button>
+                                    <button id="tm-pop-toggle-replace" class="menu_button ${enableReplaceAvatarBtn ? 'active' : ''}"><i class="fa-solid fa-check"></i> 详情页替换 (${enableReplaceAvatarBtn ? '开启' : '关闭'})</button>
+                                </div>
+                            </div>
+
+                            <div style="margin-bottom: 14px;">
+                                <h4 class="tm-settings-section-title">
+                                    <i class="fa-solid fa-cubes" style="margin-right: 6px;"></i> 核心扩展功能
+                                </h4>
+                                <div class="tm-settings-buttons-flex">
+                                    <button id="tm-pop-toggle-avatar" class="menu_button ${enableAvatarHelper ? 'active' : ''}"><i class="fa-solid fa-user-gear"></i> 头像管理 (${enableAvatarHelper ? '开启' : '关闭'})</button>
+                                    <button id="tm-pop-toggle-color" class="menu_button ${enableColorTransfer ? 'active' : ''}"><i class="fa-solid fa-palette"></i> 提取配色 (${enableColorTransfer ? '开启' : '关闭'})</button>
+                                </div>
+                            </div>
+
+                            <div style="margin-bottom: 14px;">
+                                <h4 class="tm-settings-section-title">
+                                    <i class="fa-solid fa-database" style="margin-right: 6px;"></i> 拓展数据管理
+                                </h4>
+                                <div class="tm-settings-buttons-flex">
+                                    <button id="tm-pop-export-data" class="menu_button"><i class="fa-solid fa-file-export"></i> 导出数据</button>
+                                    <button id="tm-pop-import-data" class="menu_button"><i class="fa-solid fa-file-import"></i> 导入数据</button>
+                                </div>
+                            </div>
+
+                            <div style="margin-bottom: 8px;">
+                                <h4 class="tm-settings-section-title">
+                                    <i class="fa-solid fa-wrench" style="margin-right: 6px;"></i> 高级与系统维保
+                                </h4>
+                                <div class="tm-settings-buttons-flex">
+                                    <button id="tm-pop-sync-disk" class="menu_button"><i class="fa-solid fa-arrows-rotate"></i> 对照磁盘</button>
+                                    <button id="tm-pop-reset-system" class="menu_button"><i class="fa-solid fa-triangle-exclamation"></i> 重置数据</button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+
+                    await callGenericPopup(getPopupHtml(), 'confirm', null, {
+                        title: '美化插件高级设置',
+                        okButton: '关闭',
+                        cancelButton: null,
+                        wide: true,
+                        onOpen: (popup) => {
+                            const dlg = popup.dlg;
+
+                            const btnTwoLine = dlg.querySelector('#tm-pop-toggle-twoline');
+                            const btnHideTags = dlg.querySelector('#tm-pop-toggle-hidetags');
+
+                            if (btnTwoLine) {
+                                btnTwoLine.addEventListener('click', () => {
+                                    isTwoLineLayout = !isTwoLineLayout;
+                                    localStorage.setItem(TWO_LINE_LAYOUT_KEY, isTwoLineLayout ? 'true' : 'false');
+                                    btnTwoLine.classList.toggle('active', isTwoLineLayout);
+                                    btnTwoLine.innerHTML = `<i class="fa-solid fa-align-left"></i> 换行排版 (${isTwoLineLayout ? '开启' : '关闭'})`;
+                                    if (contentWrapper) contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
+
+                                    // 开启换行排版时自动关闭隐藏胶囊标签
+                                    if (isTwoLineLayout && hideTagPills) {
+                                        hideTagPills = false;
+                                        localStorage.setItem(HIDE_TAG_PILLS_KEY, 'false');
+                                        if (btnHideTags) {
+                                            btnHideTags.classList.remove('active');
+                                            btnHideTags.innerHTML = `<i class="fa-solid fa-tag"></i> 隐藏胶囊 (关闭)`;
+                                        }
+                                        if (contentWrapper) contentWrapper.classList.remove('hide-tag-pills');
+                                    }
+
+                                    toastr.info(`美化列表已切换为: ${isTwoLineLayout ? '换行排版模式' : '常规单行模式'}`);
+                                });
+                            }
+
+                            if (btnHideTags) {
+                                btnHideTags.addEventListener('click', () => {
+                                    hideTagPills = !hideTagPills;
+                                    localStorage.setItem(HIDE_TAG_PILLS_KEY, hideTagPills ? 'true' : 'false');
+                                    btnHideTags.classList.toggle('active', hideTagPills);
+                                    btnHideTags.innerHTML = `<i class="fa-solid fa-tag"></i> 隐藏胶囊 (${hideTagPills ? '开启' : '关闭'})`;
+                                    if (contentWrapper) contentWrapper.classList.toggle('hide-tag-pills', hideTagPills);
+
+                                    // 开启隐藏胶囊标签时自动关闭换行排版
+                                    if (hideTagPills && isTwoLineLayout) {
+                                        isTwoLineLayout = false;
+                                        localStorage.setItem(TWO_LINE_LAYOUT_KEY, 'false');
+                                        if (btnTwoLine) {
+                                            btnTwoLine.classList.remove('active');
+                                            btnTwoLine.innerHTML = `<i class="fa-solid fa-align-left"></i> 换行排版 (关闭)`;
+                                        }
+                                        if (contentWrapper) contentWrapper.classList.remove('two-line-layout');
+                                    }
+
+                                    toastr.info(`胶囊标签已${hideTagPills ? '隐藏 (标题与按键单行展示)' : '显示'}`);
+                                });
+                            }
+
+                            const btnUsage = dlg.querySelector('#tm-pop-toggle-usage');
+                            if (btnUsage) {
+                                btnUsage.addEventListener('click', () => {
+                                    showUsageCount = !showUsageCount;
+                                    localStorage.setItem(SHOW_USAGE_COUNT_KEY, showUsageCount ? 'true' : 'false');
+                                    btnUsage.classList.toggle('active', showUsageCount);
+                                    btnUsage.innerHTML = `<i class="fa-solid fa-chart-bar"></i> 使用统计 (${showUsageCount ? '开启' : '关闭'})`;
+                                    themeItemMap.forEach((item, themeName) => {
+                                        const usageSpan = item.children[0].querySelector('.theme-usage-count');
+                                        if (usageSpan) {
+                                            if (showUsageCount && usageCount[themeName]) {
+                                                usageSpan.textContent = usageCount[themeName];
+                                                usageSpan.style.display = '';
+                                            } else {
+                                                usageSpan.style.display = 'none';
+                                            }
+                                        }
+                                    });
+                                });
+                            }
+
+                            const btnDayNight = dlg.querySelector('#tm-pop-toggle-daynight');
+                            if (btnDayNight) {
+                                btnDayNight.addEventListener('click', () => {
+                                    enableDayNightBinding = !enableDayNightBinding;
+                                    localStorage.setItem(ENABLE_DAYNIGHT_BINDING_KEY, String(enableDayNightBinding));
+                                    btnDayNight.classList.toggle('active', enableDayNightBinding);
+                                    btnDayNight.innerHTML = `<i class="fa-solid fa-circle-half-stroke"></i> 日夜图标 (${enableDayNightBinding ? '开启' : '关闭'})`;
+                                    toastr.info(`日夜绑定图标已${enableDayNightBinding ? '显示' : '隐藏'}`);
+                                    themeItemMap.forEach((item) => {
+                                        const btn = item.querySelector('.link-daynight-btn');
+                                        if (btn) btn.style.display = enableDayNightBinding ? 'inline-flex' : 'none';
+                                    });
+                                });
+                            }
+
+                            const btnReplace = dlg.querySelector('#tm-pop-toggle-replace');
+                            if (btnReplace) {
+                                btnReplace.addEventListener('click', () => {
+                                    enableReplaceAvatarBtn = !enableReplaceAvatarBtn;
+                                    localStorage.setItem(ENABLE_REPLACE_AVATAR_BTN_KEY, String(enableReplaceAvatarBtn));
+                                    btnReplace.classList.toggle('active', enableReplaceAvatarBtn);
+                                    btnReplace.innerHTML = `<i class="fa-solid fa-check"></i> 详情页替换 (${enableReplaceAvatarBtn ? '开启' : '关闭'})`;
+                                    toastr.info(`替换按键已${enableReplaceAvatarBtn ? '显示' : '隐藏'}`);
+                                    if (enableReplaceAvatarBtn) {
+                                        registerReplaceImageButtons();
+                                    } else {
+                                        removeReplaceImageButtons();
+                                    }
+                                });
+                            }
+
+                            const btnAvatar = dlg.querySelector('#tm-pop-toggle-avatar');
+                            if (btnAvatar) {
+                                btnAvatar.addEventListener('click', () => {
+                                    enableAvatarHelper = !enableAvatarHelper;
+                                    localStorage.setItem(ENABLE_AVATAR_HELPER_KEY, String(enableAvatarHelper));
+                                    btnAvatar.classList.toggle('active', enableAvatarHelper);
+                                    btnAvatar.innerHTML = `<i class="fa-solid fa-user-gear"></i> 头像管理 (${enableAvatarHelper ? '开启' : '关闭'})`;
+                                    document.dispatchEvent(new CustomEvent('themeManager:enableAvatarHelperChanged', { detail: enableAvatarHelper }));
+                                    toastr.info(`头像管理功能已${enableAvatarHelper ? '开启' : '关闭'}`);
+                                });
+                            }
+
+                            const btnColor = dlg.querySelector('#tm-pop-toggle-color');
+                            if (btnColor) {
+                                btnColor.addEventListener('click', () => {
+                                    enableColorTransfer = !enableColorTransfer;
+                                    localStorage.setItem(ENABLE_COLOR_TRANSFER_KEY, String(enableColorTransfer));
+                                    btnColor.classList.toggle('active', enableColorTransfer);
+                                    btnColor.innerHTML = `<i class="fa-solid fa-palette"></i> 提取配色 (${enableColorTransfer ? '开启' : '关闭'})`;
+                                    toastr.info(`提取配色功能已${enableColorTransfer ? '开启' : '关闭'}`);
+                                    themeItemMap.forEach((item) => {
+                                        const btn = item.querySelector('.color-transfer-btn');
+                                        if (btn) btn.style.display = enableColorTransfer ? 'inline-flex' : 'none';
+                                    });
+                                });
+                            }
+
+                            const btnExport = dlg.querySelector('#tm-pop-export-data');
+                            if (btnExport) {
+                                btnExport.addEventListener('click', exportSettings);
+                            }
+
+                            const btnImport = dlg.querySelector('#tm-pop-import-data');
+                            if (btnImport) {
+                                btnImport.addEventListener('click', () => settingsFileInput.click());
+                            }
+
+                            const btnSync = dlg.querySelector('#tm-pop-sync-disk');
+                            if (btnSync) {
+                                btnSync.addEventListener('click', () => {
+                                    closePopup(popup);
+                                    hardResyncThemes(true);
+                                });
+                            }
+
+                            const btnReset = dlg.querySelector('#tm-pop-reset-system');
+                            if (btnReset) {
+                                btnReset.addEventListener('click', () => {
+                                    closePopup(popup);
+                                    openResetSystemModal();
+                                });
+                            }
+                        }
                     });
                 }
 
@@ -4270,10 +4514,7 @@
                                 <input type="checkbox" id="chk-enable-subtags" ${subtagsEnabled ? 'checked' : ''}>
                                 <span>开启二级目录模式</span> <small style="opacity:0.6; font-weight:normal;">(支持一级目录/二级标签)</small>
                             </label>
-                            <div style="display:flex; gap:6px; align-items:center;">
-                                <button id="batch-delete-tags-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:2px 8px; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important;"><i class="fa-solid fa-trash-can"></i> 批量删除标签</button>
-                                <button id="modal-auto-group-btn" class="menu_button" style="margin:0; font-size:12px; padding:2px 8px; background:rgba(0,123,255,0.15) !important; color:#4dabf7 !important;"><i class="fa-solid fa-wand-magic-sparkles"></i> 智能提取分组</button>
-                            </div>
+                            <button id="batch-delete-tags-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:4px 12px; white-space:nowrap; word-break:keep-all; flex-shrink:0; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; display:inline-flex !important; flex-direction:row !important; align-items:center !important; justify-content:center !important; writing-mode:horizontal-tb !important; width:auto !important; height:auto !important; min-height:28px !important; gap:4px;"><i class="fa-solid fa-trash-can" style="margin-right:4px;"></i> 批量删除标签</button>
                         </div>
                         <div id="tm-batch-delete-bar" style="display:none; background:rgba(220,53,69,0.12); padding:8px 12px; border-radius:6px; margin-bottom:10px; justify-content:space-between; align-items:center; border:1px solid rgba(220,53,69,0.25);">
                             <span style="font-size:12px; font-weight:bold; color:#ff8888;">
