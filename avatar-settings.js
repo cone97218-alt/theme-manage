@@ -456,6 +456,23 @@
             .gallery-item:hover, .gallery-item.active {
                 border-color: var(--SmartThemeQuoteColor, #007bff);
             }
+            .gallery-orig-item {
+                border: 1.5px dashed var(--SmartThemeQuoteColor, #007bff) !important;
+            }
+            .gallery-item-orig-badge {
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                background: rgba(0, 0, 0, 0.75);
+                color: #4cd964;
+                font-size: 10px;
+                text-align: center;
+                padding: 2px 0;
+                font-weight: bold;
+                pointer-events: none;
+                z-index: 3;
+            }
             .gallery-item img {
                 width: 100%;
                 height: 100%;
@@ -1256,7 +1273,15 @@
 
         currentTargetType = type;
         currentAvatarFile = file;
-        originalAvatarUrl = src;
+
+        // 优先精准定位底层真实的角色的原生 PNG 路径，避免读取到当前已被 overrideUrl 动态切掉的图片
+        let realNativeSrc = src;
+        if (type === 'char' && file) {
+            realNativeSrc = `/characters/${encodeURIComponent(file)}`;
+        } else if (type === 'user' && file && file.includes('.')) {
+            realNativeSrc = `/User Avatars/${encodeURIComponent(file)}`;
+        }
+        originalAvatarUrl = realNativeSrc;
 
         // 打标签保证新加载的弹窗下背景也是正确的
         tagAllMessages();
@@ -1847,10 +1872,14 @@
 
             const current = getAdjustment(type, file);
 
-            // 原始头像项 (使用缓存原生头像源，防范空引用崩溃)
+            // 1. 渲染系统【原始头像】重置卡片（虚线边框 + 明晰“原图”标识，防止混淆为用户自定义图库文件）
             const origItem = document.createElement('div');
-            origItem.className = `gallery-item${!current.overrideUrl || current.overrideUrl === '' ? ' active' : ''}`;
-            origItem.innerHTML = `<img src="${originalAvatarUrl}" alt="原始头像" title="原始头像">`;
+            origItem.className = `gallery-item gallery-orig-item${!current.overrideUrl || current.overrideUrl === '' ? ' active' : ''}`;
+            origItem.title = '系统默认头像 (点击恢复系统默认头像，不可删除)';
+            origItem.innerHTML = `
+                <img src="${originalAvatarUrl}" alt="原始头像" onerror="this.onerror=null; this.src='${src}';">
+                <div class="gallery-item-orig-badge"><i class="fa-solid fa-rotate-left"></i> 原图</div>
+            `;
             if (!isGalleryBatchMode) {
                 origItem.addEventListener('click', () => {
                     applyOverride('');
@@ -1880,53 +1909,60 @@
                 }
             }
 
-            dataSourceList.forEach(itemData => {
-                const item = document.createElement('div');
-                const isSelected = selectedGalleryIds.has(itemData.id);
-                item.className = `gallery-item${current.overrideUrl === itemData.url ? ' active' : ''}${isGalleryBatchMode && isSelected ? ' batch-selected' : ''}`;
+            if (dataSourceList.length === 0) {
+                const emptyTip = document.createElement('div');
+                emptyTip.style.cssText = 'grid-column: 1 / -1; font-size: 11px; opacity: 0.55; text-align: center; padding: 12px 4px; font-style: italic;';
+                emptyTip.textContent = '(暂无其它自定义图库图片，可通过上方按钮上传本地图片或导入 URL)';
+                galleryGrid.appendChild(emptyTip);
+            } else {
+                dataSourceList.forEach(itemData => {
+                    const item = document.createElement('div');
+                    const isSelected = selectedGalleryIds.has(itemData.id);
+                    item.className = `gallery-item${current.overrideUrl === itemData.url ? ' active' : ''}${isGalleryBatchMode && isSelected ? ' batch-selected' : ''}`;
 
-                if (isGalleryBatchMode) {
-                    item.innerHTML = `
-                        <img src="${resolveImageUrl(itemData.url)}" alt="${escapeHtml(itemData.name)}" title="${escapeHtml(itemData.name)}">
-                        <div class="gallery-item-batch-chk${isSelected ? ' checked' : ''}"><i class="fa-solid fa-check"></i></div>
-                    `;
-                    item.addEventListener('click', () => {
-                        if (selectedGalleryIds.has(itemData.id)) {
-                            selectedGalleryIds.delete(itemData.id);
-                        } else {
-                            selectedGalleryIds.add(itemData.id);
-                        }
-                        const lblCount = panel.querySelector('#lbl-gallery-batch-count');
-                        if (lblCount) lblCount.textContent = String(selectedGalleryIds.size);
-                        renderGalleryGrid();
-                    });
-                } else {
-                    item.innerHTML = `
-                        <img src="${resolveImageUrl(itemData.url)}" alt="${escapeHtml(itemData.name)}" title="${escapeHtml(itemData.name)}">
-                        <button class="gallery-item-delete" title="从图库中移除"><i class="fa-solid fa-trash"></i></button>
-                    `;
+                    if (isGalleryBatchMode) {
+                        item.innerHTML = `
+                            <img src="${resolveImageUrl(itemData.url)}" alt="${escapeHtml(itemData.name)}" title="${escapeHtml(itemData.name)}">
+                            <div class="gallery-item-batch-chk${isSelected ? ' checked' : ''}"><i class="fa-solid fa-check"></i></div>
+                        `;
+                        item.addEventListener('click', () => {
+                            if (selectedGalleryIds.has(itemData.id)) {
+                                selectedGalleryIds.delete(itemData.id);
+                            } else {
+                                selectedGalleryIds.add(itemData.id);
+                            }
+                            const lblCount = panel.querySelector('#lbl-gallery-batch-count');
+                            if (lblCount) lblCount.textContent = String(selectedGalleryIds.size);
+                            renderGalleryGrid();
+                        });
+                    } else {
+                        item.innerHTML = `
+                            <img src="${resolveImageUrl(itemData.url)}" alt="${escapeHtml(itemData.name)}" title="${escapeHtml(itemData.name)}">
+                            <button class="gallery-item-delete" title="从图库中移除"><i class="fa-solid fa-trash"></i></button>
+                        `;
 
-                    // 切换选择
-                    item.addEventListener('click', (e) => {
-                        if (e.target.closest('.gallery-item-delete')) return;
-                        applyOverride(itemData.url);
-                        panel.querySelector('#input-gallery-url').value = (itemData.url.startsWith('data:') || itemData.url.startsWith('db://')) ? '' : itemData.url;
-                    });
+                        // 切换选择
+                        item.addEventListener('click', (e) => {
+                            if (e.target.closest('.gallery-item-delete')) return;
+                            applyOverride(itemData.url);
+                            panel.querySelector('#input-gallery-url').value = (itemData.url.startsWith('data:') || itemData.url.startsWith('db://')) ? '' : itemData.url;
+                        });
 
-                    // 从图库单项删除
-                    item.querySelector('.gallery-item-delete').addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        if (confirm(`确定要将图片 "${itemData.name}" 从当前图库中移除吗？`)) {
-                            deleteSingleGalleryItem(itemData);
-                        }
-                    });
-                }
+                        // 从图库单项删除
+                        item.querySelector('.gallery-item-delete').addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            if (confirm(`确定要将图片 "${itemData.name}" 从当前图库中移除吗？`)) {
+                                deleteSingleGalleryItem(itemData);
+                            }
+                        });
+                    }
 
-                galleryGrid.appendChild(item);
-            });
+                    galleryGrid.appendChild(item);
+                });
+            }
         }
 
-        // 单项图片删除辅助方法
+        // 单项图片删除辅助方法 (双重精确匹配删除，防范丢失 id 导致的遗留项)
         function deleteSingleGalleryItem(itemData) {
             if (itemData.url && itemData.url.startsWith('db://')) {
                 const id = itemData.url.substring(5);
@@ -1937,9 +1973,14 @@
                 }
             }
 
+            const isMatch = (img) => {
+                if (itemData.id && img.id) return img.id === itemData.id;
+                return img.url === itemData.url;
+            };
+
             if (type === 'char') {
                 const currentVal = getAdjustment(type, file);
-                currentVal.gallery = (currentVal.gallery || []).filter(img => img.id !== itemData.id);
+                currentVal.gallery = (currentVal.gallery || []).filter(img => !isMatch(img));
                 if (currentVal.overrideUrl === itemData.url) {
                     currentVal.overrideUrl = '';
                     panel.querySelector('#input-gallery-url').value = '';
@@ -1951,11 +1992,11 @@
                     try {
                         globalGallery = JSON.parse(localStorage.getItem('themeManager_globalUserGallery')) || [];
                     } catch (e) {}
-                    globalGallery = globalGallery.filter(img => img.id !== itemData.id);
+                    globalGallery = globalGallery.filter(img => !isMatch(img));
                     localStorage.setItem('themeManager_globalUserGallery', JSON.stringify(globalGallery));
                 } else {
                     const currentVal = getAdjustment(type, file);
-                    currentVal.gallery = (currentVal.gallery || []).filter(img => img.id !== itemData.id);
+                    currentVal.gallery = (currentVal.gallery || []).filter(img => !isMatch(img));
                     saveAdjustment(type, file, currentVal);
                 }
                 
