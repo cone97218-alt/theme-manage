@@ -3401,12 +3401,23 @@
                     }
                 }
 
+                const scrollToThemeListTop = () => {
+                    if (contentWrapper) {
+                        contentWrapper.scrollTop = 0;
+                    }
+                    const themeListEl = contentWrapper ? contentWrapper.querySelector('.theme-list') : null;
+                    const targetEl = themeListEl || contentWrapper;
+                    if (targetEl) {
+                        targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                };
+
                 firstPageBtns.forEach(btn => {
                     btn.addEventListener('click', () => {
                         if (currentPage > 1) {
                             currentPage = 1;
                             buildThemeListLazy(0);
-                            managerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            scrollToThemeListTop();
                         }
                     });
                 });
@@ -3416,7 +3427,7 @@
                         if (currentPage > 1) {
                             currentPage--;
                             buildThemeListLazy(0);
-                            managerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            scrollToThemeListTop();
                         }
                     });
                 });
@@ -3427,7 +3438,7 @@
                         if (currentPage < totalPages) {
                             currentPage++;
                             buildThemeListLazy(0);
-                            managerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            scrollToThemeListTop();
                         }
                     });
                 });
@@ -3438,7 +3449,7 @@
                         if (currentPage < totalPages) {
                             currentPage = totalPages;
                             buildThemeListLazy(0);
-                            managerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            scrollToThemeListTop();
                         }
                     });
                 });
@@ -3457,7 +3468,7 @@
                             if (targetPage !== currentPage) {
                                 currentPage = targetPage;
                                 buildThemeListLazy(0);
-                                managerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                scrollToThemeListTop();
                             }
                         }
                     });
@@ -3473,7 +3484,7 @@
                         if (targetPage !== currentPage) {
                             currentPage = targetPage;
                             buildThemeListLazy(0);
-                            managerPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            scrollToThemeListTop();
                         } else {
                             e.target.value = String(currentPage);
                         }
