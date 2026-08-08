@@ -1599,7 +1599,15 @@
                             let matched = false;
                             if (tagId === '__FAVORITES__' && favoritesSet.has(theme.value)) matched = true;
                             if (tagId === '__UNCATEGORIZED__' && (!theme.tags || theme.tags.length === 0)) matched = true;
-                            if (theme.tags) {
+                            if (typeof tagId === 'string' && tagId.startsWith('__SUB_UNCATEGORIZED__:')) {
+                                const l1Id = tagId.split(':')[1];
+                                const l1Tag = tags.find(t => t.id === l1Id);
+                                const l1Themes = l1Tag && l1Tag.themes ? l1Tag.themes : [];
+                                const childTagIds = tags.filter(t => t.parentId === l1Id).map(t => t.id);
+                                const belongsToL1 = (theme.tags && theme.tags.includes(l1Id)) || l1Themes.includes(theme.value);
+                                const hasChildTag = theme.tags && theme.tags.some(tId => childTagIds.includes(tId));
+                                if (belongsToL1 && !hasChildTag) matched = true;
+                            } else if (theme.tags) {
                                 const targetIds = getExpandedTagIds(tagId, tags);
                                 if (theme.tags.some(tId => targetIds.includes(tId))) matched = true;
                             }
@@ -1611,7 +1619,15 @@
                     for (const tagId of activeTagFilters) {
                         if (tagId === '__FAVORITES__' && favoritesSet.has(theme.value)) return true;
                         if (tagId === '__UNCATEGORIZED__' && (!theme.tags || theme.tags.length === 0)) return true;
-                        if (theme.tags) {
+                        if (typeof tagId === 'string' && tagId.startsWith('__SUB_UNCATEGORIZED__:')) {
+                            const l1Id = tagId.split(':')[1];
+                            const l1Tag = tags.find(t => t.id === l1Id);
+                            const l1Themes = l1Tag && l1Tag.themes ? l1Tag.themes : [];
+                            const childTagIds = tags.filter(t => t.parentId === l1Id).map(t => t.id);
+                            const belongsToL1 = (theme.tags && theme.tags.includes(l1Id)) || l1Themes.includes(theme.value);
+                            const hasChildTag = theme.tags && theme.tags.some(tId => childTagIds.includes(tId));
+                            if (belongsToL1 && !hasChildTag) return true;
+                        } else if (theme.tags) {
                             const targetIds = getExpandedTagIds(tagId, tags);
                             if (theme.tags.some(tId => targetIds.includes(tId))) return true;
                         }
@@ -1627,11 +1643,25 @@
                 // 快速更新标签芯片的 active 状态（纯 CSS 切换，不重建 DOM）
                 function updateTagChipsActiveState() {
                     const container = managerPanel.querySelector('#theme-tags-container');
+                    const subtagsContainer = managerPanel.querySelector('#theme-subtags-container');
+                    const cachedTags = loadThemeTags();
                     if (!container) return;
+
                     container.querySelectorAll('.theme-tag-chip').forEach(chip => {
                         const tagId = chip.dataset.tagId;
                         if (tagId) {
-                            chip.classList.toggle('active', activeTagFilters.has(tagId));
+                            const isL1 = chip.classList.contains('level1');
+                            if (isL1) {
+                                const childIds = isSubtagsEnabled() ? cachedTags.filter(t => t.parentId === tagId).map(t => t.id) : [];
+                                const hasActiveChild = childIds.some(cId => activeTagFilters.has(cId));
+                                const hasSubUncat = activeTagFilters.has(`__SUB_UNCATEGORIZED__:${tagId}`);
+                                const isL1Active = activeLevel1TagId === tagId;
+                                const isDirectActive = activeTagFilters.has(tagId);
+
+                                chip.classList.toggle('active', isDirectActive || isL1Active || hasActiveChild || hasSubUncat);
+                            } else {
+                                chip.classList.toggle('active', activeTagFilters.has(tagId));
+                            }
                         } else if (chip.dataset.special === 'favorites') {
                             chip.classList.toggle('active', activeTagFilters.has('__FAVORITES__'));
                         } else if (chip.dataset.special === 'uncategorized') {
@@ -1640,6 +1670,19 @@
                             chip.classList.toggle('active', activeTagFilters.size === 0);
                         }
                     });
+
+                    if (subtagsContainer) {
+                        subtagsContainer.querySelectorAll('.theme-tag-chip').forEach(chip => {
+                            const tagId = chip.dataset.tagId;
+                            if (tagId) {
+                                chip.classList.toggle('active', activeTagFilters.has(tagId));
+                            } else if (chip.dataset.special === 'sub-uncategorized') {
+                                const subUncatKey = `__SUB_UNCATEGORIZED__:${activeLevel1TagId}`;
+                                chip.classList.toggle('active', activeTagFilters.has(subUncatKey));
+                            }
+                        });
+                    }
+
                     // 同步更新筛选模式图标
                     const modeBtn = container.querySelector('.tm-filter-mode-btn');
                     if (modeBtn) {
@@ -1918,10 +1961,11 @@
                             const chip = document.createElement('div');
                             const childIds = subtagsEnabled ? tags.filter(t => t.parentId === tag.id).map(t => t.id) : [];
                             const hasActiveChild = childIds.some(cId => activeTagFilters.has(cId));
+                            const hasSubUncat = activeTagFilters.has(`__SUB_UNCATEGORIZED__:${tag.id}`);
                             const isL1Active = activeLevel1TagId === tag.id;
                             const isDirectActive = activeTagFilters.has(tag.id);
 
-                            chip.className = `theme-tag-chip level1 ${isDirectActive || isL1Active || hasActiveChild ? 'active' : ''}`;
+                            chip.className = `theme-tag-chip level1 ${isDirectActive || isL1Active || hasActiveChild || hasSubUncat ? 'active' : ''}`;
                             chip.dataset.tagId = tag.id;
 
                             let count = tag.themes ? tag.themes.length : 0;
@@ -1939,9 +1983,9 @@
                             chip.innerHTML = `${escapeHtml(tag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${count})</span>`;
                             chip.addEventListener('click', () => {
                                 if (subtagsEnabled) {
-                                    if (activeLevel1TagId === tag.id) {
+                                    if (activeLevel1TagId === tag.id && activeTagFilters.has(tag.id)) {
                                         activeLevel1TagId = null;
-                                        activeTagFilters.delete(tag.id);
+                                        activeTagFilters.clear();
                                     } else {
                                         activeLevel1TagId = tag.id;
                                         if (tagFilterMode === 'or') activeTagFilters.clear();
@@ -1966,6 +2010,7 @@
                             const parentTag = tags.find(t => t.id === activeLevel1TagId);
                             if (parentTag) {
                                 const childTags = tags.filter(t => t.parentId === activeLevel1TagId);
+                                const childTagIds = childTags.map(t => t.id);
                                 subtagsContainer.style.display = 'flex';
 
                                 const labelSpan = document.createElement('span');
@@ -1973,34 +2018,61 @@
                                 labelSpan.innerHTML = `<i class="fa-solid fa-angle-right"></i> ${escapeHtml(parentTag.name)}:`;
                                 subtagsContainer.appendChild(labelSpan);
 
-                                if (childTags.length === 0) {
-                                    const emptyTip = document.createElement('span');
-                                    emptyTip.style.cssText = 'font-size:11px; opacity:0.55; font-style:italic; padding:2px 4px;';
-                                    emptyTip.textContent = '(暂无二级标签)';
-                                    subtagsContainer.appendChild(emptyTip);
-                                } else {
-                                    childTags.forEach(childTag => {
-                                        const subChip = document.createElement('div');
-                                        subChip.className = `theme-tag-chip level2 ${activeTagFilters.has(childTag.id) ? 'active' : ''}`;
-                                        subChip.dataset.tagId = childTag.id;
-                                        subChip.innerHTML = `${escapeHtml(childTag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${childTag.themes ? childTag.themes.length : 0})</span>`;
-                                        subChip.addEventListener('click', (e) => {
-                                            e.stopPropagation();
-                                            if (activeTagFilters.has(childTag.id)) {
-                                                activeTagFilters.delete(childTag.id);
+                                // 1. 渲染该一级分类下已定义的二级标签
+                                childTags.forEach(childTag => {
+                                    const subChip = document.createElement('div');
+                                    subChip.className = `theme-tag-chip level2 ${activeTagFilters.has(childTag.id) ? 'active' : ''}`;
+                                    subChip.dataset.tagId = childTag.id;
+                                    subChip.innerHTML = `${escapeHtml(childTag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${childTag.themes ? childTag.themes.length : 0})</span>`;
+                                    subChip.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        if (activeTagFilters.has(childTag.id)) {
+                                            if (tagFilterMode === 'or') {
+                                                activeTagFilters.clear();
+                                                activeTagFilters.add(activeLevel1TagId);
                                             } else {
-                                                if (tagFilterMode === 'or') {
-                                                    activeTagFilters.clear();
-                                                    activeTagFilters.add(activeLevel1TagId);
-                                                }
-                                                activeTagFilters.add(childTag.id);
+                                                activeTagFilters.delete(childTag.id);
                                             }
-                                            handleTagFilterChange();
-                                            renderTagsUI();
-                                        });
-                                        subtagsContainer.appendChild(subChip);
+                                        } else {
+                                            if (tagFilterMode === 'or') activeTagFilters.clear();
+                                            activeTagFilters.add(childTag.id);
+                                        }
+                                        handleTagFilterChange();
+                                        renderTagsUI();
                                     });
-                                }
+                                    subtagsContainer.appendChild(subChip);
+                                });
+
+                                // 2. 渲染默认二级“未分类”标签 (属于当前一级分类，但无任何二级子分类标签的主题)
+                                const l1Themes = parentTag.themes || [];
+                                const subUncatCount = l1Themes.filter(themeName => {
+                                    const themeTags = getTagsForTheme(themeName, tags);
+                                    return !themeTags.some(tId => childTagIds.includes(tId));
+                                }).length;
+
+                                const subUncatKey = `__SUB_UNCATEGORIZED__:${activeLevel1TagId}`;
+                                const isSubUncatActive = activeTagFilters.has(subUncatKey);
+                                const subUncatChip = document.createElement('div');
+                                subUncatChip.className = `theme-tag-chip level2 sub-uncategorized ${isSubUncatActive ? 'active' : ''}`;
+                                subUncatChip.dataset.special = 'sub-uncategorized';
+                                subUncatChip.innerHTML = `未分类 <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${subUncatCount})</span>`;
+                                subUncatChip.addEventListener('click', (e) => {
+                                    e.stopPropagation();
+                                    if (isSubUncatActive) {
+                                        if (tagFilterMode === 'or') {
+                                            activeTagFilters.clear();
+                                            activeTagFilters.add(activeLevel1TagId);
+                                        } else {
+                                            activeTagFilters.delete(subUncatKey);
+                                        }
+                                    } else {
+                                        if (tagFilterMode === 'or') activeTagFilters.clear();
+                                        activeTagFilters.add(subUncatKey);
+                                    }
+                                    handleTagFilterChange();
+                                    renderTagsUI();
+                                });
+                                subtagsContainer.appendChild(subUncatChip);
                             }
                         }
                     }
