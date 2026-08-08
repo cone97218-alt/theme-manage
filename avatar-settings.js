@@ -273,7 +273,7 @@
         const style = document.createElement('style');
         style.id = 'avatar-adv-base-css';
         style.textContent = `
-            /* 1. 高清渲染优化与层级精细调整 (z-index: 0 恰好高于主题 -1/-2 背景卡片，且低于主题 100+ 前景 UI 装饰，兼顾 0s 视觉呈现与主题设计) */
+            /* 1. 高清渲染优化与层级调整 (通用兼容所有美化主题，支持用户自定义 z-index) */
             #chat .mesAvatarWrapper,
             #chat .avatar,
             #chat .user_avatar,
@@ -281,7 +281,7 @@
             #chat .mes-avatar,
             #chat [class*="avatar"],
             #chat [class*="Avatar"] {
-                z-index: 0 !important;
+                pointer-events: auto !important;
             }
 
             #chat .mesAvatarWrapper img,
@@ -294,7 +294,6 @@
             #right-nav-panel .character_select img {
                 pointer-events: auto !important;
                 cursor: pointer !important;
-                z-index: 0 !important;
             }
 
             /* 头像缩放高清渲染优化（可选项，基于 tm-avatar-hd-rendering 类触发） */
@@ -1050,12 +1049,28 @@
             if (!imgSelector) return;
 
             // 1. 本地图库视觉覆盖替换
+            const zIndexMode = localStorage.getItem('themeManager_avatarZIndexMode') || 'auto';
+            const zIndexCustom = localStorage.getItem('themeManager_avatarZIndexCustom') || '0';
+
+            let zIndexRule = '';
+            if (zIndexMode === 'auto') {
+                zIndexRule = 'z-index: 0 !important;';
+            } else if (zIndexMode === 'custom') {
+                zIndexRule = `z-index: ${zIndexCustom} !important;`;
+            }
+
             const resolvedUrl = resolveImageUrl(adj.overrideUrl);
             if (resolvedUrl) {
                 css += `
                     ${imgSelector} {
                         content: url("${resolvedUrl}") !important;
-                        z-index: 0 !important;
+                        ${zIndexRule}
+                    }
+                `;
+            } else if (zIndexRule) {
+                css += `
+                    ${imgSelector} {
+                        ${zIndexRule}
                     }
                 `;
             }
@@ -1631,6 +1646,15 @@
                                 <option value="dblclick">仅限 双击头像</option>
                                 <option value="longpress">仅限 长按头像</option>
                             </select>
+                        </div>
+                        <div style="display:inline-flex; align-items:center; gap:6px; align-self: flex-start; margin-top:2px;">
+                            <label style="font-size: 11px; opacity: 0.8; white-space: nowrap;">渲染层级:</label>
+                            <select id="sel-zindex-mode" class="text_pole" style="height:26px; font-size:11px; padding:0 4px; margin:0; width:110px;" title="调整头像在 CSS 中的 z-index 层级">
+                                <option value="auto">智能平衡 (z:0)</option>
+                                <option value="native">跟随主题原生</option>
+                                <option value="custom">自定义数值</option>
+                            </select>
+                            <input type="number" id="input-zindex-custom" class="text_pole" value="0" style="height:26px; font-size:11px; padding:0 4px; margin:0; width:45px; display:none;" title="手动输入 z-index 数值">
                         </div>
                     </div>
 
@@ -2513,6 +2537,35 @@
                     avatarTriggerMethod = e.target.value;
                     localStorage.setItem('themeManager_avatarTriggerMethod', avatarTriggerMethod);
                 });
+            }
+
+            const selZIndexMode = tabPanel.querySelector('#sel-zindex-mode');
+            const inputZIndexCustom = tabPanel.querySelector('#input-zindex-custom');
+
+            if (selZIndexMode) {
+                const currentMode = localStorage.getItem('themeManager_avatarZIndexMode') || 'auto';
+                const customVal = localStorage.getItem('themeManager_avatarZIndexCustom') || '0';
+                selZIndexMode.value = currentMode;
+                if (inputZIndexCustom) {
+                    inputZIndexCustom.value = customVal;
+                    inputZIndexCustom.style.display = currentMode === 'custom' ? 'inline-block' : 'none';
+                }
+
+                selZIndexMode.addEventListener('change', (e) => {
+                    const mode = e.target.value;
+                    localStorage.setItem('themeManager_avatarZIndexMode', mode);
+                    if (inputZIndexCustom) {
+                        inputZIndexCustom.style.display = mode === 'custom' ? 'inline-block' : 'none';
+                    }
+                    applyAvatarStyles();
+                });
+
+                if (inputZIndexCustom) {
+                    inputZIndexCustom.addEventListener('input', (e) => {
+                        localStorage.setItem('themeManager_avatarZIndexCustom', e.target.value);
+                        applyAvatarStyles();
+                    });
+                }
             }
 
             const updatePreview = () => {
