@@ -273,17 +273,7 @@
         const style = document.createElement('style');
         style.id = 'avatar-adv-base-css';
         style.textContent = `
-            /* 1. 高清渲染优化与层级纠偏 (通用兼容所有美化主题，防主题背景卡片层级遮挡) */
-            #chat .mesAvatarWrapper,
-            #chat .avatar,
-            #chat .user_avatar,
-            #chat .mes_avatar,
-            #chat .mes-avatar,
-            #chat [class*="avatar"],
-            #chat [class*="Avatar"] {
-                z-index: 1 !important;
-            }
-
+            /* 1. 交互判定与指针样式 (通用兼容所有美化主题，不强行覆盖主题原生的 z-index / opacity 层级) */
             #chat .mesAvatarWrapper img,
             #chat .avatar img,
             #chat .user_avatar img,
@@ -294,9 +284,6 @@
             #right-nav-panel .character_select img {
                 pointer-events: auto !important;
                 cursor: pointer !important;
-                z-index: 1 !important;
-                opacity: 1 !important;
-                visibility: visible !important;
             }
 
             /* 头像缩放高清渲染优化（可选项，基于 tm-avatar-hd-rendering 类触发） */
@@ -1057,9 +1044,6 @@
                 css += `
                     ${imgSelector} {
                         content: url("${resolvedUrl}") !important;
-                        z-index: 1 !important;
-                        opacity: 1 !important;
-                        visibility: visible !important;
                     }
                 `;
             }
