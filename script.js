@@ -4763,6 +4763,44 @@ async function openManageTagsPopup() {
                                 softRefreshUI();
                             });
 
+                            const batchDeleteModeBtn = dlg.querySelector('#tm-tags-batch-delete-mode-btn');
+                            if (batchDeleteModeBtn) {
+                                batchDeleteModeBtn.addEventListener('click', async () => {
+                                    if (!isBatchDeleteMode) {
+                                        isBatchDeleteMode = true;
+                                        selectedBatchTagIds.clear();
+                                        batchDeleteModeBtn.innerHTML = `<i class="fa-solid fa-check"></i> 确认删除已选 (${selectedBatchTagIds.size})`;
+                                        batchDeleteModeBtn.style.cssText = 'margin:0; font-size:12px; padding:3px 10px; height:28px; line-height:1; display:inline-flex; align-items:center; gap:4px; flex-shrink:0; white-space:nowrap; background:rgba(40,167,69,0.25) !important; color:#72e48e !important; border:1px solid rgba(40,167,69,0.4) !important;';
+                                        renderList();
+                                    } else {
+                                        if (selectedBatchTagIds.size === 0) {
+                                            isBatchDeleteMode = false;
+                                            batchDeleteModeBtn.innerHTML = `<i class="fa-solid fa-trash-can"></i> 批量删除`;
+                                            batchDeleteModeBtn.style.cssText = 'margin:0; font-size:12px; padding:3px 10px; height:28px; line-height:1; display:inline-flex; align-items:center; gap:4px; flex-shrink:0; white-space:nowrap; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; border:1px solid rgba(220,53,69,0.3) !important;';
+                                            renderList();
+                                            return;
+                                        }
+                                        const confirmRes = await callGenericPopup(
+                                            `<div style="padding:6px; font-size:13px;">确定要批量删除所选的 <b>${selectedBatchTagIds.size}</b> 个标签分类吗？<br><small style="opacity:0.7;">（对于选中的一级分类，其归属的二级子标签也会一并删除）</small></div>`,
+                                            'confirm',
+                                            null,
+                                            { title: '确认批量删除标签', okButton: '确认删除', cancelButton: '取消' }
+                                        );
+                                        if (confirmRes) {
+                                            tags = tags.filter(t => !selectedBatchTagIds.has(t.id) && (!t.parentId || !selectedBatchTagIds.has(t.parentId)));
+                                            saveThemeTags(tags);
+                                            isBatchDeleteMode = false;
+                                            selectedBatchTagIds.clear();
+                                            batchDeleteModeBtn.innerHTML = `<i class="fa-solid fa-trash-can"></i> 批量删除`;
+                                            batchDeleteModeBtn.style.cssText = 'margin:0; font-size:12px; padding:3px 10px; height:28px; line-height:1; display:inline-flex; align-items:center; gap:4px; flex-shrink:0; white-space:nowrap; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; border:1px solid rgba(220,53,69,0.3) !important;';
+                                            renderList();
+                                            softRefreshUI([]);
+                                            toastr.success('已成功批量删除选定的标签！');
+                                        }
+                                    }
+                                });
+                            }
+
                             const applyMappingsBtn = dlg.querySelector('#apply-keyword-mappings-btn');
                             if (applyMappingsBtn) {
                                 applyMappingsBtn.addEventListener('click', () => {
