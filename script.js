@@ -1720,14 +1720,17 @@
                         <div class="theme-item-name">
                             <span class="theme-item-name-text"></span><span class="theme-usage-count" style="display:none;"></span>
                         </div>
-                        <div class="theme-item-buttons">
-                            <button class="set-tag-btn" title="分类标签"><i class="fa-solid fa-tags"></i></button>
-                            <button class="link-bg-btn" title="关联背景图"><i class="fa-solid fa-link"></i></button>
-                            <button class="link-daynight-btn" title="绑定日夜美化"><i class="fa-solid fa-circle-half-stroke"></i></button>
-                            <button class="favorite-btn" title="收藏"><i class="fa-regular fa-star"></i></button>
-                            <button class="color-transfer-btn" title="提取配色" style="display:none;"><i class="fa-solid fa-palette"></i></button>
-                            <button class="rename-btn" title="重命名"><i class="fa-solid fa-pen"></i></button>
-                            <button class="delete-btn" title="删除"><i class="fa-solid fa-trash-can"></i></button>
+                        <div class="theme-item-sub-row">
+                            <div class="theme-item-tags" style="display:none;"></div>
+                            <div class="theme-item-buttons">
+                                <button class="set-tag-btn" title="分类标签"><i class="fa-solid fa-tags"></i></button>
+                                <button class="link-bg-btn" title="关联背景图"><i class="fa-solid fa-link"></i></button>
+                                <button class="link-daynight-btn" title="绑定日夜美化"><i class="fa-solid fa-circle-half-stroke"></i></button>
+                                <button class="favorite-btn" title="收藏"><i class="fa-regular fa-star"></i></button>
+                                <button class="color-transfer-btn" title="提取配色" style="display:none;"><i class="fa-solid fa-palette"></i></button>
+                                <button class="rename-btn" title="重命名"><i class="fa-solid fa-pen"></i></button>
+                                <button class="delete-btn" title="删除"><i class="fa-solid fa-trash-can"></i></button>
+                            </div>
                         </div>`;
                     _themeItemTemplate = tpl;
                     return tpl;
@@ -1740,8 +1743,10 @@
 
                     const nameDiv = item.children[0];
                     const nameSpan = nameDiv.children[0];
-                    const usageSpan = nameDiv.children[1]; // .theme-usage-count
-                    const buttonsDiv = item.children[1]; // item level: nameDiv=0, buttonsDiv=1
+                    const usageSpan = nameDiv.children[1];
+                    const subRowDiv = item.children[1];
+                    const tagsDiv = subRowDiv.children[0];
+                    const buttonsDiv = subRowDiv.children[1];
                     const setTagBtn = buttonsDiv.children[0];
                     const linkBgBtn = buttonsDiv.children[1];
                     const linkDaynightBtn = buttonsDiv.children[2];
@@ -1767,18 +1772,22 @@
 
                     // 设置标签药丸
                     if (theme.tags && theme.tags.length > 0) {
-                        const tagsDiv = document.createElement('div');
-                        tagsDiv.className = 'theme-item-tags';
+                        tagsDiv.innerHTML = '';
+                        let hasTags = false;
                         theme.tags.forEach(tagId => {
                             const tagObj = tagsMap.get(tagId);
                             if (tagObj) {
+                                hasTags = true;
                                 const pill = document.createElement('span');
                                 pill.className = 'theme-item-tag-pill';
                                 pill.textContent = tagObj.name;
                                 tagsDiv.appendChild(pill);
                             }
                         });
-                        nameDiv.appendChild(tagsDiv);
+                        tagsDiv.style.display = hasTags ? 'flex' : 'none';
+                    } else {
+                        tagsDiv.style.display = 'none';
+                        tagsDiv.innerHTML = '';
                     }
 
                     // 设置收藏状态
@@ -2071,25 +2080,25 @@
                         const theme = allParsedThemesMap.get(themeName);
                         if (!theme) continue;
 
-                        // 移除旧标签
-                        const nameDiv = item.children[0];
-                        const oldTagsDiv = nameDiv.querySelector('.theme-item-tags');
-                        if (oldTagsDiv) oldTagsDiv.remove();
-
-                        // 添加新标签
-                        if (theme.tags && theme.tags.length > 0) {
-                            const tagsDiv = document.createElement('div');
-                            tagsDiv.className = 'theme-item-tags';
-                            theme.tags.forEach(tagId => {
-                                const tagObj = tagsById.get(tagId); // O(1) 查找
-                                if (tagObj) {
-                                    const pill = document.createElement('span');
-                                    pill.className = 'theme-item-tag-pill';
-                                    pill.textContent = tagObj.name;
-                                    tagsDiv.appendChild(pill);
-                                }
-                            });
-                            nameDiv.appendChild(tagsDiv);
+                        const tagsDiv = item.querySelector('.theme-item-tags');
+                        if (tagsDiv) {
+                            tagsDiv.innerHTML = '';
+                            if (theme.tags && theme.tags.length > 0) {
+                                let hasTags = false;
+                                theme.tags.forEach(tagId => {
+                                    const tagObj = tagsById.get(tagId);
+                                    if (tagObj) {
+                                        hasTags = true;
+                                        const pill = document.createElement('span');
+                                        pill.className = 'theme-item-tag-pill';
+                                        pill.textContent = tagObj.name;
+                                        tagsDiv.appendChild(pill);
+                                    }
+                                });
+                                tagsDiv.style.display = hasTags ? 'flex' : 'none';
+                            } else {
+                                tagsDiv.style.display = 'none';
+                            }
                         }
                     }
 
@@ -4275,20 +4284,11 @@
 
                     let popupHtml = `
                         <div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; border-bottom:1px solid rgba(128,128,128,0.2); padding-bottom:10px;">
-                            <div style="display:flex; gap:12px; align-items:center;">
-                                <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; font-weight:bold; user-select:none;">
-                                    <input type="checkbox" id="chk-enable-subtags" ${subtagsEnabled ? 'checked' : ''}>
-                                    <span>二级目录模式</span>
-                                </label>
-                                <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; font-weight:bold; user-select:none;">
-                                    <input type="checkbox" id="chk-modal-twoline" ${isTwoLineLayout ? 'checked' : ''}>
-                                    <span>换行排版</span>
-                                </label>
-                            </div>
-                            <div style="display:flex; gap:6px; align-items:center;">
-                                <button id="tm-tags-batch-delete-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:2px 8px; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; border:1px solid rgba(220,53,69,0.3) !important;"><i class="fa-solid fa-trash-can"></i> 批量删除</button>
-                                <button id="modal-auto-group-btn" class="menu_button" style="margin:0; font-size:12px; padding:2px 8px; background:rgba(0,123,255,0.15) !important; color:#4dabf7 !important;"><i class="fa-solid fa-wand-magic-sparkles"></i> 智能提取分组</button>
-                            </div>
+                            <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; font-weight:bold; user-select:none;">
+                                <input type="checkbox" id="chk-enable-subtags" ${subtagsEnabled ? 'checked' : ''}>
+                                <span>开启二级目录模式</span> <small style="opacity:0.6; font-weight:normal;">(支持一级目录/二级标签)</small>
+                            </label>
+                            <button id="tm-tags-batch-delete-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:2px 8px; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; border:1px solid rgba(220,53,69,0.3) !important;"><i class="fa-solid fa-trash-can"></i> 批量删除</button>
                         </div>
                         <div style="margin-bottom:15px; display:flex; gap:8px; align-items:center;">
                             <input type="text" id="new-tag-name" class="text_pole" placeholder="${subtagsEnabled ? '新一级标签名称...' : '新标签名称...'}" style="flex-grow:1; min-width:0;">
@@ -4311,6 +4311,13 @@
                             const renderList = () => {
                                 const listContainer = dlg.querySelector('#tags-management-list');
                                 if (!listContainer) return;
+
+                                // 自愈孤立标签：若归属父级已被删除，自动恢复为一级标签，防止标签消失
+                                tags.forEach(t => {
+                                    if (t.parentId && !tags.some(p => p.id === t.parentId)) {
+                                        t.parentId = null;
+                                    }
+                                });
 
                                 if (!subtagsEnabled) {
                                     let html = '<ul style="list-style:none; padding:0; margin:0;">';

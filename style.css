@@ -817,54 +817,60 @@
     box-sizing: border-box !important;
 }
 
-/* 换行排版模式（美化名单独一行，标签和操作按钮另起一行） */
-.theme-item.two-line-layout,
-.two-line-layout .theme-item {
+
+/* ==================== 1-Line vs 2-Line Layout Rules ==================== */
+.theme-item {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+    box-sizing: border-box !important;
+}
+
+.theme-item-name {
+    flex: 1 !important;
+    min-width: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    overflow: hidden !important;
+}
+
+.theme-item-sub-row {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    flex-shrink: 0 !important;
+}
+
+.theme-item-tags {
+    display: flex !important;
     flex-wrap: wrap !important;
-    padding: 8px 10px !important;
-    gap: 6px 10px !important;
+    gap: 4px !important;
+    align-items: center !important;
 }
 
-.theme-item.two-line-layout .theme-item-name,
-.two-line-layout .theme-item-name {
-    width: 100% !important;
-    flex: 0 0 100% !important;
-    max-width: 100% !important;
+.theme-item-buttons {
     display: flex !important;
     align-items: center !important;
-    justify-content: space-between !important;
-    margin-bottom: 2px !important;
+    gap: 4px !important;
+    flex-shrink: 0 !important;
 }
 
-.theme-item.two-line-layout .theme-item-buttons,
-.two-line-layout .theme-item-buttons {
-    width: 100% !important;
-    display: flex !important;
-    justify-content: space-between !important;
-    align-items: center !important;
-    margin-left: 0 !important;
-}
-
-
-
-
-
-
-/* 换行排版模式（美化名单独占一行，标签和操作图标在下方另起一行） */
+/* 换行排版模式（固定换2行：第1行美化名独占，第2行左侧标签 + 右侧按键右对齐） */
 .two-line-layout .theme-item,
 .theme-item.two-line-layout {
-    flex-wrap: wrap !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
     padding: 8px 10px !important;
-    gap: 6px 0 !important;
+    gap: 4px !important;
 }
 
 .two-line-layout .theme-item-name,
 .theme-item.two-line-layout .theme-item-name {
     width: 100% !important;
-    flex: 0 0 100% !important;
-    max-width: 100% !important;
+    flex: 0 0 auto !important;
     display: flex !important;
-    flex-wrap: wrap !important;
     align-items: center !important;
     justify-content: space-between !important;
     margin-bottom: 2px !important;
@@ -874,16 +880,28 @@
 .theme-item.two-line-layout .theme-item-name .theme-item-name-text {
     font-weight: bold !important;
     font-size: 13px !important;
-    line-height: 1.4 !important;
+    word-break: break-all !important;
+}
+
+.two-line-layout .theme-item-sub-row,
+.theme-item.two-line-layout .theme-item-sub-row {
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
 }
 
 .two-line-layout .theme-item-tags,
 .theme-item.two-line-layout .theme-item-tags {
-    margin-left: 0 !important;
-    margin-right: auto !important;
+    margin: 0 !important;
+    flex: 1 !important;
+    min-width: 0 !important;
 }
 
 .two-line-layout .theme-item-buttons,
 .theme-item.two-line-layout .theme-item-buttons {
     margin-left: auto !important;
+    margin-right: 0 !important;
+    flex-shrink: 0 !important;
 }
