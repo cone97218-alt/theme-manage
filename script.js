@@ -2248,49 +2248,71 @@
                         }
 
                         if (renameTasks.length > 0) {
-                            const results = await limitConcurrency(10, renameTasks, async ({ oldName, newName, fullThemeObj }) => {
-                                const objectToSave = { ...fullThemeObj, name: newName };
+                            // 并发数降低到 3：write-file-atomic 高并发下易出现文件系统竞争，导致 HTTP 超时但文件实际已写入
+                            const results = await limitConcurrency(3, renameTasks, async ({ oldName, newName, fullThemeObj }) => {
+                                // 去掉 mtime（服务器读时自动添加，写盘时不应包含）
+                                const { mtime: _mtime, ...cleanObj } = fullThemeObj;
+                                const objectToSave = { ...cleanObj, name: newName };
 
-                                // 1. 写入新文件
-                                await saveTheme(objectToSave);
+                                let saveOk = false;
+                                let deleteOk = false;
 
-                                // 2. 擦除旧文件（传入已快照的 fullThemeObj，不依赖 ST 内存）
+                                // 1. 尝试写入新文件（suppressToast：true，由返回结果统一处理提示）
                                 try {
-                                    await deleteTheme(oldName, fullThemeObj);
-                                } catch (delErr) {
-                                    console.warn(`[Theme Manager] 删除原主题 "${oldName}" 提示:`, delErr);
+                                    await apiRequest('themes/save', 'POST', objectToSave, true);
+                                    saveOk = true;
+                                    console.log(`[Batch Rename] ✅ 保存成功: "${newName}.json"`);
+                                } catch (saveErr) {
+                                    // 即使 HTTP 报错，文件可能实际已写入（write-file-atomic 超时常见）
+                                    console.warn(`[Batch Rename] ⚠️ 保存报错 (${saveErr.message})，但文件可能已写入，继续删除旧文件`);
                                 }
-                                return { oldName, newName, newThemeObject: objectToSave };
+
+                                // 2. 无论保存是否报错都尝试删除旧文件
+                                // （保存可能实际已成功，不删旧文件会导致磁盘上同时存在新旧两个文件）
+                                try {
+                                    const deleted = await deleteTheme(oldName, fullThemeObj);
+                                    deleteOk = deleted;
+                                } catch (delErr) {
+                                    console.warn(`[Batch Rename] 删除旧主题 "${oldName}" 失败:`, delErr);
+                                }
+
+                                return { oldName, newName, newThemeObject: objectToSave, saveOk, deleteOk };
                             });
 
                             // 批量更新原生 DOM、内存与插件状态
                             results.forEach((res, index) => {
                                 const task = renameTasks[index];
                                 if (res.status === 'fulfilled') {
+                                    const { oldName, newName, newThemeObject, saveOk, deleteOk } = res.value;
+
+                                    if (!saveOk && !deleteOk) {
+                                        // 两者均失败，确认报错
+                                        errorCount++;
+                                        toastr.error(`重命名「${oldName}」失败（保存和删除均失败）`);
+                                        return;
+                                    }
+
                                     successCount++;
-                                    const { oldName, newName, newThemeObject } = res.value;
+                                    if (!saveOk) console.warn(`[Batch Rename] "${oldName}" 保存报错但删除成功，可能新文件已存在`);
+                                    if (!deleteOk) console.warn(`[Batch Rename] "${oldName}" 新文件已写入但旧文件未删除`);
 
                                     const isActive = originalSelect.value === oldName;
                                     manualUpdateOriginalSelect('rename', oldName, newName);
-                                    if (isActive) {
-                                        activeThemeWasRenamed = true;
-                                    }
+                                    if (isActive) activeThemeWasRenamed = true;
 
                                     updateSTThemeMemory({ name: oldName }, 'delete');
                                     updateSTThemeMemory(newThemeObject, 'add');
                                     softRenameThemeUI(oldName, newName);
 
                                     const favIndex = favoritesToUpdate.indexOf(oldName);
-                                    if (favIndex > -1) {
-                                        favoritesToUpdate[favIndex] = newName;
-                                    }
+                                    if (favIndex > -1) favoritesToUpdate[favIndex] = newName;
 
                                     if (themeBackgroundBindings[oldName]) {
                                         themeBackgroundBindings[newName] = themeBackgroundBindings[oldName];
                                         delete themeBackgroundBindings[oldName];
                                     }
 
-                                    // 同步更新标签数据中的主题名
+                                    // 同步更新标签数据
                                     tagsToUpdate.forEach(tag => {
                                         if (tag.themes) {
                                             const idx = tag.themes.indexOf(oldName);
@@ -2298,9 +2320,10 @@
                                         }
                                     });
                                 } else {
+                                    // Promise 本身报错（极少出现）
                                     errorCount++;
-                                    console.error(`批量重命名主题 "${task.oldName}" 时失败:`, res.reason);
-                                    toastr.error(`处理主题 "${task.oldName}" 时失败: ${res.reason?.message || res.reason}`);
+                                    console.error(`批量重命名任务异常 "${task.oldName}":`, res.reason);
+                                    toastr.error(`处理「${task.oldName}」时异常: ${res.reason?.message || res.reason}`);
                                 }
                             });
                         }
@@ -4633,14 +4656,29 @@
                                         if (!fullThemeObj.main_text_color && !fullThemeObj.custom_css) {
                                             console.warn(`[Theme Manager Rename] ⚠️ 快照数据可能不完整，字段数: ${Object.keys(fullThemeObj).length}`);
                                         }
-                                        // Step 1: 用新名字写入新文件
-                                        const objectToSave = { ...fullThemeObj, name: finalNewName };
-                                        await saveTheme(objectToSave);
-                                        console.log(`[Theme Manager Rename] Step 1 ✅ 新文件写入成功: "${finalNewName}.json"`);
+                                        // 去掉 mtime，保存时不应携带
+                                        const { mtime: _mtime, ...cleanObj } = fullThemeObj;
+                                        const objectToSave = { ...cleanObj, name: finalNewName };
 
-                                        // Step 2: 删除旧文件
-                                        await deleteTheme(oldName, fullThemeObj);
-                                        console.log(`[Theme Manager Rename] Step 2 ✅ 旧文件已清除: "${oldName}"`);
+                                        // Step 1: 写入新文件（suppressToast，避免出现重复报错弹窗）
+                                        let saveOk = false;
+                                        try {
+                                            await apiRequest('themes/save', 'POST', objectToSave, true);
+                                            saveOk = true;
+                                            console.log(`[Theme Manager Rename] Step 1 ✅ 新文件写入成功: "${finalNewName}.json"`);
+                                        } catch (saveErr) {
+                                            console.warn(`[Theme Manager Rename] ⚠️ 写入报错 (${saveErr.message})，文件可能已写入，仍继续删旧文件`);
+                                        }
+
+                                        // Step 2: 无论 save 是否报错都删旧文件
+                                        const deleteOk = await deleteTheme(oldName, fullThemeObj);
+                                        console.log(`[Theme Manager Rename] Step 2 ${deleteOk ? '✅' : '⚠️'} 旧文件: "${oldName}"`);
+
+                                        if (!saveOk && !deleteOk) {
+                                            toastr.error(`重命名磁盘操作失败：新文件写入与旧文件删除均出错`);
+                                        } else if (!deleteOk) {
+                                            toastr.warning(`「${oldName}」旧文件未能删除，刷新后可能出现重复`);
+                                        }
                                     } catch (e) {
                                         console.error(`[Theme Manager Rename] ❌ 重命名磁盘操作失败:`, e);
                                         toastr.error(`重命名磁盘操作失败: ${e.message || e}`);
