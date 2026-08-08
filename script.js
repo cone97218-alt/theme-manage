@@ -4033,19 +4033,19 @@
                 }
 
                 // === 超强分词与停止词过滤 (解决 700+ 超量美化在移动端卡顿) ===
-                // === 超强分词与停止词过滤 (解决 700+ 超量美化在移动端卡顿) ===
+                // === 智能扩展停止词表与噪音过滤 (彻底过滤非标签性技术后缀/通用废字) ===
                 const AUTO_GROUP_STOPWORDS = new Set([
                     'json', 'theme', 'themes', 'preset', 'presets', 'copy', 'new', 'fixed', 'final',
-                    '360px', '1080p', '720p', 'v1', 'v2', 'v3', 'v4', 'v5', 'mode', 'ui', 'dark', 'light',
-                    'st', 'sillytavern', 'main', 'card', 'style', 'test', 'demo',
-                    '美化', '主题', '预设', '整合', '重置', '修改', '修复', '最终', '完整', '通用', '版本', '备份', '副本'
+                    '360px', '1080p', '720p', '4k', 'hd', 'v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8', 'v9', 'v10',
+                    'mode', 'ui', 'dark', 'light', 'st', 'sillytavern', 'main', 'master', 'card', 'style', 'test', 'demo',
+                    'zip', 'rar', '7z', 'css', 'js', 'html', 'build', 'dist', 'min', 'patch', 'update', 'release', 'ver', 'version', 'default',
+                    '美化', '主题', '预设', '整合', '重置', '修改', '修复', '最终', '完整', '通用', '版本', '备份', '副本', '默认', '新建', '配置', '优化', '极简', '样式', '测试', '无名'
                 ]);
 
                 function extractCandidateThemeGroups(themePool, minMatch = 2, targetLevel = 'l1', parentId = null) {
                     const list = themePool || allParsedThemes || [];
-                    const candidateMap = new Map(); // kw -> Set(themeName)
+                    const candidateMap = new Map(); // kw -> { themes: Set, scoreBonus: number }
 
-                    // 0. 收集同级已存在的标签名，若已存在同名标签则自动跳过
                     const existingTags = loadThemeTags();
                     const existingTagNamesAtLevel = new Set(
                         existingTags
@@ -4053,76 +4053,112 @@
                             .map(t => t.name.trim().toLowerCase())
                     );
 
-                    // 1. 匹配各类括号里面的独立标记词（如 【黑金】 [Cyberpunk] (v2) 《动漫》 <Lite>）
+                    if (parentId) {
+                        const parentTagObj = existingTags.find(t => t.id === parentId);
+                        if (parentTagObj) {
+                            existingTagNamesAtLevel.add(parentTagObj.name.trim().toLowerCase());
+                        }
+                    }
+
+                    const addCandidate = (kw, themeValue, bonusScore = 0) => {
+                        if (!kw) return;
+                        const cleanKw = kw.trim();
+                        if (cleanKw.length < 2 || cleanKw.length > 25) return;
+                        const kwLower = cleanKw.toLowerCase();
+
+                        // 纯数字或停用词/已存在标签过滤
+                        if (/^\d+$/.test(cleanKw)) return;
+                        if (AUTO_GROUP_STOPWORDS.has(kwLower)) return;
+                        if (existingTagNamesAtLevel.has(kwLower)) return;
+
+                        // 英文字符长度过滤：英文单词单独存在时至少 3 字符
+                        if (/^[a-zA-Z0-9_\-\s]+$/.test(cleanKw) && cleanKw.length < 3) return;
+
+                        if (!candidateMap.has(cleanKw)) {
+                            candidateMap.set(cleanKw, { themes: new Set(), scoreBonus: bonusScore });
+                        }
+                        const record = candidateMap.get(cleanKw);
+                        record.themes.add(themeValue);
+                        if (bonusScore > record.scoreBonus) record.scoreBonus = bonusScore;
+                    };
+
                     list.forEach(t => {
                         const name = t.display || t.value;
                         if (!name) return;
 
-                        // A. 括号内标签提取
-                        let match;
+                        // A. 规则 1: 括号显式标签提取 (+10 Bonus Score)
                         const bRegex = /[\[【（(《<](.+?)[\]】）)》>]/g;
+                        let match;
                         while ((match = bRegex.exec(name)) !== null) {
                             const kw = match[1].trim();
-                            const kwLower = kw.toLowerCase();
-                            if (kw.length >= 1 && kw.length <= 20 && !AUTO_GROUP_STOPWORDS.has(kwLower) && !existingTagNamesAtLevel.has(kwLower)) {
-                                if (!candidateMap.has(kw)) candidateMap.set(kw, new Set());
-                                candidateMap.get(kw).add(t.value);
-                            }
+                            addCandidate(kw, t.value, 10);
                         }
 
-                        // B. 常用分词提取 (按空格、下划线、加号等分隔)
-                        const cleanName = name.replace(/[\[\]【】（）()《》<>]/g, ' ');
-                        const tokens = cleanName.split(/[\s_\-\+\/\\]+/).map(s => s.trim()).filter(Boolean);
+                        // B. 规则 2: 前缀分隔符提取 (+8 Bonus Score)
+                        const cleanName = name.replace(/[\[\]【】（）()《》<>]/g, ' ').trim();
+                        const prefixMatch = cleanName.match(/^([^\s_\-\+\/\\:：|]+)[\s_\-\+\/\\:：|]/);
+                        if (prefixMatch && prefixMatch[1]) {
+                            const prefixKw = prefixMatch[1].trim();
+                            addCandidate(prefixKw, t.value, 8);
+                        }
 
+                        // C. 规则 3: 连续分词 N-Gram 提取
+                        const tokens = cleanName.split(/[\s_\-\+\/\\:：|]+/).map(s => s.trim()).filter(Boolean);
                         tokens.forEach(token => {
-                            const tokenLower = token.toLowerCase();
-                            if (token.length >= 2 && token.length <= 15) {
-                                if (!/^\d+$/.test(token) && !AUTO_GROUP_STOPWORDS.has(tokenLower) && !existingTagNamesAtLevel.has(tokenLower)) {
-                                    if (!candidateMap.has(token)) candidateMap.set(token, new Set());
-                                    candidateMap.get(token).add(t.value);
-                                }
-                            }
+                            addCandidate(token, t.value, 2);
                         });
+
+                        // 2-word N-Gram 组合 (如 "Dark Mode")
+                        for (let i = 0; i < tokens.length - 1; i++) {
+                            const bigram = `${tokens[i]} ${tokens[i+1]}`;
+                            addCandidate(bigram, t.value, 5);
+                        }
                     });
 
-                    // 2. 转换为数组并按门槛筛选
-                    const result = [];
-                    candidateMap.forEach((themesSet, kw) => {
-                        if (themesSet.size >= minMatch) {
-                            result.push({
+                    // 转换为可筛选与评估得分的候选对象数组
+                    const rawCandidates = [];
+                    candidateMap.forEach((rec, kw) => {
+                        if (rec.themes.size >= minMatch) {
+                            const score = (rec.themes.size * 3) + rec.scoreBonus + (kw.length > 3 ? 2 : 0);
+                            rawCandidates.push({
                                 keyword: kw,
-                                themes: Array.from(themesSet)
+                                themes: Array.from(rec.themes),
+                                score: score
                             });
                         }
                     });
 
-                    // 3. 最大公约词归并提取 (Longest Common Prefix Subsumption)
-                    // 按照关键词字符串长度升序排序（短词优先）
-                    result.sort((a, b) => a.keyword.length - b.keyword.length);
-                    const prunedCandidates = [];
+                    // 排序与精准智能求精 (Word-boundary Subsumption)
+                    rawCandidates.sort((a, b) => b.score - a.score || b.keyword.length - a.keyword.length);
 
-                    for (const item of result) {
+                    const prunedCandidates = [];
+                    for (const item of rawCandidates) {
                         const kwLower = item.keyword.toLowerCase();
-                        // 检测当前关键词是否为已有较短候选词的衍生词（例如 "12345" 包含了短词 "1234"）
-                        const isSubsumed = prunedCandidates.some(parent => {
+
+                        const isRedundant = prunedCandidates.some(parent => {
                             const parentKwLower = parent.keyword.toLowerCase();
-                            if (kwLower.includes(parentKwLower)) {
+                            const isExactSub = parentKwLower === kwLower ||
+                                parentKwLower.startsWith(kwLower + ' ') || parentKwLower.endsWith(' ' + kwLower) ||
+                                kwLower.startsWith(parentKwLower + ' ') || kwLower.endsWith(' ' + parentKwLower);
+
+                            if (isExactSub) {
                                 const parentSet = new Set(parent.themes);
                                 const overlapCount = item.themes.filter(tName => parentSet.has(tName)).length;
-                                // 若当前词 75% 以上的美化已被短词包含，则直接取最大公约词，剔除衍生冗余长词
-                                if (overlapCount / item.themes.length >= 0.75) {
+                                if (overlapCount / item.themes.length >= 0.8) {
                                     return true;
                                 }
                             }
                             return false;
                         });
 
-                        if (!isSubsumed) {
-                            prunedCandidates.push(item);
+                        if (!isRedundant) {
+                            prunedCandidates.push({
+                                keyword: item.keyword,
+                                themes: item.themes
+                            });
                         }
                     }
 
-                    // 按包含的美化数量降序排列，截取前 80 个最热门候选
                     prunedCandidates.sort((a, b) => b.themes.length - a.themes.length);
                     return prunedCandidates.slice(0, 80);
                 }
