@@ -4217,12 +4217,43 @@
                         }
                     }
 
-                    // 6. 按关联美化数量降序排列，根据 maxCandidates 参数弹性截取
-                    finalCandidates.sort((a, b) => b.themes.length - a.themes.length);
-                    if (maxCandidates && maxCandidates > 0 && isFinite(maxCandidates)) {
-                        return finalCandidates.slice(0, maxCandidates);
+                    // 6. Jaccard 相似度高度重合去重：若两个候选词的美化集合 Jaccard ≥ 0.75，保留较长（更具体）的那个
+                    const jaccardDeduped = [];
+                    for (const item of finalCandidates) {
+                        const itemSet = new Set(item.themes);
+                        const isDuplicate = jaccardDeduped.some(existing => {
+                            const existingSet = new Set(existing.themes);
+                            const intersection = item.themes.filter(t => existingSet.has(t)).length;
+                            const union = new Set([...item.themes, ...existing.themes]).size;
+                            if (union === 0) return false;
+                            const jaccard = intersection / union;
+                            if (jaccard >= 0.75) {
+                                // 保留关键词更长（更具体）的那个
+                                if (existing.keyword.length < item.keyword.length) {
+                                    existing.keyword = item.keyword;
+                                }
+                                return true;
+                            }
+                            return false;
+                        });
+                        if (!isDuplicate) jaccardDeduped.push(item);
                     }
-                    return finalCandidates;
+
+                    // 7. 价值评分排序：优先展示「独特贡献度高」的候选词（能归类更多别处未覆盖美化的词排前）
+                    const coveredByPrev = new Set();
+                    jaccardDeduped.sort((a, b) => b.themes.length - a.themes.length);
+                    jaccardDeduped.forEach(item => {
+                        const newCount = item.themes.filter(t => !coveredByPrev.has(t)).length;
+                        item._valueScore = newCount + item.themes.length * 0.1;
+                        item.themes.forEach(t => coveredByPrev.add(t));
+                    });
+                    jaccardDeduped.sort((a, b) => b._valueScore - a._valueScore);
+
+                    // 8. 按 maxCandidates 弹性截取
+                    if (maxCandidates && maxCandidates > 0 && isFinite(maxCandidates)) {
+                        return jaccardDeduped.slice(0, maxCandidates);
+                    }
+                    return jaccardDeduped;
                 }
 
                 // === 分组向导 Step 1: 设置基数范围、目标层级与门槛 ===
@@ -4327,6 +4358,18 @@
                                         <small style="opacity:0.65;">(不限组数可提取所有可能的分类组，结合全景矩阵审核一键全选清理)</small>
                                     </div>
                                 </div>
+                                <hr style="border:0; border-top:1px solid rgba(128,128,128,0.2); margin:0;">
+                                <div>
+                                    <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
+                                        <i class="fa-solid fa-filter-circle-xmark"></i> 5. 智能过滤：
+                                    </div>
+                                    <div style="display:flex; flex-direction:column; gap:8px; padding-left:12px;">
+                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                            <input type="checkbox" id="tm-auto-untagged-only" style="margin:0;">
+                                            <span>🎯 仅分析<b>未归类</b>的美化 (跳过已有标签覆盖的美化，专注新增内容)</span>
+                                        </label>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     `;
@@ -4336,6 +4379,7 @@
                     let parentId = null;
                     let minMatch = 2;
                     let maxCandidates = 200;
+                    let untaggedOnly = false;
 
                     const popupRes = await callGenericPopup(setupHtml, 'confirm', null, {
                         title: '分组提取设置',
@@ -4383,6 +4427,8 @@
                                 if (parentSelect) parentId = parentSelect.value;
                                 if (minMatchInput) minMatch = parseInt(minMatchInput.value) || 2;
                                 if (maxCandidatesSelect) maxCandidates = parseInt(maxCandidatesSelect.value);
+                                const untaggedOnlyChk = dlg.querySelector('#tm-auto-untagged-only');
+                                if (untaggedOnlyChk) untaggedOnly = untaggedOnlyChk.checked;
                             });
                         }
                     });
@@ -4394,6 +4440,9 @@
 
                     const minMatchInputEl = document.querySelector('#tm-auto-min-match');
                     if (minMatchInputEl) minMatch = parseInt(minMatchInputEl.value) || 2;
+
+                    const untaggedOnlyChkEl = document.querySelector('#tm-auto-untagged-only');
+                    if (untaggedOnlyChkEl) untaggedOnly = untaggedOnlyChkEl.checked;
 
                     showLoader();
                     setTimeout(() => {
@@ -4419,6 +4468,18 @@
                                 }
                             } else {
                                 pool = allParsedThemes;
+                            }
+
+                            // 5. 若勾选「仅分析未归类美化」，从池中过滤掉已被任何标签覆盖的美化
+                            if (untaggedOnly) {
+                                const allExistingTags = loadThemeTags();
+                                const taggedThemeSet = new Set(allExistingTags.flatMap(t => t.themes || []));
+                                pool = pool.filter(t => !taggedThemeSet.has(t.value));
+                                if (pool.length === 0) {
+                                    hideLoader();
+                                    toastr.info('当前范围内所有美化均已被标签覆盖，无需再次分组！');
+                                    return;
+                                }
                             }
 
                             const candidates = extractCandidateThemeGroups(pool, minMatch, selectedLevel, parentId, maxCandidates);
@@ -4461,12 +4522,19 @@
                             </div>
 
                             <div class="tm-matrix-toolbar">
-                                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                                     <label style="display:inline-flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; user-select:none; white-space:nowrap; margin:0;">
                                         <input type="checkbox" id="matrix-select-all-chk" checked style="margin:0;">
-                                        <span>全选 / 全取消</span>
+                                        <span>全选/取消</span>
                                     </label>
-                                    <input type="search" id="matrix-search-box" class="text_pole" placeholder="过滤候选分组..." style="font-size:12px; height:26px; padding:2px 8px; width:150px; margin:0;">
+                                    <input type="search" id="matrix-search-box" class="text_pole" placeholder="搜索候选分组或美化名..." style="font-size:12px; height:26px; padding:2px 8px; width:160px; margin:0; flex:1; min-width:100px;">
+                                    <select id="matrix-sort-select" class="text_pole" style="font-size:12px; height:26px; padding:2px 6px; width:130px; margin:0;">
+                                        <option value="value">按价值评分↓</option>
+                                        <option value="count-desc">美化数量 多→少</option>
+                                        <option value="count-asc">美化数量 少→多</option>
+                                        <option value="name-asc">名称 A→Z</option>
+                                    </select>
+                                    <button id="matrix-merge-btn" class="menu_button" style="font-size:11px; padding:2px 8px; margin:0; height:26px; min-height:26px; white-space:nowrap; background:rgba(74,144,226,0.2) !important;" title="将选中的多个候选词合并为一个标签"><i class="fa-solid fa-object-group"></i> 合并选中</button>
                                 </div>
                                 <div id="matrix-stats-summary" style="font-size:12px; opacity:0.85; white-space:nowrap;">
                                     已选中 <b><span id="matrix-selected-count">${candidates.length}</span></b> / ${candidates.length} 个分组 (涉及 <b>${totalThemesCount}</b> 个美化)
@@ -4578,6 +4646,8 @@
                             const matrixList = dlg ? dlg.querySelector('#tm-matrix-list') : null;
                             const selectAllChk = dlg ? dlg.querySelector('#matrix-select-all-chk') : null;
                             const searchBox = dlg ? dlg.querySelector('#matrix-search-box') : null;
+                            const sortSelect = dlg ? dlg.querySelector('#matrix-sort-select') : null;
+                            const mergeBtn = dlg ? dlg.querySelector('#matrix-merge-btn') : null;
                             const applyBtn = dlg ? dlg.querySelector('#matrix-apply-all-btn') : null;
                             const cancelBtn = dlg ? dlg.querySelector('#matrix-cancel-btn') : null;
                             const selectedCountSpan = dlg ? dlg.querySelector('#matrix-selected-count') : null;
@@ -4592,6 +4662,7 @@
                                 if (applyBtn) applyBtn.disabled = (checkedCount === 0);
                             };
 
+                            // 搜索过滤
                             if (searchBox && matrixList) {
                                 searchBox.addEventListener('input', (e) => {
                                     const q = e.target.value.toLowerCase().trim();
@@ -4603,6 +4674,68 @@
                                         const match = !q || nameVal.includes(q) || themesVal.includes(q);
                                         card.style.display = match ? 'flex' : 'none';
                                     });
+                                });
+                            }
+
+                            // 排序
+                            if (sortSelect && matrixList) {
+                                sortSelect.addEventListener('change', () => {
+                                    const mode = sortSelect.value;
+                                    const cards = Array.from(matrixList.querySelectorAll('.tm-matrix-card'));
+                                    cards.sort((a, b) => {
+                                        const ca = candidates[a.dataset.idx];
+                                        const cb = candidates[b.dataset.idx];
+                                        if (!ca || !cb) return 0;
+                                        if (mode === 'count-desc') return cb.themes.length - ca.themes.length;
+                                        if (mode === 'count-asc') return ca.themes.length - cb.themes.length;
+                                        if (mode === 'name-asc') return (ca.keyword || '').localeCompare(cb.keyword || '');
+                                        // 'value' = 按原始顺序（提取时已按价值评分排）
+                                        return parseInt(a.dataset.idx) - parseInt(b.dataset.idx);
+                                    });
+                                    cards.forEach(c => matrixList.appendChild(c));
+                                });
+                            }
+
+                            // 合并选中候选词
+                            if (mergeBtn && matrixList) {
+                                mergeBtn.addEventListener('click', () => {
+                                    const checkedCards = Array.from(matrixList.querySelectorAll('.tm-matrix-card')).filter(card => {
+                                        const chk = card.querySelector('.matrix-group-chk');
+                                        return chk && chk.checked;
+                                    });
+                                    if (checkedCards.length < 2) {
+                                        toastr.warning('请先勾选 2 个或以上候选分组再进行合并！');
+                                        return;
+                                    }
+                                    // 取第一个的名称作为合并后标签名
+                                    const firstCard = checkedCards[0];
+                                    const firstNameInput = firstCard.querySelector('.matrix-tag-name-input');
+                                    const mergedName = firstNameInput ? firstNameInput.value.trim() : candidates[firstCard.dataset.idx]?.keyword || '合并标签';
+                                    const newName = prompt(`将 ${checkedCards.length} 个分组合并为一个标签，请输入标签名：`, mergedName);
+                                    if (!newName || !newName.trim()) return;
+
+                                    // 合并所有美化到第一张卡片
+                                    const mergedThemes = new Set();
+                                    checkedCards.forEach(card => {
+                                        const idx = card.dataset.idx;
+                                        const c = candidates[idx];
+                                        if (c) c.themes.forEach(t => mergedThemes.add(t));
+                                    });
+
+                                    // 更新第一张卡
+                                    if (firstNameInput) firstNameInput.value = newName.trim();
+                                    const firstIdx = firstCard.dataset.idx;
+                                    if (candidates[firstIdx]) {
+                                        candidates[firstIdx].themes = Array.from(mergedThemes);
+                                        // 更新美化数量显示
+                                        const countSpan = firstCard.querySelector('.fa-layer-group')?.parentElement;
+                                        if (countSpan) countSpan.innerHTML = `<i class="fa-solid fa-layer-group" style="margin-right:3px;"></i>${mergedThemes.size}个美化`;
+                                    }
+
+                                    // 删除其余卡片
+                                    checkedCards.slice(1).forEach(card => card.remove());
+                                    updateStats();
+                                    toastr.success(`已将 ${checkedCards.length} 个候选分组合并为「${newName.trim()}」，涉及 ${mergedThemes.size} 个美化！`);
                                 });
                             }
 
