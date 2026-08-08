@@ -197,6 +197,7 @@
                 const ENABLE_AVATAR_HELPER_KEY = 'themeManager_enableAvatarHelper';
                 const ENABLE_COLOR_TRANSFER_KEY = 'themeManager_enableColorTransfer';
                 const ENABLE_DAYNIGHT_BINDING_KEY = 'themeManager_enableDayNightBinding';
+                const ENABLE_REPLACE_AVATAR_BTN_KEY = 'themeManager_enableReplaceAvatarBtn';
 
                 let themeDayNightPairs = loadThemeDayNightPairs();
                 let enableDayNightBinding = localStorage.getItem(ENABLE_DAYNIGHT_BINDING_KEY) !== 'false'; // 默认开启 (true)
@@ -262,6 +263,7 @@
                 let showUsageCount = localStorage.getItem(SHOW_USAGE_COUNT_KEY) === 'true';
                 let enableAvatarHelper = localStorage.getItem(ENABLE_AVATAR_HELPER_KEY) !== 'false';
                 let enableColorTransfer = localStorage.getItem(ENABLE_COLOR_TRANSFER_KEY) === 'true'; // 默认关闭 (false)
+                let enableReplaceAvatarBtn = localStorage.getItem(ENABLE_REPLACE_AVATAR_BTN_KEY) !== 'false'; // 默认开启 (true)
                 let currentPage = 1;
 
                 let allParsedThemes = [];
@@ -983,6 +985,7 @@
                                 <button id="tm-toggle-avatar-helper-btn" class="menu_button" title="开启/完全禁用头像管理功能"><i class="fa-solid fa-check"></i> 头像</button>
                                 <button id="tm-toggle-color-transfer-btn" class="menu_button" title="开启/禁用提取配色功能"><i class="fa-solid fa-palette"></i> 配色</button>
                                 <button id="tm-toggle-daynight-binding-btn" class="menu_button" title="显示/隐藏卡片日夜绑定按钮"><i class="fa-solid fa-circle-half-stroke"></i> 日夜</button>
+                                <button id="tm-toggle-replace-avatar-btn" class="menu_button" title="显示/隐藏详情页替换按键"><i class="fa-solid fa-check"></i> 替换</button>
                                 <button id="manage-tags-btn" class="menu_button" title="管理标签"><i class="fa-solid fa-tags"></i> 标签</button>
                                 <button id="tm-export-settings-btn" class="menu_button" title="导出配置文件"><i class="fa-solid fa-file-export"></i> 导出</button>
                                 <button id="tm-import-settings-btn" class="menu_button" title="从配置文件中导入插件设置"><i class="fa-solid fa-file-import"></i> 导入</button>
@@ -2501,6 +2504,117 @@
                             const btn = item.querySelector('.link-daynight-btn');
                             if (btn) btn.style.display = enableDayNightBinding ? 'inline-flex' : 'none';
                         });
+                    });
+                }
+
+                // 替换卡图按键开启/禁用 toggle 及按键注入逻辑
+                function removeReplaceImageButtons() {
+                    $('#theme-manager-char-replace-image-btn, .theme-manager-char-replace-image-btn').remove();
+                    $('#theme-manager-user-replace-image-btn, .theme-manager-user-replace-image-btn').remove();
+                }
+
+                function registerReplaceImageButtons() {
+                    if (localStorage.getItem(ENABLE_REPLACE_AVATAR_BTN_KEY) === 'false') {
+                        removeReplaceImageButtons();
+                        return;
+                    }
+
+                    // 1. 角色卡详情页替换卡图按钮
+                    $('.form_create_bottom_buttons_block').each(function() {
+                        const $container = $(this);
+                        if ($container.find('#theme-manager-char-replace-image-btn').length === 0) {
+                            const $btn = $('<div>', {
+                                id: 'theme-manager-char-replace-image-btn',
+                                class: 'menu_button fa-solid fa-file-image theme-manager-char-replace-image-btn',
+                                title: '替换角色卡图片',
+                                'data-i18n': '[title]替换角色卡图片'
+                            }).on('click', function(e) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const addAvatarBtn = document.getElementById('add_avatar_button');
+                                if (addAvatarBtn) {
+                                    addAvatarBtn.click();
+                                } else {
+                                    toastr.warning('未找到角色卡头像上传组件。');
+                                }
+                            });
+
+                            const $deleteBtn = $container.find('#delete_button');
+                            if ($deleteBtn.length > 0) {
+                                $btn.insertBefore($deleteBtn);
+                            } else {
+                                $container.append($btn);
+                            }
+                        }
+                    });
+
+                    // 2. 用户详情页替换头像按钮
+                    $('.persona_controls_buttons_block').each(function() {
+                        const $container = $(this);
+                        if ($container.find('#theme-manager-user-replace-image-btn').length === 0) {
+                            const $btn = $('<div>', {
+                                id: 'theme-manager-user-replace-image-btn',
+                                class: 'menu_button fa-solid fa-file-image theme-manager-user-replace-image-btn',
+                                title: '替换用户头像图片',
+                                'data-i18n': '[title]替换用户头像图片'
+                            }).on('click', function(e) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const personaSetImgBtn = document.getElementById('persona_set_image_button');
+                                if (personaSetImgBtn) {
+                                    personaSetImgBtn.click();
+                                } else {
+                                    const userAvatarInput = document.getElementById('avatar_upload_file');
+                                    const userAvatarOverwrite = document.getElementById('avatar_upload_overwrite');
+                                    if (userAvatarInput && userAvatarOverwrite) {
+                                        const currentPersona = typeof user_avatar !== 'undefined' ? user_avatar : '';
+                                        userAvatarOverwrite.value = currentPersona;
+                                        userAvatarInput.click();
+                                    } else {
+                                        toastr.warning('未找到用户头像上传组件。');
+                                    }
+                                }
+                            });
+
+                            const $deletePersonaBtn = $container.find('#persona_delete_button');
+                            if ($deletePersonaBtn.length > 0) {
+                                $btn.insertBefore($deletePersonaBtn);
+                            } else {
+                                $container.append($btn);
+                            }
+                        }
+                    });
+                }
+
+                // 立即注册并开启轻量级巡检与面板交互监听，确保 100% 成功注入
+                registerReplaceImageButtons();
+                setInterval(registerReplaceImageButtons, 1000);
+                $(document).on('click', '#rightNavDrawerIcon, #avatar-and-name-block, #persona_controls, .character_select, .persona_item, .drawer-icon, #user_avatar_block', function() {
+                    setTimeout(registerReplaceImageButtons, 50);
+                    setTimeout(registerReplaceImageButtons, 300);
+                });
+
+                const toggleReplaceAvatarBtn = managerPanel.querySelector('#tm-toggle-replace-avatar-btn');
+                if (toggleReplaceAvatarBtn) {
+                    const updateReplaceAvatarBtnIcon = (enabled) => {
+                        const icon = toggleReplaceAvatarBtn.querySelector('i');
+                        if (icon) {
+                            icon.className = enabled ? 'fa-solid fa-check' : 'fa-solid fa-xmark';
+                        }
+                        toggleReplaceAvatarBtn.classList.toggle('active', enabled);
+                    };
+                    updateReplaceAvatarBtnIcon(enableReplaceAvatarBtn);
+                    toggleReplaceAvatarBtn.addEventListener('click', () => {
+                        enableReplaceAvatarBtn = !enableReplaceAvatarBtn;
+                        localStorage.setItem(ENABLE_REPLACE_AVATAR_BTN_KEY, String(enableReplaceAvatarBtn));
+                        updateReplaceAvatarBtnIcon(enableReplaceAvatarBtn);
+                        toastr.info(`替换按键已${enableReplaceAvatarBtn ? '显示' : '隐藏'}`);
+                        if (enableReplaceAvatarBtn) {
+                            registerReplaceImageButtons();
+                        } else {
+                            removeReplaceImageButtons();
+                        }
+                        document.dispatchEvent(new CustomEvent('themeManager:enableReplaceAvatarBtnChanged', { detail: enableReplaceAvatarBtn }));
                     });
                 }
 

@@ -3427,7 +3427,86 @@
                 });
                 userWandMenu.appendChild(btn);
             }
+    }
+
+    // 移除替换卡图按键
+    function removeReplaceImageButtons() {
+        document.querySelectorAll('#theme-manager-char-replace-image-btn, .theme-manager-char-replace-image-btn').forEach(el => el.remove());
+        document.querySelectorAll('#theme-manager-user-replace-image-btn, .theme-manager-user-replace-image-btn').forEach(el => el.remove());
+    }
+
+    // 注册角色卡详情页与用户详情页的替换卡图按键
+    function registerReplaceImageButtons() {
+        if (localStorage.getItem('themeManager_enableReplaceAvatarBtn') === 'false') {
+            removeReplaceImageButtons();
+            return;
         }
+
+        // 1. 角色卡详情页替换卡图按钮
+        const charControlsList = document.querySelectorAll('.form_create_bottom_buttons_block');
+        charControlsList.forEach((charControls) => {
+            if (!charControls.querySelector('#theme-manager-char-replace-image-btn')) {
+                const btn = document.createElement('div');
+                btn.id = 'theme-manager-char-replace-image-btn';
+                btn.className = 'menu_button fa-solid fa-file-image theme-manager-char-replace-image-btn';
+                btn.title = '替换角色卡图片';
+                btn.setAttribute('data-i18n', '[title]替换角色卡图片');
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const addAvatarBtn = document.getElementById('add_avatar_button');
+                    if (addAvatarBtn) {
+                        addAvatarBtn.click();
+                    } else {
+                        toastr.warning('未找到角色卡头像上传组件。');
+                    }
+                });
+                
+                const deleteBtn = charControls.querySelector('#delete_button');
+                if (deleteBtn) {
+                    charControls.insertBefore(btn, deleteBtn);
+                } else {
+                    charControls.appendChild(btn);
+                }
+            }
+        });
+
+        // 2. 用户详情页替换头像按钮
+        const userControlsList = document.querySelectorAll('.persona_controls_buttons_block');
+        userControlsList.forEach((userControls) => {
+            if (!userControls.querySelector('#theme-manager-user-replace-image-btn')) {
+                const btn = document.createElement('div');
+                btn.id = 'theme-manager-user-replace-image-btn';
+                btn.className = 'menu_button fa-solid fa-file-image theme-manager-user-replace-image-btn';
+                btn.title = '替换用户头像图片';
+                btn.setAttribute('data-i18n', '[title]替换用户头像图片');
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const personaSetImgBtn = document.getElementById('persona_set_image_button');
+                    if (personaSetImgBtn) {
+                        personaSetImgBtn.click();
+                    } else {
+                        const userAvatarInput = document.getElementById('avatar_upload_file');
+                        const userAvatarOverwrite = document.getElementById('avatar_upload_overwrite');
+                        if (userAvatarInput && userAvatarOverwrite) {
+                            const currentPersona = typeof user_avatar !== 'undefined' ? user_avatar : '';
+                            userAvatarOverwrite.value = currentPersona;
+                            userAvatarInput.click();
+                        } else {
+                            toastr.warning('未找到用户头像上传组件。');
+                        }
+                    }
+                });
+
+                const deletePersonaBtn = userControls.querySelector('#persona_delete_button');
+                if (deletePersonaBtn) {
+                    userControls.insertBefore(btn, deletePersonaBtn);
+                } else {
+                    userControls.appendChild(btn);
+                }
+            }
+        });
     }
 
     // 设置双击/长按监听逻辑
@@ -3580,9 +3659,18 @@
         initStyles();
         registerWandButtons();
     }
+    registerReplaceImageButtons();
     setupInteractionListeners();
     updateActiveCharacterAttr();
     tagAllMessages();
+
+    // 观察 DOM 动态生成变动，自动补全角色卡与用户详情页的替换卡图按键
+    try {
+        const replaceBtnObserver = new MutationObserver(() => {
+            registerReplaceImageButtons();
+        });
+        replaceBtnObserver.observe(document.body, { childList: true, subtree: true });
+    } catch (e) {}
 
     // 监听聊天容器变化，实现绝对零延迟的头像视觉替换打标签
     try {
@@ -3643,19 +3731,22 @@
             updateActiveCharacterAttr();
             setTimeout(tagAllMessages, 100);
             registerWandButtons();
+            registerReplaceImageButtons();
         });
         eventSource.on(eventTypes.CHAT_CHANGED, () => {
             updateActiveCharacterAttr();
             setTimeout(tagAllMessages, 100);
             registerWandButtons();
+            registerReplaceImageButtons();
         });
         
-        // 兼容右侧角色切换
-        $(document).on('click', '.character_select', () => {
+        // 兼容右侧角色与面板切换
+        $(document).on('click', '.character_select, #rightNavDrawerIcon, #avatar-and-name-block, #persona_controls, .persona_item', () => {
             setTimeout(() => {
                 updateActiveCharacterAttr();
                 tagAllMessages();
                 registerWandButtons();
+                registerReplaceImageButtons();
             }, 100);
         });
     } catch (e) {
@@ -3679,15 +3770,26 @@
             const baseStyleEl = document.getElementById('avatar-adv-base-css');
             if (baseStyleEl) baseStyleEl.remove();
 
-            // 3. 移除魔法棒按钮
+            // 3. 移除魔法棒按钮与替换卡图按钮
             document.getElementById('theme-manager-char-avatar-wand-btn')?.remove();
             document.getElementById('theme-manager-user-avatar-wand-btn')?.remove();
+            removeReplaceImageButtons();
             
             // 4. 关闭高级调整面板
             closePanel();
             
             // 5. 移除 HD 渲染 class
             document.body.classList.remove('tm-avatar-hd-rendering');
+        }
+    });
+
+    // 监听替换卡图功能开关更改事件
+    document.addEventListener('themeManager:enableReplaceAvatarBtnChanged', (e) => {
+        const enabled = e.detail;
+        if (enabled) {
+            registerReplaceImageButtons();
+        } else {
+            removeReplaceImageButtons();
         }
     });
 
