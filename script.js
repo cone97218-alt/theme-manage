@@ -656,6 +656,7 @@
                 function invalidateThemesCache() {
                     _themesCache = null;
                     _themesCacheTime = 0;
+                    invalidateValidThemeNamesCache();
                 }
 
                 // 双重触发展示与 jQuery 原生 change 事件，保证 ST 原生 $('#themes').on('change') 监听函数必被激活
@@ -1089,8 +1090,14 @@
                     scheduleAsyncProtection();
                 }
 
-                // 获取当前系统实际存在的所有合法美化主题名称 Set
+                // 获取当前系统实际存在的所有合法美化主题名称 Set (带高性能缓存)
+                let _cachedValidThemeNames = null;
+                function invalidateValidThemeNamesCache() {
+                    _cachedValidThemeNames = null;
+                }
+
                 function getValidInstalledThemeNames() {
+                    if (_cachedValidThemeNames) return _cachedValidThemeNames;
                     const names = new Set();
                     if (typeof stKnownThemes !== 'undefined' && stKnownThemes && stKnownThemes.size > 0) {
                         stKnownThemes.forEach(name => { if (name) names.add(name); });
@@ -1100,14 +1107,18 @@
                     }
                     const select = document.querySelector('#themes');
                     if (select && select.options) {
-                        Array.from(select.options).forEach(opt => { if (opt.value) names.add(opt.value); });
+                        for (let i = 0; i < select.options.length; i++) {
+                            const val = select.options[i].value;
+                            if (val) names.add(val);
+                        }
                     }
+                    _cachedValidThemeNames = names;
                     return names;
                 }
 
                 // 校验并规范化标签关联：
-                // 1. 自动过滤剔除不存在于当前机器的非本域美化死链接
-                // 2. 基于当前机器实际存在的美化，针对含有关键词的标签重新动态关联补全
+                // 1. 自动过滤剔除不存在于当前机器的非本域美化死链接 (O(N) 线性过滤)
+                // 2. 基于当前机器实际存在的美化，针对含有关键词的标签做高性能预转换与动态匹配 (O(N) Set + Break)
                 // 3. 子标签包含的主题自动同步提升至其父级一级标签
                 function sanitizeTagsWithValidThemes(tags) {
                     if (!Array.isArray(tags)) return tags;
@@ -1119,22 +1130,31 @@
                     });
 
                     if (validThemeNames.size > 0) {
-                        // 过滤不存在于本机的异地美化名称
+                        // 1. 过滤不存在于本机的异地美化名称
                         tags.forEach(t => {
                             t.themes = t.themes.filter(themeName => validThemeNames.has(themeName));
                         });
 
-                        // 重新扫描本机美化，自动匹配已定义的关键词
+                        // 2. 重新扫描本机美化，自动匹配已定义的关键词 (极致循环优化)
                         const allThemes = Array.from(validThemeNames);
                         tags.forEach(tag => {
                             if (!tag.keywords || tag.keywords.length === 0) return;
-                            allThemes.forEach(themeName => {
+                            const kwLCs = tag.keywords.filter(Boolean).map(kw => kw.toLowerCase());
+                            if (kwLCs.length === 0) return;
+
+                            const existingThemesSet = new Set(tag.themes);
+                            for (let i = 0; i < allThemes.length; i++) {
+                                const themeName = allThemes[i];
+                                if (existingThemesSet.has(themeName)) continue;
                                 const nameLC = themeName.toLowerCase();
-                                const matches = tag.keywords.some(kw => kw && nameLC.includes(kw.toLowerCase()));
-                                if (matches && !tag.themes.includes(themeName)) {
-                                    tag.themes.push(themeName);
+                                for (let j = 0; j < kwLCs.length; j++) {
+                                    if (nameLC.includes(kwLCs[j])) {
+                                        tag.themes.push(themeName);
+                                        existingThemesSet.add(themeName);
+                                        break;
+                                    }
                                 }
-                            });
+                            }
                         });
                     }
 
@@ -2455,9 +2475,6 @@
                     syncActiveLevel1TagId(tags);
 
                     if (tags.length > 0) {
-                        const validThemeNames = getValidInstalledThemeNames();
-                        const filterValid = (arr) => validThemeNames.size > 0 ? (arr || []).filter(t => validThemeNames.has(t)) : (arr || []);
-
                         const visibleLevel1Tags = subtagsEnabled
                             ? tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId))
                             : tags;
@@ -2473,13 +2490,13 @@
                             chip.className = `theme-tag-chip level1 ${isDirectActive || isL1Active || hasActiveChild || hasSubUncat ? 'active' : ''}`;
                             chip.dataset.tagId = tag.id;
 
-                            let count = filterValid(tag.themes).length;
+                            let count = tag.themes ? tag.themes.length : 0;
                             if (subtagsEnabled) {
-                                const allRelatedThemeNames = new Set(filterValid(tag.themes));
+                                const allRelatedThemeNames = new Set(tag.themes || []);
                                 childIds.forEach(cId => {
                                     const cTag = tags.find(t => t.id === cId);
                                     if (cTag && cTag.themes) {
-                                        filterValid(cTag.themes).forEach(th => allRelatedThemeNames.add(th));
+                                        cTag.themes.forEach(th => allRelatedThemeNames.add(th));
                                     }
                                 });
                                 count = allRelatedThemeNames.size;
@@ -2541,8 +2558,7 @@
                                     const subChip = document.createElement('div');
                                     subChip.className = `theme-tag-chip level2 ${activeTagFilters.has(childTag.id) ? 'active' : ''}`;
                                     subChip.dataset.tagId = childTag.id;
-                                    const cValidThemes = filterValid(childTag.themes);
-                                    subChip.innerHTML = `${escapeHtml(childTag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${cValidThemes.length})</span>`;
+                                    subChip.innerHTML = `${escapeHtml(childTag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${childTag.themes ? childTag.themes.length : 0})</span>`;
                                     subChip.addEventListener('click', (e) => {
                                         e.stopPropagation();
                                         if (activeTagFilters.has(childTag.id)) {
@@ -2563,7 +2579,7 @@
                                 });
 
                                 // 2. 渲染默认二级“未分类”标签 (属于当前一级分类，但无任何二级子分类标签的主题)
-                                const l1Themes = filterValid(parentTag.themes);
+                                const l1Themes = parentTag.themes || [];
                                 const subUncatCount = l1Themes.filter(themeName => {
                                     const themeTags = getTagsForTheme(themeName, tags);
                                     return !themeTags.some(tId => childTagIds.includes(tId));
@@ -4256,30 +4272,37 @@
                 }
 
 
-                // 将定义放在 openManageTagsPopup 之前，以便弹窗内可直接调用
+                // 将定义放在 openManageTagsPopup 之前，以便弹窗内可直接调用 (极致算法优化)
                 function applyKeywordMappings(themeNames) {
                     const tags = loadThemeTags();
                     const hasKeywords = tags.some(t => t.keywords && t.keywords.length > 0);
                     if (!hasKeywords) return false;
 
+                    const validNames = getValidInstalledThemeNames();
                     const themesToCheck = themeNames
-                        ? (Array.isArray(themeNames) ? themeNames : [themeNames])
-                        : (allParsedThemes ? allParsedThemes.map(t => t.value) : []);
+                        ? (Array.isArray(themeNames) ? themeNames : [themeNames]).filter(n => validNames.has(n))
+                        : Array.from(validNames);
                     if (themesToCheck.length === 0) return false;
                     let changed = false;
 
                     for (const tag of tags) {
                         if (!tag.keywords || tag.keywords.length === 0) continue;
+                        const kwLCs = tag.keywords.filter(Boolean).map(kw => kw.toLowerCase());
+                        if (kwLCs.length === 0) continue;
 
-                        // 无论是一级还是二级标签，基于设置的关键词全量检索匹配美化
-                        for (const themeName of themesToCheck) {
+                        if (!tag.themes) tag.themes = [];
+                        const existingThemesSet = new Set(tag.themes);
+
+                        for (let i = 0; i < themesToCheck.length; i++) {
+                            const themeName = themesToCheck[i];
+                            if (existingThemesSet.has(themeName)) continue;
                             const nameLC = themeName.toLowerCase();
-                            const matches = tag.keywords.some(kw => kw && nameLC.includes(kw.toLowerCase()));
-                            if (matches) {
-                                if (!tag.themes) tag.themes = [];
-                                if (!tag.themes.includes(themeName)) {
+                            for (let j = 0; j < kwLCs.length; j++) {
+                                if (nameLC.includes(kwLCs[j])) {
                                     tag.themes.push(themeName);
+                                    existingThemesSet.add(themeName);
                                     changed = true;
+                                    break;
                                 }
                             }
                         }
