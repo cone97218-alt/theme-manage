@@ -2615,11 +2615,10 @@
                                 toggleFoldBtn.className = 'tm-breadcrumb-item tm-toggle-fold';
                                 toggleFoldBtn.style.opacity = '0.6';
                                 toggleFoldBtn.style.marginLeft = 'auto';
-                                toggleFoldBtn.style.fontSize = '10px';
+                                toggleFoldBtn.style.fontSize = '11px';
+                                toggleFoldBtn.style.padding = '0 4px';
                                 toggleFoldBtn.title = renderAllAncestorSubtagRows ? '折叠上级标签胶囊 (仅显示最小层级)' : '展开所有上级标签胶囊';
-                                toggleFoldBtn.innerHTML = renderAllAncestorSubtagRows
-                                    ? `<i class="fa-solid fa-chevron-up"></i> 折叠上级`
-                                    : `<i class="fa-solid fa-chevron-down"></i> 展开所有层级`;
+                                toggleFoldBtn.innerHTML = `<i class="fa-solid ${renderAllAncestorSubtagRows ? 'fa-chevron-up' : 'fa-chevron-down'}"></i>`;
                                 toggleFoldBtn.addEventListener('click', (e) => {
                                     e.stopPropagation();
                                     renderAllAncestorSubtagRows = !renderAllAncestorSubtagRows;
@@ -3042,6 +3041,8 @@
                     THEME_DAY_NIGHT_PAIRS_KEY,
                     'themeManager_autoTheme',
                     TAG_FILTER_MODE_KEY,
+                    ENABLE_SUBTAGS_KEY,
+                    ACTIVE_TAG_PATH_KEY,
                     USAGE_COUNT_KEY,
                     SHOW_USAGE_COUNT_KEY,
                     ENABLE_AVATAR_HELPER_KEY,
@@ -4654,11 +4655,22 @@
                     }
 
                     const existingTags = loadThemeTags();
-                    const l1Tags = existingTags.filter(t => !t.parentId || !existingTags.some(p => p.id === t.parentId));
 
-                    let l1SelectOptionsHtml = l1Tags.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+                    function buildTagTreeOptionsHtml(allTags, parentTagId = null, depth = 0) {
+                        let optionsHtml = '';
+                        const children = allTags.filter(t => (parentTagId ? t.parentId === parentTagId : (!t.parentId || !allTags.some(p => p.id === t.parentId))));
+                        children.forEach(c => {
+                            const indent = '&nbsp;&nbsp;'.repeat(depth);
+                            const prefix = depth > 0 ? '└ ' : '';
+                            optionsHtml += `<option value="${c.id}">${indent}${prefix}${escapeHtml(c.name)} (${c.themes ? c.themes.length : 0})</option>`;
+                            optionsHtml += buildTagTreeOptionsHtml(allTags, c.id, depth + 1);
+                        });
+                        return optionsHtml;
+                    }
+
+                    let l1SelectOptionsHtml = buildTagTreeOptionsHtml(existingTags);
                     if (!l1SelectOptionsHtml) {
-                        l1SelectOptionsHtml = '<option value="">(尚未创建一级主标签)</option>';
+                        l1SelectOptionsHtml = '<option value="">(尚未创建主标签分类)</option>';
                     }
 
                     let allTagsSelectOptionsHtml = existingTags.map(t => `<option value="${t.id}">${escapeHtml(t.name)} (${t.themes ? t.themes.length : 0})</option>`).join('');
@@ -5004,12 +5016,20 @@
                         });
 
                         if (parentId) {
-                            const parentTagObj = tags.find(t => t.id === parentId);
-                            if (parentTagObj) {
-                                if (!parentTagObj.themes) parentTagObj.themes = [];
-                                themesList.forEach(tn => {
-                                    if (!parentTagObj.themes.includes(tn)) parentTagObj.themes.push(tn);
-                                });
+                            let currPId = parentId;
+                            const visited = new Set();
+                            while (currPId && !visited.has(currPId)) {
+                                visited.add(currPId);
+                                const parentTagObj = tags.find(t => t.id === currPId);
+                                if (parentTagObj) {
+                                    if (!parentTagObj.themes) parentTagObj.themes = [];
+                                    themesList.forEach(tn => {
+                                        if (!parentTagObj.themes.includes(tn)) parentTagObj.themes.push(tn);
+                                    });
+                                    currPId = parentTagObj.parentId;
+                                } else {
+                                    break;
+                                }
                             }
                         }
 
@@ -5419,12 +5439,20 @@
 
                         // 若为二级子标签，同步把美化追加至其归属的一级主分类 themes 中
                         if (parentId) {
-                            const parentTagObj = tags.find(t => t.id === parentId);
-                            if (parentTagObj) {
-                                if (!parentTagObj.themes) parentTagObj.themes = [];
-                                themesList.forEach(tn => {
-                                    if (!parentTagObj.themes.includes(tn)) parentTagObj.themes.push(tn);
-                                });
+                            let currPId = parentId;
+                            const visited = new Set();
+                            while (currPId && !visited.has(currPId)) {
+                                visited.add(currPId);
+                                const parentTagObj = tags.find(t => t.id === currPId);
+                                if (parentTagObj) {
+                                    if (!parentTagObj.themes) parentTagObj.themes = [];
+                                    themesList.forEach(tn => {
+                                        if (!parentTagObj.themes.includes(tn)) parentTagObj.themes.push(tn);
+                                    });
+                                    currPId = parentTagObj.parentId;
+                                } else {
+                                    break;
+                                }
                             }
                         }
 
@@ -6187,33 +6215,31 @@
                             `;
                         });
                     } else {
-                        const l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
-                        l1Tags.forEach(l1 => {
-                            const isCheckedL1 = singleMode ? (l1.themes && l1.themes.includes(themeNames)) : false;
-                            const childTags = tags.filter(t => t.parentId === l1.id);
-                            popupHtml += `
-                                <div style="border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:6px; background:rgba(255,255,255,0.02);">
-                                    <label style="display:flex; align-items:center; gap:8px; font-weight:bold; font-size:12px;">
-                                        <input type="checkbox" class="tag-assign-cb" data-id="${l1.id}" ${isCheckedL1 ? 'checked' : ''}>
-                                        <i class="fa-solid fa-folder-open" style="color:var(--SmartThemeQuoteColor, #4a90e2); font-size:11px;"></i>
-                                        ${escapeHtml(l1.name)}
+                        const renderAssignTreeHtml = (nodeTag, depth) => {
+                            const childTags = tags.filter(t => t.parentId === nodeTag.id);
+                            const isChecked = singleMode ? (nodeTag.themes && nodeTag.themes.includes(themeNames)) : false;
+                            let html = `
+                                <div style="margin-left:${depth > 0 ? 14 : 0}px; margin-bottom:4px; ${depth === 0 ? 'border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:6px; background:rgba(255,255,255,0.02);' : ''}">
+                                    <label style="display:flex; align-items:center; gap:6px; font-size:${depth === 0 ? '12px' : '11px'}; font-weight:${depth === 0 ? 'bold' : 'normal'}; cursor:pointer;">
+                                        <input type="checkbox" class="tag-assign-cb" data-id="${nodeTag.id}" ${isChecked ? 'checked' : ''}>
+                                        <i class="${depth === 0 ? 'fa-solid fa-folder-open' : 'fa-solid fa-tag'}" style="${depth === 0 ? 'color:var(--SmartThemeQuoteColor, #4a90e2);' : 'opacity:0.7;'} font-size:11px;"></i>
+                                        ${escapeHtml(nodeTag.name)}
                                     </label>
                             `;
                             if (childTags.length > 0) {
-                                popupHtml += `<div style="display:flex; flex-direction:column; gap:4px; margin-left:22px; margin-top:4px; padding-left:6px; border-left:2px solid rgba(255,255,255,0.1);">`;
-                                childTags.forEach(c => {
-                                    const isCheckedC = singleMode ? (c.themes && c.themes.includes(themeNames)) : false;
-                                    popupHtml += `
-                                        <label style="display:flex; align-items:center; gap:6px; font-size:12px;">
-                                            <input type="checkbox" class="tag-assign-cb" data-id="${c.id}" ${isCheckedC ? 'checked' : ''}>
-                                            <i class="fa-solid fa-tag" style="opacity:0.7; font-size:10px;"></i>
-                                            ${escapeHtml(c.name)}
-                                        </label>
-                                    `;
+                                html += `<div style="display:flex; flex-direction:column; gap:4px; margin-left:18px; margin-top:4px; padding-left:6px; border-left:2px solid rgba(255,255,255,0.1);">`;
+                                childTags.forEach(cTag => {
+                                    html += renderAssignTreeHtml(cTag, depth + 1);
                                 });
-                                popupHtml += `</div>`;
+                                html += `</div>`;
                             }
-                            popupHtml += `</div>`;
+                            html += `</div>`;
+                            return html;
+                        };
+
+                        const rootTags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
+                        rootTags.forEach(rTag => {
+                            popupHtml += renderAssignTreeHtml(rTag, 0);
                         });
                     }
                     popupHtml += `</div>`;
@@ -6276,31 +6302,30 @@
                             `;
                         });
                     } else {
-                        const l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
-                        l1Tags.forEach(l1 => {
-                            const childTags = tags.filter(t => t.parentId === l1.id);
-                            popupHtml += `
-                                <div style="border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:6px; background:rgba(255,255,255,0.02);">
-                                    <label style="display:flex; align-items:center; gap:8px; font-weight:bold; font-size:12px;">
-                                        <input type="checkbox" class="tag-remove-cb" data-id="${l1.id}">
-                                        <i class="fa-solid fa-folder-open" style="color:var(--SmartThemeQuoteColor, #4a90e2); font-size:11px;"></i>
-                                        ${escapeHtml(l1.name)}
+                        const renderRemoveTreeHtml = (nodeTag, depth) => {
+                            const childTags = tags.filter(t => t.parentId === nodeTag.id);
+                            let html = `
+                                <div style="margin-left:${depth > 0 ? 14 : 0}px; margin-bottom:4px; ${depth === 0 ? 'border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:6px; background:rgba(255,255,255,0.02);' : ''}">
+                                    <label style="display:flex; align-items:center; gap:6px; font-size:${depth === 0 ? '12px' : '11px'}; font-weight:${depth === 0 ? 'bold' : 'normal'}; cursor:pointer;">
+                                        <input type="checkbox" class="tag-remove-cb" data-id="${nodeTag.id}">
+                                        <i class="${depth === 0 ? 'fa-solid fa-folder-open' : 'fa-solid fa-tag'}" style="${depth === 0 ? 'color:var(--SmartThemeQuoteColor, #4a90e2);' : 'opacity:0.7;'} font-size:11px;"></i>
+                                        ${escapeHtml(nodeTag.name)}
                                     </label>
                             `;
                             if (childTags.length > 0) {
-                                popupHtml += `<div style="display:flex; flex-direction:column; gap:4px; margin-left:22px; margin-top:4px; padding-left:6px; border-left:2px solid rgba(255,255,255,0.1);">`;
-                                childTags.forEach(c => {
-                                    popupHtml += `
-                                        <label style="display:flex; align-items:center; gap:6px; font-size:12px;">
-                                            <input type="checkbox" class="tag-remove-cb" data-id="${c.id}">
-                                            <i class="fa-solid fa-tag" style="opacity:0.7; font-size:10px;"></i>
-                                            ${escapeHtml(c.name)}
-                                        </label>
-                                    `;
+                                html += `<div style="display:flex; flex-direction:column; gap:4px; margin-left:18px; margin-top:4px; padding-left:6px; border-left:2px solid rgba(255,255,255,0.1);">`;
+                                childTags.forEach(cTag => {
+                                    html += renderRemoveTreeHtml(cTag, depth + 1);
                                 });
-                                popupHtml += `</div>`;
+                                html += `</div>`;
                             }
-                            popupHtml += `</div>`;
+                            html += `</div>`;
+                            return html;
+                        };
+
+                        const rootTags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
+                        rootTags.forEach(rTag => {
+                            popupHtml += renderRemoveTreeHtml(rTag, 0);
                         });
                     }
                     popupHtml += `</div>`;
