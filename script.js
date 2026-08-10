@@ -200,6 +200,7 @@
                 const ENABLE_REPLACE_AVATAR_BTN_KEY = 'themeManager_enableReplaceAvatarBtn';
                 const TWO_LINE_LAYOUT_KEY = 'themeManager_twoLineLayout';
                 const HIDE_TAG_PILLS_KEY = 'themeManager_hideTagPills';
+                const TAG_PILL_MODE_KEY = 'themeManager_tagPillMode';
 
                 let autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || {
                     enabled: false,
@@ -212,9 +213,12 @@
                 };
                 let isTwoLineLayout = localStorage.getItem(TWO_LINE_LAYOUT_KEY) === 'true';
                 let hideTagPills = localStorage.getItem(HIDE_TAG_PILLS_KEY) === 'true';
+                let tagPillDisplayMode = localStorage.getItem(TAG_PILL_MODE_KEY) || (hideTagPills ? 'none' : 'all'); // 'all' | 'l1' | 'l2' | 'none'
                 if (isTwoLineLayout && hideTagPills) {
                     hideTagPills = false;
                     localStorage.setItem(HIDE_TAG_PILLS_KEY, 'false');
+                    tagPillDisplayMode = 'all';
+                    localStorage.setItem(TAG_PILL_MODE_KEY, 'all');
                 }
 
                 function closePopup(popup) {
@@ -1832,19 +1836,25 @@
                     }
 
                     // 设置标签药丸
-                    if (theme.tags && theme.tags.length > 0) {
+                    if (theme.tags && theme.tags.length > 0 && tagPillDisplayMode !== 'none') {
                         const tagsDiv = document.createElement('div');
                         tagsDiv.className = 'theme-item-tags';
                         theme.tags.forEach(tagId => {
                             const tagObj = tagsMap.get(tagId);
                             if (tagObj) {
+                                const isSub = !!tagObj.parentId;
+                                if (tagPillDisplayMode === 'l1' && isSub) return;
+                                if (tagPillDisplayMode === 'l2' && !isSub) return;
+
                                 const pill = document.createElement('span');
                                 pill.className = 'theme-item-tag-pill';
                                 pill.textContent = tagObj.name;
                                 tagsDiv.appendChild(pill);
                             }
                         });
-                        nameDiv.appendChild(tagsDiv);
+                        if (tagsDiv.children.length > 0) {
+                            nameDiv.appendChild(tagsDiv);
+                        }
                     }
 
                     // 设置收藏状态
@@ -2143,19 +2153,25 @@
                         if (oldTagsDiv) oldTagsDiv.remove();
 
                         // 添加新标签
-                        if (theme.tags && theme.tags.length > 0) {
+                        if (theme.tags && theme.tags.length > 0 && tagPillDisplayMode !== 'none') {
                             const tagsDiv = document.createElement('div');
                             tagsDiv.className = 'theme-item-tags';
                             theme.tags.forEach(tagId => {
                                 const tagObj = tagsById.get(tagId); // O(1) 查找
                                 if (tagObj) {
+                                    const isSub = !!tagObj.parentId;
+                                    if (tagPillDisplayMode === 'l1' && isSub) return;
+                                    if (tagPillDisplayMode === 'l2' && !isSub) return;
+
                                     const pill = document.createElement('span');
                                     pill.className = 'theme-item-tag-pill';
                                     pill.textContent = tagObj.name;
                                     tagsDiv.appendChild(pill);
                                 }
                             });
-                            nameDiv.appendChild(tagsDiv);
+                            if (tagsDiv.children.length > 0) {
+                                nameDiv.appendChild(tagsDiv);
+                            }
                         }
                     }
 
@@ -2823,7 +2839,8 @@
                     ENABLE_AVATAR_HELPER_KEY,
                     ENABLE_COLOR_TRANSFER_KEY,
                     TWO_LINE_LAYOUT_KEY,
-                    HIDE_TAG_PILLS_KEY
+                    HIDE_TAG_PILLS_KEY,
+                    TAG_PILL_MODE_KEY
                 ];
 
                 function exportSettings() {
@@ -3829,10 +3846,20 @@
                                 </h4>
                                 <div class="tm-settings-buttons-flex">
                                     <button id="tm-pop-toggle-twoline" class="menu_button ${isTwoLineLayout ? 'active' : ''}"><i class="fa-solid fa-align-left"></i> 换行排版 (${isTwoLineLayout ? '开启' : '关闭'})</button>
-                                    <button id="tm-pop-toggle-hidetags" class="menu_button ${hideTagPills ? 'active' : ''}"><i class="fa-solid fa-tag"></i> 隐藏胶囊 (${hideTagPills ? '开启' : '关闭'})</button>
                                     <button id="tm-pop-toggle-usage" class="menu_button ${showUsageCount ? 'active' : ''}"><i class="fa-solid fa-chart-bar"></i> 使用统计 (${showUsageCount ? '开启' : '关闭'})</button>
                                     <button id="tm-pop-toggle-daynight" class="menu_button ${enableDayNightBinding ? 'active' : ''}"><i class="fa-solid fa-circle-half-stroke"></i> 日夜图标 (${enableDayNightBinding ? '开启' : '关闭'})</button>
                                     <button id="tm-pop-toggle-replace" class="menu_button ${enableReplaceAvatarBtn ? 'active' : ''}"><i class="fa-solid fa-check"></i> 详情页替换 (${enableReplaceAvatarBtn ? '开启' : '关闭'})</button>
+                                </div>
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding: 8px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;">
+                                    <label for="tm-pop-select-tag-pill-mode" style="font-size: 12.5px; margin: 0; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                        <i class="fa-solid fa-tags" style="color: var(--SmartThemeQuoteColor, #4a90e2);"></i> 标签胶囊显示范围：
+                                    </label>
+                                    <select id="tm-pop-select-tag-pill-mode" class="text_pole" style="font-size: 12px; height: 28px; padding: 2px 8px; width: 180px; margin: 0;">
+                                        <option value="all" ${tagPillDisplayMode === 'all' ? 'selected' : ''}>🏷️ 显示全部 (一级 + 二级)</option>
+                                        <option value="l1" ${tagPillDisplayMode === 'l1' ? 'selected' : ''}>📌 仅显示一级主标签</option>
+                                        <option value="l2" ${tagPillDisplayMode === 'l2' ? 'selected' : ''}>🔖 仅显示二级子标签</option>
+                                        <option value="none" ${tagPillDisplayMode === 'none' ? 'selected' : ''}>🚫 完全隐藏胶囊</option>
+                                    </select>
                                 </div>
                             </div>
 
@@ -3902,26 +3929,27 @@
                                 });
                             }
 
-                            if (btnHideTags) {
-                                btnHideTags.addEventListener('click', () => {
-                                    hideTagPills = !hideTagPills;
+                            const selectPillMode = dlg.querySelector('#tm-pop-select-tag-pill-mode');
+                            if (selectPillMode) {
+                                selectPillMode.addEventListener('change', (e) => {
+                                    tagPillDisplayMode = e.target.value;
+                                    localStorage.setItem(TAG_PILL_MODE_KEY, tagPillDisplayMode);
+                                    hideTagPills = (tagPillDisplayMode === 'none');
                                     localStorage.setItem(HIDE_TAG_PILLS_KEY, hideTagPills ? 'true' : 'false');
-                                    btnHideTags.classList.toggle('active', hideTagPills);
-                                    btnHideTags.innerHTML = `<i class="fa-solid fa-tag"></i> 隐藏胶囊 (${hideTagPills ? '开启' : '关闭'})`;
-                                    if (contentWrapper) contentWrapper.classList.toggle('hide-tag-pills', hideTagPills);
-
-                                    // 开启隐藏胶囊标签时自动关闭换行排版
-                                    if (hideTagPills && isTwoLineLayout) {
-                                        isTwoLineLayout = false;
-                                        localStorage.setItem(TWO_LINE_LAYOUT_KEY, 'false');
-                                        if (btnTwoLine) {
-                                            btnTwoLine.classList.remove('active');
-                                            btnTwoLine.innerHTML = `<i class="fa-solid fa-align-left"></i> 换行排版 (关闭)`;
-                                        }
-                                        if (contentWrapper) contentWrapper.classList.remove('two-line-layout');
+                                    
+                                    if (contentWrapper) {
+                                        contentWrapper.classList.toggle('hide-tag-pills', hideTagPills);
                                     }
 
-                                    toastr.info(`胶囊标签已${hideTagPills ? '隐藏 (标题与按键单行展示)' : '显示'}`);
+                                    softRefreshUI();
+
+                                    const labels = {
+                                        'all': '显示全部 (一级 + 二级)',
+                                        'l1': '仅显示一级主标签',
+                                        'l2': '仅显示二级子标签',
+                                        'none': '完全隐藏胶囊'
+                                    };
+                                    toastr.info(`标签胶囊显示模式已切换为：${labels[tagPillDisplayMode] || tagPillDisplayMode}`);
                                 });
                             }
 
