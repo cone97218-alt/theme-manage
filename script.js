@@ -1275,7 +1275,7 @@
                         </div>
                         <div class="theme-manager-actions" data-mode="theme">
                             <div class="tm-button-row">
-                                <input type="search" id="theme-search-box" placeholder="搜索主题... (支持 关键词A 关键词B 复合搜索)" title="支持复合搜索：&#10;• 空格/逗号/|：或匹配 (例: 黑金 白银)&#10;• + 或 AND：与匹配 (例: 黑金 + 360px)&#10;• - 或 !：排除匹配 (例: 黑金 -360px)">
+                                <input type="search" id="theme-search-box" placeholder="搜索主题... (支持 关键词A/关键词B 复合搜索)" title="支持复合搜索：&#10;• 斜杠//空格/逗号/|/分号：或匹配 (例: 播放器/玉殿春 或 黑金 白银)&#10;• + 或 AND：与匹配 (例: 黑金 + 360px)&#10;• - 或 !：排除匹配 (例: 黑金 -360px)">
                                 <button id="random-theme-btn" class="menu_button" title="随机应用一个主题"><i class="fa-solid fa-dice"></i> 随机</button>
                                 <button id="auto-theme-settings-btn" class="menu_button" title="自动主题切换设置"><i class="fa-solid fa-circle-half-stroke"></i> 自动</button>
                                 <button id="toggle-more-actions-btn" class="menu_button" title="展开/收起更多操作"><i class="fa-solid fa-ellipsis"></i></button>
@@ -2000,7 +2000,7 @@
                 function checkSearchSubExpression(targetTextLC, expr) {
                     if (!expr) return true;
 
-                    const tokens = expr.split(/[\s,，\|]|\bOR\b/i).map(s => s.trim()).filter(Boolean);
+                    const tokens = expr.split(/[\s,，\|/／\\;；·]|\bOR\b/i).map(s => s.trim()).filter(Boolean);
                     if (tokens.length === 0) return true;
 
                     const positiveTerms = [];
