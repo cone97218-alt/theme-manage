@@ -4182,7 +4182,9 @@
 
     // 监听酒馆底层事件，实时改变 data-active-char 属性以驱动前端 CSS 隔离替换
     try {
-        const { eventSource, eventTypes } = SillyTavern.getContext();
+        const ctx = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
+        if (ctx && ctx.eventSource && ctx.eventTypes) {
+            const { eventSource, eventTypes } = ctx;
         
         // 绑定消息渲染与流式传输时机
         eventSource.on(eventTypes.CHARACTER_MESSAGE_RENDERED, (mesId) => {
@@ -4218,6 +4220,7 @@
             registerWandButtons();
             registerReplaceImageButtons();
         });
+        }
         
         // 兼容右侧角色与面板切换
         $(document).on('click', '.character_select, #rightNavDrawerIcon, #avatar-and-name-block, #persona_controls, .persona_item', () => {

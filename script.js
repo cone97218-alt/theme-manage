@@ -168,16 +168,16 @@
 
     const initInterval = setInterval(() => {
         const originalSelect = document.querySelector('#themes');
-        const updateButton = document.querySelector('#ui-preset-update-button');
-        const saveAsButton = document.querySelector('#ui-preset-save-button');
 
-        if (originalSelect && updateButton && saveAsButton && window.SillyTavern?.getContext && !document.querySelector('#theme-manager-panel')) {
-            console.log("Theme Manager (v23.0 Final Stable): 初始化...");
+        if (originalSelect && window.SillyTavern?.getContext && !document.querySelector('#theme-manager-panel')) {
+            console.log("Theme Manager: 初始化...");
             clearInterval(initInterval);
             autoThemeApplied = true; // 确保不重复触发早期检测
 
             try {
-                const { getRequestHeaders, showLoader, hideLoader, callGenericPopup, eventSource, eventTypes } = SillyTavern.getContext();
+                const ctx = SillyTavern.getContext();
+                if (!ctx) return;
+                const { getRequestHeaders, showLoader, hideLoader, callGenericPopup, eventSource, eventTypes } = ctx;
                 const FAVORITES_KEY = 'themeManager_favorites';
                 const COLLAPSE_KEY = 'themeManager_collapsed';
                 const THEME_TAGS_KEY = 'themeManager_themeTags';
@@ -6077,46 +6077,6 @@
                                             const next = siblings[idx + 1];
                                             const posA = tags.indexOf(tag);
                                             const posB = tags.indexOf(next);
-                                            if (posA > -1 && posB > -1) {
-                                                const [moved] = tags.splice(posA, 1);
-                                                tags.splice(posB, 0, moved);
-                                                saveThemeTags(tags);
-                                                renderList();
-                                                softRefreshUI();
-                                            }
-                                        }
-                                    });
-                                });
-                                        const childTags = tags.filter(t => t.parentId === tag.parentId);
-                                        const cIdx = childTags.findIndex(t => t.id === id);
-                                        if (cIdx > 0) {
-                                            const srcTag = childTags[cIdx];
-                                            const tgtTag = childTags[cIdx - 1];
-                                            const posA = tags.indexOf(srcTag);
-                                            const posB = tags.indexOf(tgtTag);
-                                            if (posA > -1 && posB > -1) {
-                                                const [moved] = tags.splice(posA, 1);
-                                                tags.splice(posB, 0, moved);
-                                                saveThemeTags(tags);
-                                                renderList();
-                                                softRefreshUI();
-                                            }
-                                        }
-                                    });
-                                });
-                                dlg.querySelectorAll('.move-l2-down').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        const id = e.currentTarget.dataset.id;
-                                        const tag = tags.find(t => t.id === id);
-                                        if (!tag) return;
-                                        const childTags = tags.filter(t => t.parentId === tag.parentId);
-                                        const cIdx = childTags.findIndex(t => t.id === id);
-                                        if (cIdx > -1 && cIdx < childTags.length - 1) {
-                                            const srcTag = childTags[cIdx];
-                                            const tgtTag = childTags[cIdx + 1];
-                                            const posA = tags.indexOf(srcTag);
-                                            const posB = tags.indexOf(tgtTag);
                                             if (posA > -1 && posB > -1) {
                                                 const [moved] = tags.splice(posA, 1);
                                                 tags.splice(posB, 0, moved);
