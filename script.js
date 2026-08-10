@@ -214,12 +214,6 @@
                 let isTwoLineLayout = localStorage.getItem(TWO_LINE_LAYOUT_KEY) === 'true';
                 let hideTagPills = localStorage.getItem(HIDE_TAG_PILLS_KEY) === 'true';
                 let tagPillDisplayMode = localStorage.getItem(TAG_PILL_MODE_KEY) || (hideTagPills ? 'none' : 'all'); // 'all' | 'l1' | 'l2' | 'none'
-                if (isTwoLineLayout && hideTagPills) {
-                    hideTagPills = false;
-                    localStorage.setItem(HIDE_TAG_PILLS_KEY, 'false');
-                    tagPillDisplayMode = 'all';
-                    localStorage.setItem(TAG_PILL_MODE_KEY, 'all');
-                }
 
                 function closePopup(popup) {
                     if (!popup) return;
@@ -1874,7 +1868,7 @@
                             }
                         });
                         if (tagsDiv.children.length > 0) {
-                            nameDiv.appendChild(tagsDiv);
+                            item.insertBefore(tagsDiv, buttonsDiv);
                         }
                     }
 
@@ -2169,8 +2163,7 @@
                         if (!theme) continue;
 
                         // 移除旧标签
-                        const nameDiv = item.children[0];
-                        const oldTagsDiv = nameDiv.querySelector('.theme-item-tags');
+                        const oldTagsDiv = item.querySelector('.theme-item-tags');
                         if (oldTagsDiv) oldTagsDiv.remove();
 
                         // 添加新标签
@@ -2191,7 +2184,12 @@
                                 }
                             });
                             if (tagsDiv.children.length > 0) {
-                                nameDiv.appendChild(tagsDiv);
+                                const buttonsDiv = item.querySelector('.theme-item-buttons');
+                                if (buttonsDiv) {
+                                    item.insertBefore(tagsDiv, buttonsDiv);
+                                } else {
+                                    item.appendChild(tagsDiv);
+                                }
                             }
                         }
                     }
@@ -3863,7 +3861,6 @@
                             <div style="margin-bottom: 14px;">
                                 <h4 class="tm-settings-section-title">
                                     <i class="fa-solid fa-sliders" style="margin-right: 6px;"></i> 视图与显示设置
-                                    <span class="tm-settings-section-note">(注：换行排版与隐藏胶囊为互斥功能，开启其一将自动关闭另一项)</span>
                                 </h4>
                                 <div class="tm-settings-buttons-flex">
                                     <button id="tm-pop-toggle-twoline" class="menu_button ${isTwoLineLayout ? 'active' : ''}"><i class="fa-solid fa-align-left"></i> 换行排版 (${isTwoLineLayout ? '开启' : '关闭'})</button>
@@ -3934,18 +3931,6 @@
                                     btnTwoLine.classList.toggle('active', isTwoLineLayout);
                                     btnTwoLine.innerHTML = `<i class="fa-solid fa-align-left"></i> 换行排版 (${isTwoLineLayout ? '开启' : '关闭'})`;
                                     if (contentWrapper) contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
-
-                                    // 开启换行排版时自动关闭隐藏胶囊标签
-                                    if (isTwoLineLayout && hideTagPills) {
-                                        hideTagPills = false;
-                                        localStorage.setItem(HIDE_TAG_PILLS_KEY, 'false');
-                                        if (btnHideTags) {
-                                            btnHideTags.classList.remove('active');
-                                            btnHideTags.innerHTML = `<i class="fa-solid fa-tag"></i> 隐藏胶囊 (关闭)`;
-                                        }
-                                        if (contentWrapper) contentWrapper.classList.remove('hide-tag-pills');
-                                    }
-
                                     toastr.info(`美化列表已切换为: ${isTwoLineLayout ? '换行排版模式' : '常规单行模式'}`);
                                 });
                             }
@@ -7405,7 +7390,7 @@
                 function updateThemeItemDayNightState(themeName) {
                     const item = themeItemMap.get(themeName);
                     if (!item) return;
-                    const buttonsDiv = item.children[1];
+                    const buttonsDiv = item.querySelector('.theme-item-buttons') || item.children[1];
                     const linkDaynightBtn = buttonsDiv.children[2];
                     const pair = getPairForTheme(themeName);
                     if (pair) {

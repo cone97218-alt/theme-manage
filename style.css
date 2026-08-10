@@ -920,6 +920,7 @@
 .theme-content.two-line-layout .theme-item-tags,
 .theme-item.two-line-layout .theme-item-tags {
     margin-right: auto !important;
+    margin-left: 0 !important;
     display: inline-flex !important;
     flex-wrap: wrap !important;
     gap: 4px !important;
@@ -1054,18 +1055,18 @@
     display: none !important;
 }
 
-.theme-content.hide-tag-pills .theme-item {
+.theme-content.hide-tag-pills:not(.two-line-layout) .theme-item {
     flex-wrap: nowrap !important;
 }
 
-.theme-content.hide-tag-pills .theme-item-name {
+.theme-content.hide-tag-pills:not(.two-line-layout) .theme-item-name {
     width: auto !important;
     flex: 1 1 auto !important;
     max-width: none !important;
     margin-bottom: 0 !important;
 }
 
-.theme-content.hide-tag-pills .theme-item-buttons {
+.theme-content.hide-tag-pills:not(.two-line-layout) .theme-item-buttons {
     margin-left: auto !important;
 }
 
