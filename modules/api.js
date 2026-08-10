@@ -5,6 +5,10 @@ import { escapeHtml } from './utils.js';
 // invalidateValidThemeNamesCache 直接内联，避免与 tags-core.js 产生循环依赖
 function invalidateValidThemeNamesCache() { state._cachedValidThemeNames = null; }
 
+// showLoader / hideLoader 代理导出：转发给 SillyTavern Context API（ctx 由 state.js 注入）
+export function showLoader() { if (typeof ctx.showLoader === 'function') ctx.showLoader(); }
+export function hideLoader() { if (typeof ctx.hideLoader === 'function') ctx.hideLoader(); }
+
 export async function apiRequest(endpoint, method = 'POST', body = {}, suppressToast = false) {
     try {
         const headers = ctx.getRequestHeaders() || {};

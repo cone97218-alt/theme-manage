@@ -14,8 +14,8 @@ import {
 } from './constants.js';
 import { invalidateTagsCache, loadThemeTags, buildThemeTagIndex, getTagsForTheme } from './tags-core.js';
 import { invalidateThemesCache } from './api.js';
-import { softRefreshUI } from './tags-ui.js';
-import { hardResyncThemes, applyKeywordMappings } from './theme-ui.js';
+import { softRefreshUI, hardResyncThemes, applyKeywordMappings } from './theme-ui.js';
+
 
 export const settingsKeysToSync = [
     FAVORITES_KEY, COLLAPSE_KEY, THEME_TAGS_KEY, THEME_BACKGROUND_BINDINGS_KEY,

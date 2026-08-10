@@ -5,7 +5,8 @@
 
 import { state } from './state.js';
 import { loadThemeTags } from './tags-core.js';
-import { isThemeMatchingSearch } from './utils.js';
+import { isThemeMatchingSearch } from './search-filter.js';
+
 import { saveTheme, updateSTThemeMemory, syncCustomCssToST, showLoader, hideLoader } from './api.js';
 import { applyThemeColors } from './theme-apply.js';
 

@@ -12,6 +12,124 @@ import { applyBackgroundDirectly } from './background.js';
 let currentAutoThemeState = null;
 let autoThemeCheckInterval = null;
 
+let _daynightModal = null;
+let currentTargetThemeForPair = null;
+
+function getOrBuildDayNightModal() {
+    if (_daynightModal) return _daynightModal;
+    const modal = document.createElement('div');
+    modal.className = 'tm-modal-wrapper';
+    modal.style.display = 'none';
+    modal.innerHTML = `
+        <div class="tm-modal-content" style="max-width: 420px; width: 90%;">
+            <div class="tm-modal-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px; margin-bottom:15px;">
+                <h4 style="margin:0;"><i class="fa-solid fa-circle-half-stroke"></i> 绑定日夜美化组合</h4>
+                <button class="tm-modal-close menu_button" style="padding:2px 8px; margin:0;"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <p style="font-size:13px; margin-bottom:12px;">当前操作美化：<b id="tm-daynight-current-name" style="color:var(--primary-color, #007bff);"></b></p>
+            <div style="display:flex; flex-direction:column; gap:12px;">
+                <div>
+                    <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:4px;"><i class="fa-solid fa-sun" style="color:#fadb14;"></i> 对应日间美化 (Light Theme):</label>
+                    <select id="tm-daynight-day-select" class="text_pole" style="width:100%;"></select>
+                </div>
+                <div>
+                    <label style="font-size:12px; font-weight:bold; display:block; margin-bottom:4px;"><i class="fa-solid fa-moon" style="color:#fa8c16;"></i> 对应夜间美化 (Dark Theme):</label>
+                    <select id="tm-daynight-night-select" class="text_pole" style="width:100%;"></select>
+                </div>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:20px; border-top:1px solid rgba(255,255,255,0.1); padding-top:12px;">
+                <button id="tm-daynight-clear-btn" class="menu_button" style="margin:0;">清除解绑</button>
+                <button id="tm-daynight-cancel-btn" class="menu_button" style="margin:0;">取消</button>
+                <button id="tm-daynight-save-btn" class="menu_button primary" style="margin:0;">保存关联</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    _daynightModal = modal;
+
+    const closeBtn = modal.querySelector('.tm-modal-close');
+    const cancelBtn = modal.querySelector('#tm-daynight-cancel-btn');
+    const clearBtn = modal.querySelector('#tm-daynight-clear-btn');
+    const saveBtn = modal.querySelector('#tm-daynight-save-btn');
+
+    const closeModal = () => { modal.style.display = 'none'; };
+    closeBtn.addEventListener('click', closeModal);
+    cancelBtn.addEventListener('click', closeModal);
+
+    clearBtn.addEventListener('click', () => {
+        if (!currentTargetThemeForPair) return;
+        let pairs = Array.isArray(state.themeDayNightPairs) ? [...state.themeDayNightPairs] : [];
+        pairs = pairs.filter(p => p && p.dayTheme !== currentTargetThemeForPair && p.nightTheme !== currentTargetThemeForPair);
+        saveThemeDayNightPairs(pairs);
+        toastr.success(`已解绑主题 "${currentTargetThemeForPair}" 的日夜关联。`);
+        closeModal();
+        if (state.buildThemeListLazyFn) state.buildThemeListLazyFn();
+    });
+
+    saveBtn.addEventListener('click', () => {
+        if (!currentTargetThemeForPair) return;
+        const dayVal = modal.querySelector('#tm-daynight-day-select').value;
+        const nightVal = modal.querySelector('#tm-daynight-night-select').value;
+
+        if (!dayVal && !nightVal) {
+            toastr.warning('请至少指定一个日间或夜间主题。');
+            return;
+        }
+
+        let pairs = Array.isArray(state.themeDayNightPairs) ? [...state.themeDayNightPairs] : [];
+        pairs = pairs.filter(p => p && p.dayTheme !== currentTargetThemeForPair && p.nightTheme !== currentTargetThemeForPair);
+        if (dayVal && dayVal !== currentTargetThemeForPair) {
+            pairs = pairs.filter(p => p && p.dayTheme !== dayVal && p.nightTheme !== dayVal);
+        }
+        if (nightVal && nightVal !== currentTargetThemeForPair) {
+            pairs = pairs.filter(p => p && p.dayTheme !== nightVal && p.nightTheme !== nightVal);
+        }
+
+        pairs.push({ dayTheme: dayVal || currentTargetThemeForPair, nightTheme: nightVal || currentTargetThemeForPair });
+        saveThemeDayNightPairs(pairs);
+        toastr.success('已成功保存日夜美化组合关联！');
+        closeModal();
+        if (state.buildThemeListLazyFn) state.buildThemeListLazyFn();
+    });
+
+    return modal;
+}
+
+export function openDayNightPairModal(themeName) {
+    currentTargetThemeForPair = themeName;
+    const modal = getOrBuildDayNightModal();
+
+    const titleSpan = modal.querySelector('#tm-daynight-current-name');
+    const nightSelect = modal.querySelector('#tm-daynight-night-select');
+    const daySelect = modal.querySelector('#tm-daynight-day-select');
+
+    if (titleSpan) titleSpan.textContent = themeName;
+
+    let optionsHtml = '<option value="">(未指定 / 不关联)</option>';
+    state.allParsedThemes.forEach(t => {
+        optionsHtml += `<option value="${escapeHtml(t.value)}">${escapeHtml(t.display)}</option>`;
+    });
+    if (nightSelect) nightSelect.innerHTML = optionsHtml;
+    if (daySelect) daySelect.innerHTML = optionsHtml;
+
+    const existingPair = getPairForTheme(themeName);
+    if (existingPair) {
+        if (daySelect) daySelect.value = existingPair.dayTheme || '';
+        if (nightSelect) nightSelect.value = existingPair.nightTheme || '';
+    } else {
+        const isNightName = /(深色|暗色|黑色|Dark|Night)/i.test(themeName);
+        if (isNightName) {
+            if (nightSelect) nightSelect.value = themeName;
+            if (daySelect) daySelect.value = '';
+        } else {
+            if (daySelect) daySelect.value = themeName;
+            if (nightSelect) nightSelect.value = '';
+        }
+    }
+
+    modal.style.display = 'flex';
+}
+
 /**
  * 获取特定主题所属的日夜配对
  * @param {string} themeName
@@ -20,6 +138,7 @@ export function getPairForTheme(themeName) {
     if (!themeName || !Array.isArray(state.themeDayNightPairs)) return null;
     return state.themeDayNightPairs.find(p => p && (p.dayTheme === themeName || p.nightTheme === themeName)) || null;
 }
+
 
 /**
  * 保存日夜配对数组到 localStorage

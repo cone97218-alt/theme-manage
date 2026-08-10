@@ -3,13 +3,192 @@
  * 批量重命名与批量删除处理逻辑
  */
 
-import { state } from './state.js';
+import { state, ctx } from './state.js';
 import { FAVORITES_KEY, THEME_BACKGROUND_BINDINGS_KEY } from './constants.js';
-import { limitConcurrency, findOptionByValue, manualUpdateOriginalSelect, triggerSelectChange } from './utils.js';
+import { limitConcurrency, findOptionByValue, manualUpdateOriginalSelect, triggerSelectChange, escapeHtml } from './utils.js';
 import { getAllThemesFromAPI, findThemeObject, apiRequest, deleteTheme, updateSTThemeMemory, confirmAction, invalidateThemesCache, showLoader, hideLoader } from './api.js';
 import { loadThemeTags, saveThemeTags } from './tags-core.js';
-import { renderTagsUI } from './tags-ui.js';
-import { filterThemeList, updateFavorites, updateActiveState } from './theme-ui.js';
+import { renderTagsUI, isSubtagsEnabled } from './tags-ui.js';
+import { filterThemeList } from './search-filter.js';
+import { updateFavorites, updateActiveState, softRefreshUI } from './theme-ui.js';
+
+export async function openTagAssignmentPopup(themeNames) {
+    const singleMode = typeof themeNames === 'string';
+    const themesToAssign = singleMode ? [themeNames] : Array.from(themeNames);
+
+    let tags = loadThemeTags();
+    if (tags.length === 0) {
+        toastr.info('还没有创建任何标签，请先去管理标签中创建。');
+        return;
+    }
+
+    const subtagsEnabled = isSubtagsEnabled();
+    let popupHtml = `<p>选择要分配的标签：</p><div style="display:flex; flex-direction:column; gap:6px; max-height:300px; overflow-y:auto; padding-right:4px;">`;
+
+    if (!subtagsEnabled) {
+        tags.forEach(t => {
+            const isChecked = singleMode ? (t.themes && t.themes.includes(themeNames)) : false;
+            popupHtml += `
+                <label style="display:flex; align-items:center; gap:8px; padding:4px;">
+                    <input type="checkbox" class="tag-assign-cb" data-id="${t.id}" ${isChecked ? 'checked' : ''}>
+                    ${escapeHtml(t.name)}
+                </label>
+            `;
+        });
+    } else {
+        const renderAssignTreeHtml = (nodeTag, depth) => {
+            const childTags = tags.filter(t => t.parentId === nodeTag.id);
+            const isChecked = singleMode ? (nodeTag.themes && nodeTag.themes.includes(themeNames)) : false;
+            let html = `
+                <div style="margin-left:${depth > 0 ? 14 : 0}px; margin-bottom:4px; ${depth === 0 ? 'border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:6px; background:rgba(255,255,255,0.02);' : ''}">
+                    <label style="display:flex; align-items:center; gap:6px; font-size:${depth === 0 ? '12px' : '11px'}; font-weight:${depth === 0 ? 'bold' : 'normal'}; cursor:pointer;">
+                        <input type="checkbox" class="tag-assign-cb" data-id="${nodeTag.id}" ${isChecked ? 'checked' : ''}>
+                        <i class="${depth === 0 ? 'fa-solid fa-folder-open' : 'fa-solid fa-tag'}" style="${depth === 0 ? 'color:var(--SmartThemeQuoteColor, #4a90e2);' : 'opacity:0.7;'} font-size:11px;"></i>
+                        ${escapeHtml(nodeTag.name)}
+                    </label>
+            `;
+            if (childTags.length > 0) {
+                html += `<div style="display:flex; flex-direction:column; gap:4px; margin-left:18px; margin-top:4px; padding-left:6px; border-left:2px solid rgba(255,255,255,0.1);">`;
+                childTags.forEach(cTag => {
+                    html += renderAssignTreeHtml(cTag, depth + 1);
+                });
+                html += `</div>`;
+            }
+            html += `</div>`;
+            return html;
+        };
+
+        const rootTags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
+        rootTags.forEach(rTag => {
+            popupHtml += renderAssignTreeHtml(rTag, 0);
+        });
+    }
+    popupHtml += `</div>`;
+
+    await ctx.callGenericPopup(popupHtml, 'confirm', null, {
+        title: singleMode ? `设置标签: ${themeNames.replace(/\[.*?\]/g, '').trim()}` : `批量设置标签 (${themesToAssign.length} 个主题)`,
+        okButton: '保存',
+        onOpen: (popup) => {
+            popup.dlg.querySelector('.popup-button-ok').addEventListener('click', () => {
+                const checkboxes = popup.dlg.querySelectorAll('.tag-assign-cb');
+                const tagsById = new Map(tags.map(t => [t.id, t]));
+                checkboxes.forEach(cb => {
+                    const tagId = cb.dataset.id;
+                    const tag = tagsById.get(tagId);
+                    if (!tag) return;
+                    if (!tag.themes) tag.themes = [];
+
+                    if (cb.checked) {
+                        themesToAssign.forEach(th => {
+                            if (!tag.themes.includes(th)) tag.themes.push(th);
+                        });
+                    } else {
+                        if (singleMode) {
+                            const idx = tag.themes.indexOf(themeNames);
+                            if (idx > -1) tag.themes.splice(idx, 1);
+                        }
+                    }
+                });
+                saveThemeTags(tags);
+                toastr.success('标签分配已保存');
+                if (!singleMode && state.isBatchEditMode) {
+                    state.selectedForBatch.clear();
+                    state.lastClickedThemeName = null;
+                }
+                softRefreshUI(themesToAssign);
+            });
+        }
+    });
+}
+
+export async function openTagRemovalPopup(themeNames) {
+    const themesToAssign = Array.from(themeNames);
+
+    let tags = loadThemeTags();
+    if (tags.length === 0) {
+        toastr.info('还没有创建任何标签，无法移除。');
+        return;
+    }
+
+    const subtagsEnabled = isSubtagsEnabled();
+    let popupHtml = `<p>选择要从所选主题中移除的标签：</p><div style="display:flex; flex-direction:column; gap:6px; max-height:300px; overflow-y:auto; padding-right:4px;">`;
+
+    if (!subtagsEnabled) {
+        tags.forEach(t => {
+            popupHtml += `
+                <label style="display:flex; align-items:center; gap:8px; padding:4px;">
+                    <input type="checkbox" class="tag-remove-cb" data-id="${t.id}">
+                    ${escapeHtml(t.name)}
+                </label>
+            `;
+        });
+    } else {
+        const renderRemoveTreeHtml = (nodeTag, depth) => {
+            const childTags = tags.filter(t => t.parentId === nodeTag.id);
+            let html = `
+                <div style="margin-left:${depth > 0 ? 14 : 0}px; margin-bottom:4px; ${depth === 0 ? 'border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:6px; background:rgba(255,255,255,0.02);' : ''}">
+                    <label style="display:flex; align-items:center; gap:6px; font-size:${depth === 0 ? '12px' : '11px'}; font-weight:${depth === 0 ? 'bold' : 'normal'}; cursor:pointer;">
+                        <input type="checkbox" class="tag-remove-cb" data-id="${nodeTag.id}">
+                        <i class="${depth === 0 ? 'fa-solid fa-folder-open' : 'fa-solid fa-tag'}" style="${depth === 0 ? 'color:var(--SmartThemeQuoteColor, #4a90e2);' : 'opacity:0.7;'} font-size:11px;"></i>
+                        ${escapeHtml(nodeTag.name)}
+                    </label>
+            `;
+            if (childTags.length > 0) {
+                html += `<div style="display:flex; flex-direction:column; gap:4px; margin-left:18px; margin-top:4px; padding-left:6px; border-left:2px solid rgba(255,255,255,0.1);">`;
+                childTags.forEach(cTag => {
+                    html += renderRemoveTreeHtml(cTag, depth + 1);
+                });
+                html += `</div>`;
+            }
+            html += `</div>`;
+            return html;
+        };
+
+        const rootTags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
+        rootTags.forEach(rTag => {
+            popupHtml += renderRemoveTreeHtml(rTag, 0);
+        });
+    }
+    popupHtml += `</div>`;
+
+    await ctx.callGenericPopup(popupHtml, 'confirm', null, {
+        title: `批量移除标签 (${themesToAssign.length} 个主题)`,
+        okButton: '移除',
+        cancelButton: '取消',
+        onOpen: (popup) => {
+            popup.dlg.querySelector('.popup-button-ok').addEventListener('click', () => {
+                const checkboxes = popup.dlg.querySelectorAll('.tag-remove-cb');
+                let removedAnything = false;
+                checkboxes.forEach(cb => {
+                    if (cb.checked) {
+                        const tagId = cb.dataset.id;
+                        const tag = tags.find(t => t.id === tagId);
+                        if (tag && tag.themes) {
+                            themesToAssign.forEach(th => {
+                                const idx = tag.themes.indexOf(th);
+                                if (idx > -1) {
+                                    tag.themes.splice(idx, 1);
+                                    removedAnything = true;
+                                }
+                            });
+                        }
+                    }
+                });
+                if (removedAnything) {
+                    saveThemeTags(tags);
+                    toastr.success('已成功移除标签');
+                }
+                if (state.isBatchEditMode) {
+                    state.selectedForBatch.clear();
+                    state.lastClickedThemeName = null;
+                }
+                softRefreshUI();
+            });
+        }
+    });
+}
+
+
 
 export async function performBatchRename(renameLogic) {
     if (state.selectedForBatch.size === 0) { toastr.info('请先选择至少一个主题。'); return; }

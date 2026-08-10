@@ -8,7 +8,8 @@ import { THEME_TAGS_KEY, ENABLE_SUBTAGS_KEY } from './constants.js';
 import { escapeHtml } from './utils.js';
 import { loadThemeTags, saveThemeTags, invalidateTagsCache } from './tags-core.js';
 import { renderTagsUI } from './tags-ui.js';
-import { softRefreshUI } from './tags-ui.js';
+import { softRefreshUI } from './theme-ui.js';
+
 import { confirmAction, promptAction } from './api.js';
 
 export function openManageTagsPopup() {

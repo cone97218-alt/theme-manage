@@ -6,9 +6,12 @@
 import { state } from './state.js';
 import { FAVORITES_KEY } from './constants.js';
 import { loadThemeTags, buildThemeTagIndex, getTagsForTheme, isTagPillVisible, isThemeMatchingFilters } from './tags-core.js';
-import { renderTagsUI } from './tags-ui.js';
-import { isThemeMatchingSearch, sortThemes, getScrollParent, triggerSelectChange, deduplicateSelectOptions } from './utils.js';
+import { renderTagsUI, updateTagChipsActiveState } from './tags-ui.js';
+import { isThemeMatchingSearch } from './search-filter.js';
+import { sortThemes, getScrollParent, triggerSelectChange, deduplicateSelectOptions } from './utils.js';
 import { getCachedThemes, getAllThemesFromAPI, invalidateThemesCache, apiRequest, showLoader, hideLoader } from './api.js';
+
+
 
 let _themeItemTemplate = null;
 let _activeThemeItem = null;
@@ -345,6 +348,77 @@ export function buildThemeListLazy(scrollTop) {
 
 // 注册给 state 以支持 search-filter / tags-ui 模块的反向引用
 state.buildThemeListLazyFn = buildThemeListLazy;
+
+/**
+ * softRefreshUI - 轻量级 UI 刷新（不重建 DOM，只更新标签药丸）
+ * @param {string[]|null} changedThemeNames 若指定，只更新这些主题；传 null 则全量更新
+ */
+export function softRefreshUI(changedThemeNames = null) {
+    const cachedTags = loadThemeTags();
+    buildThemeTagIndex(cachedTags);
+
+    // 若受影响主题集合为空（如刚新建空标签），仅更新顶部标签栏并立即返回
+    if (Array.isArray(changedThemeNames) && changedThemeNames.length === 0) {
+        renderTagsUI(cachedTags);
+        updateTagChipsActiveState();
+        return;
+    }
+
+    const tagsById = new Map(cachedTags.map(t => [t.id, t]));
+
+    // 同步 allParsedThemes 的标签数据（精准 or 全量）
+    if (changedThemeNames) {
+        changedThemeNames.forEach(name => {
+            const theme = state.allParsedThemesMap.get(name);
+            if (theme) theme.tags = getTagsForTheme(name, cachedTags);
+        });
+    } else {
+        state.allParsedThemes.forEach(theme => {
+            theme.tags = getTagsForTheme(theme.value, cachedTags);
+        });
+    }
+
+    renderTagsUI(cachedTags);
+    updateTagChipsActiveState();
+
+    // 只更新受影响主题项内部的标签 DOM，不销毁重建整个列表
+    const itemsToUpdate = changedThemeNames
+        ? changedThemeNames.map(n => [n, state.themeItemMap.get(n)]).filter(([, item]) => item)
+        : [...state.themeItemMap.entries()];
+
+    for (const [themeName, item] of itemsToUpdate) {
+        const theme = state.allParsedThemesMap.get(themeName);
+        if (!theme) continue;
+
+        const oldTagsDiv = item.querySelector('.theme-item-tags');
+        if (oldTagsDiv) oldTagsDiv.remove();
+
+        if (theme.tags && theme.tags.length > 0 && state.tagPillDisplayMode !== 'none') {
+            const tagsDiv = document.createElement('div');
+            tagsDiv.className = 'theme-item-tags';
+            theme.tags.forEach(tagId => {
+                const tagObj = tagsById.get(tagId);
+                if (tagObj && isTagPillVisible(tagObj, theme.tags, state.tagPillDisplayMode, tagsById)) {
+                    const pill = document.createElement('span');
+                    pill.className = 'theme-item-tag-pill';
+                    pill.textContent = tagObj.name;
+                    tagsDiv.appendChild(pill);
+                }
+            });
+            if (tagsDiv.children.length > 0) {
+                const buttonsDiv = item.querySelector('.theme-item-buttons');
+                if (buttonsDiv) {
+                    item.insertBefore(tagsDiv, buttonsDiv);
+                } else {
+                    item.appendChild(tagsDiv);
+                }
+            }
+        }
+    }
+
+    buildThemeListLazy();
+}
+
 
 export async function buildThemeUI() {
     if (!state.contentWrapper) return;

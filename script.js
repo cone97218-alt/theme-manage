@@ -4,20 +4,26 @@
  */
 
 import { state, initCtx } from './modules/state.js';
-import { COLLAPSE_KEY, TWO_LINE_LAYOUT_KEY, HIDE_TAG_PILLS_KEY, USAGE_COUNT_KEY } from './modules/constants.js';
-import { isTouchDevice, triggerSelectChange, deduplicateSelectOptions, debouncedBuildThemeUI } from './modules/utils.js';
-import { buildThemeUI, hardResyncThemes, updateActiveState, buildThemeListLazy } from './modules/theme-ui.js';
+import {
+    COLLAPSE_KEY, TWO_LINE_LAYOUT_KEY, HIDE_TAG_PILLS_KEY, USAGE_COUNT_KEY,
+    LIST_MODE_KEY, PAGE_SIZE_KEY, SORT_SELECT_KEY, BATCH_EDIT_COLLAPSED_KEY,
+    FAVORITES_KEY, THEME_BACKGROUND_BINDINGS_KEY
+} from './modules/constants.js';
+import { isTouchDevice, triggerSelectChange, deduplicateSelectOptions, debouncedBuildThemeUI, manualUpdateOriginalSelect } from './modules/utils.js';
+import { buildThemeUI, hardResyncThemes, updateActiveState, buildThemeListLazy, updateFavorites, softRefreshUI } from './modules/theme-ui.js';
 import { renderTagsUI, updateTagChipsActiveState } from './modules/tags-ui.js';
 import { handleTagFilterChange, filterThemeList } from './modules/search-filter.js';
 import { applyThemeDirect } from './modules/theme-apply.js';
 import { initBackgroundBindingListeners, applyBackgroundDirectly } from './modules/background.js';
 import { initCharacterBindingListeners } from './modules/avatar.js';
-import { initAutoThemeListeners, applyAutoThemeLoop, executeManualThemeToggle } from './modules/auto-theme.js';
+import { initAutoThemeListeners, applyAutoThemeLoop, executeManualThemeToggle, checkAutoTheme, openDayNightPairModal } from './modules/auto-theme.js';
 import { openManageTagsPopup } from './modules/manage-tags.js';
 import { openSettingsPopup, importSettings } from './modules/settings.js';
 import { openAutoGroupWizard } from './modules/auto-group.js';
-import { performBatchRename, performBatchDelete } from './modules/popups.js';
-import { loadThemeTags, getTagsForTheme } from './modules/tags-core.js';
+import { performBatchRename, performBatchDelete, openTagAssignmentPopup, openTagRemovalPopup } from './modules/popups.js';
+import { loadThemeTags, getTagsForTheme, saveThemeTags } from './modules/tags-core.js';
+import { openColorTransferModal } from './modules/color-transfer.js';
+import { apiRequest, deleteTheme, findThemeObject, updateSTThemeMemory, confirmAction, promptAction } from './modules/api.js';
 
 let initAttempts = 0;
 const maxAttempts = 50;
@@ -111,17 +117,45 @@ const initInterval = setInterval(() => {
                     </div>
 
                     <div id="batch-actions-bar" style="display:none;" data-mode="theme">
+                        <button id="batch-select-all-btn" class="menu_button" title="全选当前列表中的所有美化"><i class="fa-solid fa-square-check"></i> 全选</button>
+                        <button id="batch-select-range-btn" class="menu_button" title="连选：选中首尾勾选项之间的全部美化"><i class="fa-solid fa-list-check"></i> 连选</button>
+                        <button id="batch-invert-select-btn" class="menu_button" title="反选当前列表中的全部"><i class="fa-solid fa-arrow-rotate-left"></i> 反选</button>
+                        <button id="batch-add-tag-btn" class="menu_button"><i class="fa-solid fa-tags"></i> 加标签</button>
+                        <button id="batch-remove-tag-btn" class="menu_button"><i class="fa-solid fa-tag"></i> 解标签</button>
                         <button id="batch-rename-btn" class="menu_button"><i class="fa-solid fa-i-cursor"></i> 重命名</button>
                         <button id="batch-delete-btn" class="menu_button"><i class="fa-solid fa-trash-can"></i> 删选中</button>
                     </div>
                     <div class="theme-tags-row" id="theme-tags-container"></div>
+                    <div id="tm-pagination-bar-top" class="tm-pagination-bar" style="display:none; justify-content: center; align-items: center; gap: 8px; margin-top: 5px; margin-bottom: 5px; width: 100%;">
+                        <button class="tm-first-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="回到首页"><i class="fa-solid fa-angles-left"></i></button>
+                        <button class="tm-prev-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="上一页"><i class="fa-solid fa-chevron-left"></i></button>
+                        <span style="font-size: 12px; display: inline-flex; align-items: center; gap: 4px; user-select: none;">
+                            第 <input type="number" class="tm-page-input text_pole" style="width: 45px; text-align: center; height: 24px; padding: 0; margin: 0; font-size: 12px;" min="1" value="1"> 页 / 共 <span class="tm-total-pages-text">1</span> 页
+                        </span>
+                        <button class="tm-next-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="下一页"><i class="fa-solid fa-chevron-right"></i></button>
+                        <button class="tm-last-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="前往末页"><i class="fa-solid fa-angles-right"></i></button>
+                    </div>
                     <div class="theme-content"></div>
+                    <div id="tm-pagination-bar-bottom" class="tm-pagination-bar" style="display:none; justify-content: center; align-items: center; gap: 8px; margin-top: 5px; margin-bottom: 5px; width: 100%;">
+                        <button class="tm-first-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="回到首页"><i class="fa-solid fa-angles-left"></i></button>
+                        <button class="tm-prev-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="上一页"><i class="fa-solid fa-chevron-left"></i></button>
+                        <span style="font-size: 12px; display: inline-flex; align-items: center; gap: 4px; user-select: none;">
+                            第 <input type="number" class="tm-page-input text_pole" style="width: 45px; text-align: center; height: 24px; padding: 0; margin: 0; font-size: 12px;" min="1" value="1"> 页 / 共 <span class="tm-total-pages-text">1</span> 页
+                        </span>
+                        <button class="tm-next-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="下一页"><i class="fa-solid fa-chevron-right"></i></button>
+                        <button class="tm-last-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="前往末页"><i class="fa-solid fa-angles-right"></i></button>
+                    </div>
                 </div>`;
 
             originalContainer.prepend(managerPanel);
             state.managerPanel = managerPanel;
             state.contentWrapper = managerPanel.querySelector('.theme-content');
             state.searchBox = managerPanel.querySelector('#theme-search-box');
+
+            if (state.contentWrapper) {
+                state.contentWrapper.classList.toggle('two-line-layout', state.isTwoLineLayout);
+                state.contentWrapper.classList.toggle('hide-tag-pills', state.hideTagPills);
+            }
 
             const nativeButtonsContainer = managerPanel.querySelector('#native-buttons-container');
             nativeButtonsContainer.appendChild(updateButton);
@@ -134,9 +168,92 @@ const initInterval = setInterval(() => {
             document.body.appendChild(settingsFileInput);
             settingsFileInput.addEventListener('change', (e) => importSettings(e.target.files[0]));
 
+            // 按钮事件注册
             managerPanel.querySelector('#manage-tags-btn').addEventListener('click', openManageTagsPopup);
             managerPanel.querySelector('#tm-settings-btn').addEventListener('click', openSettingsPopup);
             managerPanel.querySelector('#tm-auto-group-btn').addEventListener('click', openAutoGroupWizard);
+
+            // 批量按钮事件注册
+            const batchEditBtn = managerPanel.querySelector('#batch-edit-btn');
+            const batchActionsBar = managerPanel.querySelector('#batch-actions-bar');
+            const toggleMoreActionsBtn = managerPanel.querySelector('#toggle-more-actions-btn');
+            const moreActionsContainer = managerPanel.querySelector('#more-actions-container');
+
+            batchEditBtn.addEventListener('click', () => {
+                state.isBatchEditMode = !state.isBatchEditMode;
+                managerPanel.classList.toggle('batch-edit-mode', state.isBatchEditMode);
+                batchActionsBar.style.display = state.isBatchEditMode ? 'flex' : 'none';
+                batchEditBtn.classList.toggle('selected', state.isBatchEditMode);
+                batchEditBtn.innerHTML = state.isBatchEditMode ? '退出批量编辑' : '<i class="fa-solid fa-pen-to-square"></i> 编辑';
+                if (!state.isBatchEditMode) {
+                    state.selectedForBatch.clear();
+                    state.lastClickedThemeName = null;
+                    managerPanel.querySelectorAll('.selected-for-batch').forEach(item => item.classList.remove('selected-for-batch'));
+                }
+            });
+
+            const savedBatchEditCollapsed = localStorage.getItem(BATCH_EDIT_COLLAPSED_KEY);
+            if (savedBatchEditCollapsed === 'false') {
+                moreActionsContainer.classList.remove('collapsed');
+                toggleMoreActionsBtn.innerHTML = '<i class="fa-solid fa-chevron-up"></i>';
+                toggleMoreActionsBtn.title = '收起更多操作';
+            }
+
+            toggleMoreActionsBtn.addEventListener('click', () => {
+                const isCollapsed = moreActionsContainer.classList.toggle('collapsed');
+                toggleMoreActionsBtn.innerHTML = isCollapsed ? '<i class="fa-solid fa-ellipsis"></i>' : '<i class="fa-solid fa-chevron-up"></i>';
+                toggleMoreActionsBtn.title = isCollapsed ? '展开更多操作' : '收起更多操作';
+                localStorage.setItem(BATCH_EDIT_COLLAPSED_KEY, isCollapsed ? 'true' : 'false');
+            });
+
+            managerPanel.querySelector('#batch-select-all-btn').addEventListener('click', () => {
+                state.themeItemMap.forEach((item, themeName) => {
+                    state.selectedForBatch.add(themeName);
+                    item.classList.add('selected-for-batch');
+                });
+                toastr.info(`已全选当前 ${state.selectedForBatch.size} 项美化。`);
+            });
+
+            managerPanel.querySelector('#batch-select-range-btn').addEventListener('click', () => {
+                const items = Array.from(state.contentWrapper.querySelectorAll('.theme-item'));
+                const selectedItems = items.filter(item => state.selectedForBatch.has(item.dataset.value));
+                if (selectedItems.length < 2) {
+                    toastr.warning('连选需要先手动勾选至少首尾 2 个美化卡片。');
+                    return;
+                }
+                const firstIdx = items.indexOf(selectedItems[0]);
+                const lastIdx = items.indexOf(selectedItems[selectedItems.length - 1]);
+                for (let i = firstIdx; i <= lastIdx; i++) {
+                    const val = items[i].dataset.value;
+                    state.selectedForBatch.add(val);
+                    items[i].classList.add('selected-for-batch');
+                }
+                toastr.info(`连选成功！已选中 ${selectedItems[0].dataset.value} 至 ${selectedItems[selectedItems.length - 1].dataset.value} 共 ${lastIdx - firstIdx + 1} 项。`);
+            });
+
+            managerPanel.querySelector('#batch-invert-select-btn').addEventListener('click', () => {
+                state.themeItemMap.forEach((item, themeName) => {
+                    if (state.selectedForBatch.has(themeName)) {
+                        state.selectedForBatch.delete(themeName);
+                        item.classList.remove('selected-for-batch');
+                    } else {
+                        state.selectedForBatch.add(themeName);
+                        item.classList.add('selected-for-batch');
+                    }
+                });
+                toastr.info(`反选成功！当前已选中 ${state.selectedForBatch.size} 项。`);
+            });
+
+            managerPanel.querySelector('#batch-add-tag-btn').addEventListener('click', () => {
+                if (state.selectedForBatch.size === 0) { toastr.info('请先选择至少一个主题。'); return; }
+                openTagAssignmentPopup(state.selectedForBatch);
+            });
+
+            managerPanel.querySelector('#batch-remove-tag-btn').addEventListener('click', () => {
+                if (state.selectedForBatch.size === 0) { toastr.info('请先选择至少一个主题。'); return; }
+                openTagRemovalPopup(state.selectedForBatch);
+            });
+
             managerPanel.querySelector('#batch-rename-btn').addEventListener('click', () => performBatchRename(oldName => oldName));
             managerPanel.querySelector('#batch-delete-btn').addEventListener('click', performBatchDelete);
 
@@ -148,16 +265,90 @@ const initInterval = setInterval(() => {
             });
 
             managerPanel.querySelector('#auto-theme-settings-btn').addEventListener('click', () => {
-                import('./modules/auto-theme.js').then(m => m.checkAutoTheme());
+                checkAutoTheme();
                 openSettingsPopup();
             });
 
-            if (state.searchBox) {
-                state.searchBox.addEventListener('input', () => {
-                    filterThemeList(0);
+            const quickManualToggleBtn = managerPanel.querySelector('#tm-quick-manual-toggle-btn');
+            if (quickManualToggleBtn) {
+                quickManualToggleBtn.style.display = state.autoThemeSettings.enableManualToggle ? 'inline-flex' : 'none';
+                quickManualToggleBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    executeManualThemeToggle();
                 });
             }
 
+            const refreshBtn = managerPanel.querySelector('#theme-manager-refresh-page-btn');
+            if (refreshBtn) refreshBtn.addEventListener('click', () => location.reload());
+
+            // 搜索与排序下拉框事件
+            let _searchDebounceTimer = null;
+            if (state.searchBox) {
+                state.searchBox.addEventListener('input', () => {
+                    clearTimeout(_searchDebounceTimer);
+                    _searchDebounceTimer = setTimeout(() => {
+                        state.currentPage = 1;
+                        filterThemeList(0);
+                    }, 250);
+                });
+            }
+
+            const listModeSelect = managerPanel.querySelector('#tm-list-mode-select');
+            const pageSizeSelect = managerPanel.querySelector('#tm-page-size-select');
+            const sortSelect = managerPanel.querySelector('#tm-sort-select');
+
+            listModeSelect.value = state.listMode;
+            pageSizeSelect.value = String(state.pageSize);
+            sortSelect.value = state.sortBy;
+            pageSizeSelect.style.display = state.listMode === 'page' ? 'inline-block' : 'none';
+
+            listModeSelect.addEventListener('change', (e) => {
+                state.listMode = e.target.value;
+                localStorage.setItem(LIST_MODE_KEY, state.listMode);
+                pageSizeSelect.style.display = state.listMode === 'page' ? 'inline-block' : 'none';
+                state.currentPage = 1;
+                buildThemeListLazy(0);
+            });
+
+            pageSizeSelect.addEventListener('change', (e) => {
+                state.pageSize = parseInt(e.target.value);
+                localStorage.setItem(PAGE_SIZE_KEY, String(state.pageSize));
+                state.currentPage = 1;
+                buildThemeListLazy(0);
+            });
+
+            sortSelect.addEventListener('change', (e) => {
+                state.sortBy = e.target.value;
+                localStorage.setItem(SORT_SELECT_KEY, state.sortBy);
+                state.currentPage = 1;
+                buildThemeListLazy(0);
+            });
+
+            // 分页按钮事件注册
+            const registerPaginationEvents = (bar) => {
+                if (!bar) return;
+                bar.querySelector('.tm-first-page-btn').addEventListener('click', () => { state.currentPage = 1; buildThemeListLazy(0); });
+                bar.querySelector('.tm-prev-page-btn').addEventListener('click', () => { state.currentPage--; buildThemeListLazy(0); });
+                bar.querySelector('.tm-next-page-btn').addEventListener('click', () => { state.currentPage++; buildThemeListLazy(0); });
+                bar.querySelector('.tm-last-page-btn').addEventListener('click', () => {
+                    const totalPages = parseInt(bar.querySelector('.tm-total-pages-text').textContent) || 1;
+                    state.currentPage = totalPages;
+                    buildThemeListLazy(0);
+                });
+                const pageInput = bar.querySelector('.tm-page-input');
+                if (pageInput) {
+                    const updatePage = () => {
+                        const val = parseInt(pageInput.value);
+                        if (!isNaN(val)) { state.currentPage = val; buildThemeListLazy(0); }
+                    };
+                    pageInput.addEventListener('change', updatePage);
+                    pageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') updatePage(); });
+                }
+            };
+            registerPaginationEvents(managerPanel.querySelector('#tm-pagination-bar-top'));
+            registerPaginationEvents(managerPanel.querySelector('#tm-pagination-bar-bottom'));
+
+            // 折叠面板 Header
             const header = managerPanel.querySelector('#theme-manager-header');
             const content = managerPanel.querySelector('#theme-manager-content');
             const toggleIcon = managerPanel.querySelector('#theme-manager-toggle-icon');
@@ -182,6 +373,7 @@ const initInterval = setInterval(() => {
 
             setCollapsed(localStorage.getItem(COLLAPSE_KEY) === 'true');
 
+            // 监听原下拉框 change 事件
             originalSelect.addEventListener('change', (event) => {
                 updateActiveState();
                 const newThemeName = event.target.value;
@@ -195,17 +387,203 @@ const initInterval = setInterval(() => {
                 }
             });
 
+            // 监听主题卡片列表全局点击事件代理
+            state.contentWrapper.addEventListener('click', async (event) => {
+                const target = event.target;
+                const button = target.closest('button');
+                const themeItem = target.closest('.theme-item');
+
+                if (!themeItem) return;
+                const themeName = themeItem.dataset.value;
+
+                if (state.isBatchEditMode) {
+                    if (event.shiftKey && state.lastClickedThemeName) {
+                        const items = Array.from(state.contentWrapper.querySelectorAll('.theme-item'));
+                        const lastIdx = items.findIndex(item => item.dataset.value === state.lastClickedThemeName);
+                        const currentIdx = items.findIndex(item => item.dataset.value === themeName);
+                        if (lastIdx !== -1 && currentIdx !== -1) {
+                            const start = Math.min(lastIdx, currentIdx);
+                            const end = Math.max(lastIdx, currentIdx);
+                            const shouldSelect = !state.selectedForBatch.has(themeName);
+                            for (let i = start; i <= end; i++) {
+                                const item = items[i];
+                                const val = item.dataset.value;
+                                if (shouldSelect) {
+                                    state.selectedForBatch.add(val);
+                                    item.classList.add('selected-for-batch');
+                                } else {
+                                    state.selectedForBatch.delete(val);
+                                    item.classList.remove('selected-for-batch');
+                                }
+                            }
+                        }
+                    } else {
+                        if (state.selectedForBatch.has(themeName)) {
+                            state.selectedForBatch.delete(themeName);
+                            themeItem.classList.remove('selected-for-batch');
+                        } else {
+                            state.selectedForBatch.add(themeName);
+                            themeItem.classList.add('selected-for-batch');
+                        }
+                    }
+                    state.lastClickedThemeName = themeName;
+                } else {
+                    if (button && button.classList.contains('set-tag-btn')) {
+                        openTagAssignmentPopup(themeName);
+                        return;
+                    }
+
+                    if (button && button.classList.contains('link-bg-btn')) {
+                        if (state.themeBackgroundBindings[themeName]) {
+                            delete state.themeBackgroundBindings[themeName];
+                            localStorage.setItem(THEME_BACKGROUND_BINDINGS_KEY, JSON.stringify(state.themeBackgroundBindings));
+                            button.classList.remove('linked');
+                            button.querySelector('i').className = 'fa-solid fa-link';
+                            button.title = '关联背景图';
+                            toastr.info(`已取消主题 "${themeName}" 的背景图关联。`);
+                        } else {
+                            state.isBindingMode = true;
+                            state.themeNameToBind = themeName;
+                            const toggleButton = document.querySelector('#backgrounds-drawer-toggle') || document.querySelector('#logo_block .drawer-toggle');
+                            if (toggleButton) toggleButton.click();
+                            toastr.info(`进入背景图关联模式：请在背景图片库中点击任意图片即可绑定到 "${themeName}"。`);
+                        }
+                        return;
+                    }
+
+                    if (button && button.classList.contains('link-daynight-btn')) {
+                        openDayNightPairModal(themeName);
+                        return;
+                    }
+
+                    if (button && button.classList.contains('favorite-btn')) {
+                        if (state.favoritesSet.has(themeName)) {
+                            updateFavorites(state.favorites.filter(f => f !== themeName));
+                            button.innerHTML = '<i class="fa-regular fa-star"></i>';
+                        } else {
+                            updateFavorites([...state.favorites, themeName]);
+                            button.innerHTML = '<i class="fa-solid fa-star"></i>';
+                        }
+                        if (state.activeTagFilters.has('__FAVORITES__')) {
+                            filterThemeList();
+                        }
+                        return;
+                    }
+
+                    if (button && button.classList.contains('color-transfer-btn')) {
+                        openColorTransferModal(themeName);
+                        return;
+                    }
+
+                    if (button && button.classList.contains('rename-btn')) {
+                        const oldName = themeName;
+                        const newName = await promptAction('请输入新的美化主题名称：', oldName);
+                        if (!newName || !newName.trim() || newName.trim() === oldName) return;
+                        const cleanNewName = newName.trim();
+                        const fullThemeObj = findThemeObject(oldName);
+                        if (!fullThemeObj) { toastr.error('无法提取主题原始对象数据'); return; }
+
+                        const { mtime: _m, ...cleanObj } = fullThemeObj;
+                        const objectToSave = { ...cleanObj, name: cleanNewName };
+
+                        try {
+                            await apiRequest('themes/save', 'POST', objectToSave);
+                            await deleteTheme(oldName, fullThemeObj);
+                            manualUpdateOriginalSelect('rename', oldName, cleanNewName);
+                            updateSTThemeMemory({ name: oldName }, 'delete');
+                            updateSTThemeMemory(objectToSave, 'add');
+
+                            if (state.themeBackgroundBindings[oldName]) {
+                                state.themeBackgroundBindings[cleanNewName] = state.themeBackgroundBindings[oldName];
+                                delete state.themeBackgroundBindings[oldName];
+                                localStorage.setItem(THEME_BACKGROUND_BINDINGS_KEY, JSON.stringify(state.themeBackgroundBindings));
+                            }
+                            let tagsToUpdate = loadThemeTags();
+                            tagsToUpdate.forEach(tag => {
+                                if (tag.themes) {
+                                    const idx = tag.themes.indexOf(oldName);
+                                    if (idx > -1) tag.themes[idx] = cleanNewName;
+                                }
+                            });
+                            saveThemeTags(tagsToUpdate);
+
+                            toastr.success(`主题已成功重命名为 "${cleanNewName}"`);
+                            if (originalSelect.value === oldName) {
+                                originalSelect.value = cleanNewName;
+                                triggerSelectChange(originalSelect);
+                            }
+                            softRefreshUI([cleanNewName]);
+                        } catch (err) {
+                            console.error('重命名主题失败:', err);
+                            toastr.error('重命名主题异常: ' + (err.message || err));
+                        }
+                        return;
+                    }
+
+                    if (button && button.classList.contains('delete-btn')) {
+                        const themeToDelete = themeName;
+                        const confirmed = await confirmAction(`确定要彻底删除主题 "${themeToDelete}" 吗？此操作不可撤销！`);
+                        if (!confirmed) return;
+
+                        const fullThemeObj = findThemeObject(themeToDelete);
+                        try {
+                            await deleteTheme(themeToDelete, fullThemeObj);
+                            manualUpdateOriginalSelect('delete', themeToDelete);
+                            updateSTThemeMemory({ name: themeToDelete }, 'delete');
+
+                            if (state.themeBackgroundBindings[themeToDelete]) {
+                                delete state.themeBackgroundBindings[themeToDelete];
+                                localStorage.setItem(THEME_BACKGROUND_BINDINGS_KEY, JSON.stringify(state.themeBackgroundBindings));
+                            }
+
+                            let tagsToUpdate = loadThemeTags();
+                            tagsToUpdate.forEach(tag => {
+                                if (tag.themes) {
+                                    const idx = tag.themes.indexOf(themeToDelete);
+                                    if (idx > -1) tag.themes.splice(idx, 1);
+                                }
+                            });
+                            saveThemeTags(tagsToUpdate);
+
+                            if (originalSelect.value === themeToDelete) {
+                                const firstOpt = originalSelect.options[0];
+                                if (firstOpt) {
+                                    originalSelect.value = firstOpt.value;
+                                    triggerSelectChange(originalSelect);
+                                }
+                            }
+                            toastr.success(`主题 "${themeToDelete}" 已成功删除！`);
+                            softRefreshUI();
+                        } catch (err) {
+                            console.error('删除主题失败:', err);
+                            toastr.error('删除主题失败: ' + (err.message || err));
+                        }
+                        return;
+                    }
+
+                    // 点击普通列表项卡片（非点击按钮） -> 激活该美化主题
+                    if (originalSelect.value !== themeName) {
+                        originalSelect.value = themeName;
+                        triggerSelectChange(originalSelect);
+                        updateActiveState();
+                    }
+                }
+            });
+
+            // MutationObserver 监听原生 #themes 下拉框的 DOM 动态改变
             const observer = new MutationObserver(() => {
                 if (state._suspendObserver) return;
                 debouncedBuildThemeUI(buildThemeUI, 300);
             });
             observer.observe(originalSelect, { childList: true });
 
+            // 初始化背景图关联、角色卡绑定、日夜随动监听
             initBackgroundBindingListeners();
             initCharacterBindingListeners();
             initAutoThemeListeners();
             applyAutoThemeLoop();
 
+            // 构建渲染插件主题列表 UI
             buildThemeUI();
         }
     } else if (initAttempts >= maxAttempts) {

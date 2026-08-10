@@ -6,7 +6,9 @@
 import { state, ctx } from './state.js';
 import { escapeHtml } from './utils.js';
 import { loadThemeTags, saveThemeTags } from './tags-core.js';
-import { renderTagsUI, softRefreshUI } from './tags-ui.js';
+import { renderTagsUI } from './tags-ui.js';
+import { softRefreshUI } from './theme-ui.js';
+
 
 export const AUTO_GROUP_STOPWORDS = new Set([
     'json', 'theme', 'themes', 'preset', 'presets', 'copy', 'new', 'fixed', 'final',
