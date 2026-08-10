@@ -2847,16 +2847,19 @@
 
                 const settingsKeysToSync = [
                     FAVORITES_KEY,
-                    COLLAPSE_KEY, // AutoTheme relies on custom parsing
+                    COLLAPSE_KEY,
                     THEME_TAGS_KEY,
                     THEME_BACKGROUND_BINDINGS_KEY,
                     CHARACTER_THEME_BINDINGS_KEY,
+                    THEME_DAY_NIGHT_PAIRS_KEY,
                     'themeManager_autoTheme',
                     TAG_FILTER_MODE_KEY,
                     USAGE_COUNT_KEY,
                     SHOW_USAGE_COUNT_KEY,
                     ENABLE_AVATAR_HELPER_KEY,
                     ENABLE_COLOR_TRANSFER_KEY,
+                    ENABLE_DAYNIGHT_BINDING_KEY,
+                    ENABLE_REPLACE_AVATAR_BTN_KEY,
                     TWO_LINE_LAYOUT_KEY,
                     HIDE_TAG_PILLS_KEY,
                     TAG_PILL_MODE_KEY
@@ -2899,15 +2902,47 @@
                             }
                         }
 
-                        toastr.success(`成功导入 ${importCount} 条配置！`, '导入成功');
-                        // 导入后刷新缓存
+                        toastr.success(`成功导入 ${importCount} 条配置！`, '导入成功 (已实时热更新)');
+
+                        // 1. 刷新缓存
                         invalidateTagsCache();
                         invalidateThemesCache();
 
-                        // 立即应用关键词自动映射（自动还原基于关键词导出的配置关联）
+                        // 2. 重新加载内存中的全局变量 (实现无需刷新的热更新)
+                        isTwoLineLayout = localStorage.getItem(TWO_LINE_LAYOUT_KEY) === 'true';
+                        hideTagPills = localStorage.getItem(HIDE_TAG_PILLS_KEY) === 'true';
+                        tagPillDisplayMode = localStorage.getItem(TAG_PILL_MODE_KEY) || (hideTagPills ? 'none' : 'all');
+                        showUsageCount = localStorage.getItem(SHOW_USAGE_COUNT_KEY) === 'true';
+                        enableAvatarHelper = localStorage.getItem(ENABLE_AVATAR_HELPER_KEY) === 'true';
+                        enableColorTransfer = localStorage.getItem(ENABLE_COLOR_TRANSFER_KEY) === 'true';
+                        enableDayNightBinding = localStorage.getItem(ENABLE_DAYNIGHT_BINDING_KEY) !== 'false';
+                        enableReplaceAvatarBtn = localStorage.getItem(ENABLE_REPLACE_AVATAR_BTN_KEY) === 'true';
+                        tagFilterMode = localStorage.getItem(TAG_FILTER_MODE_KEY) || 'or';
+
+                        if (localStorage.getItem(USAGE_COUNT_KEY)) {
+                            try {
+                                usageCount = JSON.parse(localStorage.getItem(USAGE_COUNT_KEY)) || {};
+                            } catch (e) { }
+                        }
+                        if (localStorage.getItem(FAVORITES_KEY)) {
+                            try {
+                                favorites = JSON.parse(localStorage.getItem(FAVORITES_KEY)) || [];
+                                favoritesSet = new Set(favorites);
+                            } catch (e) { }
+                        }
+                        if (localStorage.getItem(THEME_DAY_NIGHT_PAIRS_KEY)) {
+                            themeDayNightPairs = loadThemeDayNightPairs();
+                        }
+                        if (localStorage.getItem(AUTO_THEME_KEY)) {
+                            try {
+                                autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || autoThemeSettings;
+                            } catch (e) { }
+                        }
+
+                        // 3. 应用关键词自动映射
                         applyKeywordMappings();
 
-                        // 重新刷新界面
+                        // 4. 重新构建标签与主题关联索引
                         const freshTags = loadThemeTags();
                         buildThemeTagIndex(freshTags);
                         if (allParsedThemes && allParsedThemes.length > 0) {
@@ -2915,10 +2950,98 @@
                                 t.tags = getTagsForTheme(t.value, freshTags);
                             });
                         }
+
+                        // 5. 更新容器 Layout Class
+                        if (contentWrapper) {
+                            contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
+                            contentWrapper.classList.toggle('hide-tag-pills', hideTagPills);
+                        }
+
+                        // 6. 派发事件与更新扩展辅助模块
+                        document.dispatchEvent(new CustomEvent('themeManager:enableAvatarHelperChanged', { detail: enableAvatarHelper }));
+                        updateManualToggleBtnVisibility();
+
+                        if (enableReplaceAvatarBtn) {
+                            registerReplaceImageButtons();
+                        } else {
+                            removeReplaceImageButtons();
+                        }
+
+                        // 7. 更新已渲染卡片的局部按钮与状态
+                        themeItemMap.forEach((item, themeName) => {
+                            const colorBtn = item.querySelector('.color-transfer-btn');
+                            if (colorBtn) colorBtn.style.display = enableColorTransfer ? 'inline-flex' : 'none';
+
+                            const daynightBtn = item.querySelector('.link-daynight-btn');
+                            if (daynightBtn) daynightBtn.style.display = enableDayNightBinding ? 'inline-flex' : 'none';
+
+                            const usageSpan = item.querySelector('.theme-usage-count');
+                            if (usageSpan) {
+                                if (showUsageCount && usageCount[themeName]) {
+                                    usageSpan.textContent = usageCount[themeName];
+                                    usageSpan.style.display = '';
+                                } else {
+                                    usageSpan.style.display = 'none';
+                                }
+                            }
+
+                            updateThemeItemDayNightState(themeName);
+                        });
+
+                        // 8. 若高级设置弹窗已打开，同步更新弹窗内部按钮控件状态
+                        const settingsDlg = document.querySelector('.tm-settings-popup');
+                        if (settingsDlg) {
+                            const btnTwoLine = settingsDlg.querySelector('#tm-pop-toggle-twoline');
+                            if (btnTwoLine) {
+                                btnTwoLine.classList.toggle('active', isTwoLineLayout);
+                                btnTwoLine.innerHTML = `<i class="fa-solid fa-align-left"></i> 换行排版 (${isTwoLineLayout ? '开启' : '关闭'})`;
+                            }
+                            const btnUsage = settingsDlg.querySelector('#tm-pop-toggle-usage');
+                            if (btnUsage) {
+                                btnUsage.classList.toggle('active', showUsageCount);
+                                btnUsage.innerHTML = `<i class="fa-solid fa-chart-bar"></i> 使用统计 (${showUsageCount ? '开启' : '关闭'})`;
+                            }
+                            const btnDayNight = settingsDlg.querySelector('#tm-pop-toggle-daynight');
+                            if (btnDayNight) {
+                                btnDayNight.classList.toggle('active', enableDayNightBinding);
+                                btnDayNight.innerHTML = `<i class="fa-solid fa-circle-half-stroke"></i> 日夜图标 (${enableDayNightBinding ? '开启' : '关闭'})`;
+                            }
+                            const btnReplace = settingsDlg.querySelector('#tm-pop-toggle-replace');
+                            if (btnReplace) {
+                                btnReplace.classList.toggle('active', enableReplaceAvatarBtn);
+                                btnReplace.innerHTML = `<i class="fa-solid fa-check"></i> 详情页替换 (${enableReplaceAvatarBtn ? '开启' : '关闭'})`;
+                            }
+                            const btnAvatar = settingsDlg.querySelector('#tm-pop-toggle-avatar');
+                            if (btnAvatar) {
+                                btnAvatar.classList.toggle('active', enableAvatarHelper);
+                                btnAvatar.innerHTML = `<i class="fa-solid fa-user-gear"></i> 头像管理 (${enableAvatarHelper ? '开启' : '关闭'})`;
+                            }
+                            const btnColor = settingsDlg.querySelector('#tm-pop-toggle-color');
+                            if (btnColor) {
+                                btnColor.classList.toggle('active', enableColorTransfer);
+                                btnColor.innerHTML = `<i class="fa-solid fa-palette"></i> 提取配色 (${enableColorTransfer ? '开启' : '关闭'})`;
+                            }
+                            const selectPillMode = settingsDlg.querySelector('#tm-pop-select-tag-pill-mode');
+                            if (selectPillMode) {
+                                selectPillMode.value = tagPillDisplayMode;
+                                const iconMap = {
+                                    'all': 'fa-solid fa-tags',
+                                    'l1': 'fa-solid fa-folder-tree',
+                                    'l2': 'fa-solid fa-tag',
+                                    'none': 'fa-solid fa-eye-slash'
+                                };
+                                const iconEl = settingsDlg.querySelector('#tm-pill-mode-icon');
+                                if (iconEl) iconEl.className = iconMap[tagPillDisplayMode] || 'fa-solid fa-tags';
+                            }
+                        }
+
+                        // 9. 刷新 UI 与激活状态
                         softRefreshUI();
                         updateActiveState();
 
-                        showRefreshNotification(); // 显示那个“请刷新页面”的横幅提示
+                        if (typeof checkAutoTheme === 'function') {
+                            checkAutoTheme();
+                        }
 
                     } catch (error) {
                         console.error('导入配置失败:', error);
