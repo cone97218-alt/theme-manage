@@ -2879,8 +2879,7 @@
                                 t.tags = getTagsForTheme(t.value, freshTags);
                             });
                         }
-                        renderTagsUI(freshTags);
-                        renderThemesList();
+                        softRefreshUI();
                         updateActiveState();
 
                         showRefreshNotification(); // 显示那个“请刷新页面”的横幅提示
