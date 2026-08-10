@@ -43,6 +43,20 @@ export function escapeHtml(str) {
     return div.innerHTML;
 }
 
+/** 安全关闭 SillyTavern generic popup 弹窗 */
+export function closePopup(popup) {
+    if (!popup) return;
+    if (typeof popup.complete === 'function') {
+        popup.complete();
+    } else if (typeof popup.close === 'function') {
+        popup.close();
+    } else if (popup.dlg) {
+        const closeBtn = popup.dlg.querySelector('.popup-button-ok, .popup-button-cancel, .popup-close');
+        if (closeBtn) closeBtn.click();
+    }
+}
+
+
 // ─── 滚动工具 ────────────────────────────────────────────────────────────────
 
 /** 递归查找最近的可滚动祖先节点 */

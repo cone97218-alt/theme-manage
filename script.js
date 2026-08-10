@@ -14,13 +14,15 @@ import { buildThemeUI, hardResyncThemes, updateActiveState, buildThemeListLazy, 
 import { renderTagsUI, updateTagChipsActiveState } from './modules/tags-ui.js';
 import { handleTagFilterChange, filterThemeList } from './modules/search-filter.js';
 import { applyThemeDirect } from './modules/theme-apply.js';
-import { initBackgroundBindingListeners, applyBackgroundDirectly } from './modules/background.js';
+import { initBackgroundBindingListeners, applyBackgroundDirectly, initBackgroundEnhancements } from './modules/background.js';
+
 import { initCharacterBindingListeners } from './modules/avatar.js';
 import { initAutoThemeListeners, applyAutoThemeLoop, executeManualThemeToggle, checkAutoTheme, openDayNightPairModal } from './modules/auto-theme.js';
 import { openManageTagsPopup } from './modules/manage-tags.js';
 import { openSettingsPopup, importSettings } from './modules/settings.js';
 import { openAutoGroupWizard } from './modules/auto-group.js';
-import { performBatchRename, performBatchDelete, openTagAssignmentPopup, openTagRemovalPopup } from './modules/popups.js';
+import { performBatchRename, performBatchDelete, openTagAssignmentPopup, openTagRemovalPopup, openBatchRenamePopup } from './modules/popups.js';
+
 import { loadThemeTags, getTagsForTheme, saveThemeTags } from './modules/tags-core.js';
 import { openColorTransferModal } from './modules/color-transfer.js';
 import { apiRequest, deleteTheme, findThemeObject, updateSTThemeMemory, confirmAction, promptAction } from './modules/api.js';
@@ -254,7 +256,11 @@ const initInterval = setInterval(() => {
                 openTagRemovalPopup(state.selectedForBatch);
             });
 
-            managerPanel.querySelector('#batch-rename-btn').addEventListener('click', () => performBatchRename(oldName => oldName));
+            managerPanel.querySelector('#batch-rename-btn').addEventListener('click', () => {
+                if (state.selectedForBatch.size === 0) { toastr.info('请先选择至少一个主题。'); return; }
+                openBatchRenamePopup(Array.from(state.selectedForBatch));
+            });
+
             managerPanel.querySelector('#batch-delete-btn').addEventListener('click', performBatchDelete);
 
             managerPanel.querySelector('#random-theme-btn').addEventListener('click', () => {
@@ -579,6 +585,7 @@ const initInterval = setInterval(() => {
 
             // 初始化背景图关联、角色卡绑定、日夜随动监听
             initBackgroundBindingListeners();
+            initBackgroundEnhancements();
             initCharacterBindingListeners();
             initAutoThemeListeners();
             applyAutoThemeLoop();

@@ -109,3 +109,189 @@ export function initBackgroundBindingListeners() {
     if (bgMenuContent) bgMenuContent.addEventListener('click', bgObserverCallback, true);
     if (bgCustomContent) bgCustomContent.addEventListener('click', bgObserverCallback, true);
 }
+
+/**
+ * 初始化背景选择 Drawer 的批量删除增强功能
+ */
+export function initBackgroundEnhancements() {
+    const bgDrawer = document.getElementById('Backgrounds');
+    if (!bgDrawer) return;
+
+    const headerRow = bgDrawer.querySelector('.bg-header-row-1');
+    if (!headerRow || document.getElementById('tm-bg-batch-toggle-btn')) return;
+
+    let isBatchMode = false;
+    const selectedBgs = new Set();
+
+    const batchToggleBtn = document.createElement('div');
+    batchToggleBtn.id = 'tm-bg-batch-toggle-btn';
+    batchToggleBtn.className = 'menu_button menu_button_icon';
+    batchToggleBtn.title = '批量删除背景';
+    batchToggleBtn.innerHTML = '<i class="fa-solid fa-list-check"></i>';
+    headerRow.appendChild(batchToggleBtn);
+
+    const actionsBar = document.createElement('div');
+    actionsBar.id = 'tm-bg-batch-actions-bar';
+    actionsBar.style.display = 'none';
+    actionsBar.innerHTML = `
+        <button id="tm-bg-select-all-btn" class="menu_button menu_button_icon"><i class="fa-solid fa-check-double"></i>全选</button>
+        <button id="tm-bg-batch-delete-btn" class="menu_button menu_button_icon" disabled><i class="fa-solid fa-trash-can"></i>删除选中</button>
+        <span class="tm-bg-count"></span>
+    `;
+
+    const bgTabs = bgDrawer.querySelector('#bg_tabs');
+    if (bgTabs) {
+        bgTabs.parentNode.insertBefore(actionsBar, bgTabs);
+    }
+
+    const selectAllBtn = actionsBar.querySelector('#tm-bg-select-all-btn');
+    const deleteBtn = actionsBar.querySelector('#tm-bg-batch-delete-btn');
+    const countSpan = actionsBar.querySelector('.tm-bg-count');
+
+    function updateCount() {
+        countSpan.textContent = selectedBgs.size > 0 ? `已选 ${selectedBgs.size} 项` : '';
+        deleteBtn.disabled = selectedBgs.size === 0;
+    }
+
+    function injectCheckboxes(container) {
+        if (!container) return;
+        container.querySelectorAll('.bg_example').forEach(bgEl => {
+            if (bgEl.querySelector('.tm-bg-batch-checkbox')) return;
+            const bgFile = bgEl.getAttribute('bgfile');
+            if (!bgFile) return;
+
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'tm-bg-batch-checkbox';
+            cb.dataset.bgfile = bgFile;
+            cb.checked = selectedBgs.has(bgFile);
+
+            cb.addEventListener('change', (e) => {
+                e.stopPropagation();
+                if (cb.checked) {
+                    selectedBgs.add(bgFile);
+                    bgEl.classList.add('tm-bg-selected');
+                } else {
+                    selectedBgs.delete(bgFile);
+                    bgEl.classList.remove('tm-bg-selected');
+                }
+                updateCount();
+            });
+
+            cb.addEventListener('click', (e) => { e.stopPropagation(); });
+            bgEl.style.position = 'relative';
+            bgEl.prepend(cb);
+        });
+    }
+
+    const bgMenuContent = document.getElementById('bg_menu_content');
+    const bgCustomContent = document.getElementById('bg_custom_content');
+    injectCheckboxes(bgMenuContent);
+    injectCheckboxes(bgCustomContent);
+
+    let bgMutTimer = null;
+    const bgMutObs = new MutationObserver(() => {
+        if (bgMutTimer) clearTimeout(bgMutTimer);
+        bgMutTimer = setTimeout(() => {
+            injectCheckboxes(bgMenuContent);
+            injectCheckboxes(bgCustomContent);
+        }, 200);
+    });
+    if (bgMenuContent) bgMutObs.observe(bgMenuContent, { childList: true });
+    if (bgCustomContent) bgMutObs.observe(bgCustomContent, { childList: true });
+
+    batchToggleBtn.addEventListener('click', () => {
+        isBatchMode = !isBatchMode;
+        batchToggleBtn.classList.toggle('active', isBatchMode);
+
+        const bgTabsPanel = bgDrawer.querySelector('#bg_tabs');
+        if (bgTabsPanel) bgTabsPanel.classList.toggle('tm-bg-batch-mode', isBatchMode);
+
+        actionsBar.style.display = isBatchMode ? 'flex' : 'none';
+
+        if (!isBatchMode) {
+            selectedBgs.clear();
+            bgDrawer.querySelectorAll('.tm-bg-selected').forEach(el => el.classList.remove('tm-bg-selected'));
+            bgDrawer.querySelectorAll('.tm-bg-batch-checkbox').forEach(cb => cb.checked = false);
+            updateCount();
+        }
+    });
+
+    selectAllBtn.addEventListener('click', () => {
+        const activeTab = document.querySelector('#bg_tabs .ui-tabs-panel[aria-hidden="false"]') ||
+            document.querySelector('#bg_tabs .ui-tabs-panel:not([hidden])') ||
+            bgMenuContent;
+        if (!activeTab) return;
+
+        const allBgEls = activeTab.querySelectorAll('.bg_example[bgfile]');
+        const allSelected = [...allBgEls].every(el => selectedBgs.has(el.getAttribute('bgfile')));
+
+        allBgEls.forEach(el => {
+            const bgFile = el.getAttribute('bgfile');
+            const cb = el.querySelector('.tm-bg-batch-checkbox');
+            if (allSelected) {
+                selectedBgs.delete(bgFile);
+                el.classList.remove('tm-bg-selected');
+                if (cb) cb.checked = false;
+            } else {
+                selectedBgs.add(bgFile);
+                el.classList.add('tm-bg-selected');
+                if (cb) cb.checked = true;
+            }
+        });
+        updateCount();
+    });
+
+    deleteBtn.addEventListener('click', async () => {
+        if (selectedBgs.size === 0) return;
+        if (!confirm(`确定要删除选中的 ${selectedBgs.size} 个背景图吗？此操作不可撤销。`)) return;
+
+        if (typeof ctx.showLoader === 'function') ctx.showLoader();
+        const headers = ctx.getRequestHeaders ? ctx.getRequestHeaders() : {};
+        const bgsToDelete = Array.from(selectedBgs);
+
+        const results = await limitConcurrency(5, bgsToDelete, async (bgFile) => {
+            const response = await fetch('/api/backgrounds/delete', {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({ bg: bgFile })
+            });
+            if (!response.ok) throw new Error(await response.text());
+            return bgFile;
+        });
+
+        let successCount = 0;
+        let errorCount = 0;
+        const successfullyDeleted = [];
+
+        results.forEach((res, index) => {
+            const bgFile = bgsToDelete[index];
+            if (res.status === 'fulfilled') {
+                successCount++;
+                successfullyDeleted.push(bgFile);
+            } else {
+                console.error(`删除背景 "${bgFile}" 失败:`, res.reason);
+                errorCount++;
+            }
+        });
+
+        successfullyDeleted.forEach(bgFile => {
+            const elements = document.querySelectorAll(`.bg_example[bgfile="${bgFile}"]`);
+            elements.forEach(el => el.remove());
+            selectedBgs.delete(bgFile);
+        });
+
+        if (typeof ctx.hideLoader === 'function') ctx.hideLoader();
+
+        let message = `删除完成！成功 ${successCount} 个`;
+        if (errorCount > 0) {
+            message += `，失败 ${errorCount} 个。`;
+            toastr.warning(message);
+        } else {
+            message += '。';
+            toastr.success(message);
+        }
+
+        updateCount();
+    });
+}
