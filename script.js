@@ -1275,7 +1275,7 @@
                         </div>
                         <div class="theme-manager-actions" data-mode="theme">
                             <div class="tm-button-row">
-                                <input type="search" id="theme-search-box" placeholder="搜索主题...">
+                                <input type="search" id="theme-search-box" placeholder="搜索主题... (支持 关键词A 关键词B 复合搜索)" title="支持复合搜索：&#10;• 空格/逗号/|：或匹配 (例: 黑金 白银)&#10;• + 或 AND：与匹配 (例: 黑金 + 360px)&#10;• - 或 !：排除匹配 (例: 黑金 -360px)">
                                 <button id="random-theme-btn" class="menu_button" title="随机应用一个主题"><i class="fa-solid fa-dice"></i> 随机</button>
                                 <button id="auto-theme-settings-btn" class="menu_button" title="自动主题切换设置"><i class="fa-solid fa-circle-half-stroke"></i> 自动</button>
                                 <button id="toggle-more-actions-btn" class="menu_button" title="展开/收起更多操作"><i class="fa-solid fa-ellipsis"></i></button>
@@ -1981,6 +1981,73 @@
                     return item;
                 }
 
+                // === 通用复合搜索匹配逻辑 (支持 OR: 空格/逗号/|; 与: +/AND/&&; 排除: -/!/NOT) ===
+                function isTextMatchingCompositeSearch(targetTextLC, rawSearch) {
+                    if (!rawSearch || typeof rawSearch !== 'string') return true;
+                    const raw = rawSearch.trim();
+                    if (!raw) return true;
+
+                    // 1. 若包含 + 或 AND 或 &&，作为最高优先级与逻辑处理 (AND 组)
+                    if (raw.includes('+') || /\bAND\b/i.test(raw) || raw.includes('&&')) {
+                        const andParts = raw.split(/\+|\bAND\b|&&/i).map(s => s.trim()).filter(Boolean);
+                        return andParts.every(part => checkSearchSubExpression(targetTextLC, part));
+                    }
+
+                    // 2. 单表达组 (支持空格 / 逗号 / 竖线 | 作为 OR，支持 - / ! 作排除)
+                    return checkSearchSubExpression(targetTextLC, raw);
+                }
+
+                function checkSearchSubExpression(targetTextLC, expr) {
+                    if (!expr) return true;
+
+                    const tokens = expr.split(/[\s,，\|]|\bOR\b/i).map(s => s.trim()).filter(Boolean);
+                    if (tokens.length === 0) return true;
+
+                    const positiveTerms = [];
+                    const negativeTerms = [];
+
+                    for (let i = 0; i < tokens.length; i++) {
+                        const token = tokens[i];
+                        if (token.startsWith('-') && token.length > 1) {
+                            negativeTerms.push(token.slice(1).toLowerCase());
+                        } else if (token.startsWith('!') && token.length > 1) {
+                            negativeTerms.push(token.slice(1).toLowerCase());
+                        } else if (token.toLowerCase().startsWith('not ') && token.length > 4) {
+                            negativeTerms.push(token.slice(4).trim().toLowerCase());
+                        } else {
+                            positiveTerms.push(token.toLowerCase());
+                        }
+                    }
+
+                    // 排除项检查 (NOT 逻辑)：若包含任意排除关键词，则判定不匹配
+                    for (let i = 0; i < negativeTerms.length; i++) {
+                        if (targetTextLC.includes(negativeTerms[i])) {
+                            return false;
+                        }
+                    }
+
+                    // 正向项检查 (OR 复合匹配)：满足任意一个正向关键词即匹配
+                    if (positiveTerms.length > 0) {
+                        return positiveTerms.some(term => targetTextLC.includes(term));
+                    }
+
+                    return true;
+                }
+
+                function isThemeMatchingSearch(theme, rawSearch, tagsById) {
+                    if (!rawSearch || !rawSearch.trim()) return true;
+                    let targetText = (theme.display || '') + ' ' + (theme.value || '');
+                    if (theme.tags && theme.tags.length > 0 && tagsById) {
+                        for (let i = 0; i < theme.tags.length; i++) {
+                            const tagObj = tagsById.get(theme.tags[i]);
+                            if (tagObj && tagObj.name) {
+                                targetText += ' ' + tagObj.name;
+                            }
+                        }
+                    }
+                    return isTextMatchingCompositeSearch(targetText.toLowerCase(), rawSearch);
+                }
+
                 // 首次构建：创建所有主题 DOM 节点并缓存
                 function buildThemeListLazy(scrollTop) {
                     const savedScroll = scrollTop !== undefined ? scrollTop : contentWrapper.scrollTop;
@@ -1995,12 +2062,14 @@
                     list.className = 'theme-list';
                     contentWrapper.appendChild(list);
 
-                    // 预计算筛选集合用于首次显示
-                    const searchTerm = searchBox.value.toLowerCase();
+                    // 预计算筛选集合用于首次显示 (复合搜索支持)
+                    const rawSearch = searchBox ? searchBox.value : '';
+                    const cachedTags = loadThemeTags();
+                    const tagsMap = new Map(cachedTags.map(t => [t.id, t]));
 
                     const matched = allParsedThemes.filter(theme => {
                         const matchesTag = isThemeMatchingFilters(theme);
-                        const matchesSearch = !searchTerm || theme.display.toLowerCase().includes(searchTerm);
+                        const matchesSearch = isThemeMatchingSearch(theme, rawSearch, tagsMap);
                         return matchesTag && matchesSearch;
                     });
 
@@ -2354,8 +2423,8 @@
 
                     // 应用当前搜索和标签筛选（新项默认可见性）
                     const matchesTag = isThemeMatchingFilters(newParsed);
-                    const searchTerm = searchBox.value.toLowerCase();
-                    const matchesSearch = !searchTerm || themeName.toLowerCase().includes(searchTerm);
+                    const rawSearch = searchBox ? searchBox.value : '';
+                    const matchesSearch = isThemeMatchingSearch(newParsed, rawSearch, tagsMap);
                     item.style.display = (matchesTag && matchesSearch) ? 'flex' : 'none';
 
                     // 如果提供了 listFragment，则追加到 fragment 中以实现批量插入；否则直接 append 到 DOM
@@ -3162,14 +3231,14 @@
 
                 updateManualToggleBtnVisibility();
 
-                // 搜索输入防抖（移动端输入法频繁触发 input 事件）
+                // 搜索输入防抖（支持流畅实时复合搜索）
                 let _searchDebounceTimer = null;
                 searchBox.addEventListener('input', (e) => {
                     clearTimeout(_searchDebounceTimer);
                     _searchDebounceTimer = setTimeout(() => {
                         currentPage = 1;
                         filterThemeList(0);
-                    }, 1000);
+                    }, 250);
                 });
 
                 // 初始化配置项控件状态
@@ -3564,7 +3633,9 @@
                         let firstSelectableOption = null;
 
                         const addGroup = (groupTitle, themes, isRecommend = false) => {
-                            const matched = themes.filter(t => !keyword || t.display.toLowerCase().includes(keyword));
+                            const cachedTags = loadThemeTags();
+                            const tagsMap = new Map(cachedTags.map(t => [t.id, t]));
+                            const matched = themes.filter(t => isThemeMatchingSearch(t, filterKeyword, tagsMap));
                             if (matched.length === 0) return;
 
                             const groupEl = document.createElement('optgroup');
@@ -4934,16 +5005,17 @@
                                 if (applyBtn) applyBtn.disabled = (checkedCount === 0);
                             };
 
-                            // 搜索过滤
+                             // 搜索过滤 (复合搜索)
                             if (searchBox && matrixList) {
                                 searchBox.addEventListener('input', (e) => {
-                                    const q = e.target.value.toLowerCase().trim();
+                                    const q = e.target.value;
                                     matrixList.querySelectorAll('.tm-matrix-card').forEach(card => {
                                         const idx = card.dataset.idx;
                                         const c = candidates[idx];
-                                        const nameVal = card.querySelector('.matrix-tag-name-input')?.value.toLowerCase() || '';
-                                        const themesVal = c ? c.themes.join(' ').toLowerCase() : '';
-                                        const match = !q || nameVal.includes(q) || themesVal.includes(q);
+                                        const nameVal = card.querySelector('.matrix-tag-name-input')?.value || '';
+                                        const themesVal = c ? c.themes.join(' ') : '';
+                                        const targetText = (nameVal + ' ' + themesVal).toLowerCase();
+                                        const match = isTextMatchingCompositeSearch(targetText, q);
                                         card.style.display = match ? 'flex' : 'none';
                                     });
                                 });
