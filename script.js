@@ -17,7 +17,7 @@ import { applyThemeDirect } from './modules/theme-apply.js';
 import { initBackgroundBindingListeners, applyBackgroundDirectly, initBackgroundEnhancements } from './modules/background.js';
 
 import { initCharacterBindingListeners, applyBoundThemeForCharacter } from './modules/avatar.js';
-import { initAutoThemeListeners, applyAutoThemeLoop, executeManualThemeToggle, checkAutoTheme, openDayNightPairModal, applyEarlyAutoTheme } from './modules/auto-theme.js';
+import { initAutoThemeListeners, applyAutoThemeLoop, executeManualThemeToggle, checkAutoTheme, openDayNightPairModal, applyEarlyAutoTheme, initAutoThemeModals } from './modules/auto-theme.js';
 
 import { openManageTagsPopup } from './modules/manage-tags.js';
 import { openSettingsPopup, importSettings } from './modules/settings.js';
@@ -37,10 +37,11 @@ const initInterval = setInterval(() => {
     if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
         const sillyCtx = SillyTavern.getContext();
         const originalSelect = document.querySelector('#themes');
-        const updateButton = document.querySelector('#theme_update_button');
-        const saveAsButton = document.querySelector('#save_theme_as');
+        const updateButton = document.querySelector('#ui-preset-update-button') || document.querySelector('#theme_update_button');
+        const saveAsButton = document.querySelector('#ui-preset-save-button') || document.querySelector('#save_theme_as');
 
         if (originalSelect && updateButton && saveAsButton) {
+
             clearInterval(initInterval);
             console.log('[Theme Manager] SillyTavern 上下文及 DOM 已就绪，开始初始化插件 (ES Modules 架构)...');
 
@@ -113,6 +114,7 @@ const initInterval = setInterval(() => {
                         </div>
                         <div class="tm-button-row">
                             <button id="batch-edit-btn" class="menu_button" title="进入/退出批量编辑模式"><i class="fa-solid fa-pen-to-square"></i> 编辑</button>
+                            <button id="batch-import-btn" class="menu_button" title="从文件批量导入主题"><i class="fa-solid fa-folder-open"></i> 导入</button>
                             <button id="manage-tags-btn" class="menu_button" title="管理标签"><i class="fa-solid fa-tags"></i> 标签</button>
                             <button id="tm-auto-group-btn" class="menu_button" title="自动提取分类向导"><i class="fa-solid fa-wand-magic-sparkles"></i> 分组</button>
                             <button id="tm-settings-btn" class="menu_button" title="插件高级设置"><i class="fa-solid fa-gear"></i> 设置</button>
@@ -148,12 +150,88 @@ const initInterval = setInterval(() => {
                         <button class="tm-next-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="下一页"><i class="fa-solid fa-chevron-right"></i></button>
                         <button class="tm-last-page-btn menu_button" style="width: auto; padding: 2px 8px; margin: 0;" title="前往末页"><i class="fa-solid fa-angles-right"></i></button>
                     </div>
+                    <div id="auto-theme-modal" class="tm-modal" style="display:none;">
+                        <div class="tm-modal-content">
+                            <div class="tm-modal-header">
+                                <h3><i class="fa-solid fa-circle-half-stroke"></i> 自动主题切换</h3>
+                                <button id="close-auto-theme-modal" class="tm-modal-close"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                            <div class="tm-modal-body">
+                                <label style="display:flex; align-items:center; gap:8px; width:100%; white-space:nowrap;">
+                                    <input type="checkbox" id="auto-theme-enable" style="margin:0;"> 启用自动切换
+                                </label>
+                                <label style="display:flex; align-items:center; gap:8px; width:100%; white-space:nowrap; margin-top:6px;">
+                                    <input type="checkbox" id="auto-theme-enable-manual" style="margin:0;"> 启用手动切换
+                                </label>
+                                <hr>
+                                <div>
+                                    <label style="display:flex; align-items:center; gap:8px; margin-bottom:5px;">
+                                        <input type="radio" name="auto-theme-mode" value="system" style="margin:0;"> 跟随系统深色模式
+                                    </label>
+                                    <label style="display:flex; align-items:center; gap:8px;">
+                                        <input type="radio" name="auto-theme-mode" value="time" style="margin:0;"> 固定时间段
+                                    </label>
+                                </div>
+                                <div id="auto-theme-time-settings" class="tm-time-settings" style="display:none; margin-top:10px;">
+                                    <label style="display:flex; flex-direction:column; gap:5px; margin-bottom:10px;">
+                                        日间开始时间: <input type="time" id="auto-theme-day-start" value="06:00" class="text_pole">
+                                    </label>
+                                    <label style="display:flex; flex-direction:column; gap:5px;">
+                                        夜间开始时间: <input type="time" id="auto-theme-night-start" value="18:00" class="text_pole">
+                                    </label>
+                                </div>
+                                <hr>
+                                <div style="margin-top:10px;">
+                                    <label><b>日间主题/标签 (全局浅色):</b></label>
+                                    <select id="auto-theme-day-target" class="text_pole" style="width:100%; margin-bottom:10px;"></select>
+                                    <label><b>夜间主题/标签 (全局深色):</b></label>
+                                    <select id="auto-theme-night-target" class="text_pole" style="width:100%;"></select>
+                                    <p style="font-size: 0.8em; opacity: 0.8; margin-top: 5px;">* 如果选择带有 <code>[Tag]</code> 的分类，将在该标签下随机挑选。</p>
+                                </div>
+                                <hr>
+                                <div style="margin-top:10px;">
+                                    <label><b>按美化独立日夜组配置 (优先于全局):</b></label>
+                                    <div id="tm-pairs-list-container" style="max-height: 140px; overflow-y: auto; font-size: 0.85em; margin-top: 5px; border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 4px; padding: 6px;"></div>
+                                </div>
+                            </div>
+                            <div class="tm-modal-footer" style="display:flex; justify-content:center; padding-top:10px;">
+                                <button id="save-auto-theme-btn" class="menu_button" style="width:100%; justify-content:center;"><i class="fa-solid fa-check"></i> 保存设置</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="tm-daynight-pair-modal" class="tm-modal" style="display:none;">
+                        <div class="tm-modal-content">
+                            <div class="tm-modal-header">
+                                <h3><i class="fa-solid fa-circle-half-stroke"></i> 美化日夜联动绑定</h3>
+                                <button id="close-tm-daynight-modal" class="tm-modal-close"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                            <div class="tm-modal-body">
+                                <p style="margin-bottom:10px; font-weight:bold;">当前美化：<span id="tm-daynight-current-name" style="color:var(--SmartThemeEmColor);"></span></p>
+                                <label style="display:block; margin-bottom:10px;">
+                                    <b>对应的夜间美化 (切换到夜间时):</b>
+                                    <select id="tm-daynight-night-select" class="text_pole" style="width:100%; margin-top:4px;"></select>
+                                </label>
+                                <label style="display:block; margin-bottom:10px;">
+                                    <b>对应的日间美化 (切换到日间时):</b>
+                                    <select id="tm-daynight-day-select" class="text_pole" style="width:100%; margin-top:4px;"></select>
+                                </label>
+                                <p style="font-size:0.8em; opacity:0.8; margin-top:5px;">* 配置后，当在当前美化下触发日夜模式切换时，将优先切换至此处绑定的专属美化；无绑定时回退全局设置。</p>
+                            </div>
+                            <div class="tm-modal-footer" style="display:flex; gap:10px; justify-content:center; padding-top:10px;">
+                                <button id="save-tm-daynight-btn" class="menu_button" style="flex:1; justify-content:center;"><i class="fa-solid fa-check"></i> 保存绑定</button>
+                                <button id="clear-tm-daynight-btn" class="menu_button" style="flex:1; justify-content:center; color:#ff4d4f;"><i class="fa-solid fa-trash-can"></i> 解除绑定</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>`;
+
 
             originalContainer.prepend(managerPanel);
             state.managerPanel = managerPanel;
             state.contentWrapper = managerPanel.querySelector('.theme-content');
             state.searchBox = managerPanel.querySelector('#theme-search-box');
+
+            initAutoThemeModals(managerPanel);
 
             if (state.contentWrapper) {
                 state.contentWrapper.classList.toggle('two-line-layout', state.isTwoLineLayout);
@@ -171,7 +249,49 @@ const initInterval = setInterval(() => {
             document.body.appendChild(settingsFileInput);
             settingsFileInput.addEventListener('change', (e) => importSettings(e.target.files[0]));
 
+            const themeBatchFileInput = document.createElement('input');
+            themeBatchFileInput.type = 'file';
+            themeBatchFileInput.multiple = true;
+            themeBatchFileInput.accept = '.json';
+            themeBatchFileInput.style.display = 'none';
+            document.body.appendChild(themeBatchFileInput);
+
+            themeBatchFileInput.addEventListener('change', async (e) => {
+                const files = Array.from(e.target.files);
+                if (!files || files.length === 0) return;
+                const fileReadPromises = files.map(async (file) => {
+                    try {
+                        const content = await file.text();
+                        const themeObj = JSON.parse(content);
+                        const filename = file.name.replace(/\.json$/i, '');
+                        if (themeObj && typeof themeObj.main_text_color !== 'undefined') {
+                            themeObj.name = filename || themeObj.name;
+                            return { file, themeObj, valid: true };
+                        }
+                        return { file, valid: false, error: '非有效美化预设' };
+                    } catch (err) {
+                        return { file, valid: false, error: err.message };
+                    }
+                });
+                const parsed = await Promise.all(fileReadPromises);
+                const valids = parsed.filter(p => p.valid);
+                if (valids.length === 0) {
+                    toastr.error('未找到有效的美化文件');
+                    return;
+                }
+                for (const item of valids) {
+                    await saveTheme(item.themeObj);
+                }
+                toastr.success(`成功并发导入 ${valids.length} 个美化主题！`);
+                hardResyncThemes();
+            });
+
             // 按钮事件注册
+            const batchImportBtn = managerPanel.querySelector('#batch-import-btn');
+            if (batchImportBtn) {
+                batchImportBtn.addEventListener('click', () => themeBatchFileInput.click());
+            }
+
             managerPanel.querySelector('#manage-tags-btn').addEventListener('click', openManageTagsPopup);
             managerPanel.querySelector('#tm-settings-btn').addEventListener('click', openSettingsPopup);
             managerPanel.querySelector('#tm-auto-group-btn').addEventListener('click', openAutoGroupWizard);
