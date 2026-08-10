@@ -12,7 +12,82 @@ import { applyBackgroundDirectly } from './background.js';
 let currentAutoThemeState = null;
 let autoThemeCheckInterval = null;
 
+export function applyEarlyAutoTheme(originalSelect, settings) {
+    if (!settings || !settings.enabled) return;
+
+    let newState = null;
+    if (settings.mode === 'system') {
+        if (window.matchMedia) {
+            if (window.matchMedia('(prefers-color-scheme: dark)').matches) newState = 'night';
+            else if (window.matchMedia('(prefers-color-scheme: light)').matches) newState = 'day';
+        }
+        if (!newState) {
+            newState = document.documentElement.classList.contains('light') ? 'day' : 'night';
+        }
+    } else if (settings.mode === 'time') {
+        const now = new Date();
+        const currentTime = now.getHours() * 60 + now.getMinutes();
+        const [dayH, dayM] = (settings.dayStart || '06:00').split(':').map(Number);
+        const [nightH, nightM] = (settings.nightStart || '18:00').split(':').map(Number);
+        const dayTime = dayH * 60 + dayM;
+        const nightTime = nightH * 60 + nightM;
+
+        if (dayTime < nightTime) {
+            newState = (currentTime >= dayTime && currentTime < nightTime) ? 'day' : 'night';
+        } else {
+            newState = (currentTime >= nightTime && currentTime < dayTime) ? 'night' : 'day';
+        }
+    }
+    if (newState) performAutoThemeSwitch(newState);
+}
+
+export function populateAutoThemeDropdowns(modalContainer) {
+    if (!modalContainer) return;
+    const dayTarget = modalContainer.querySelector('#auto-theme-day-target');
+    const nightTarget = modalContainer.querySelector('#auto-theme-night-target');
+    const tags = loadThemeTags();
+
+    if (!dayTarget || !nightTarget) return;
+
+    if (typeof $ !== 'undefined') {
+        if ($(dayTarget).data('select2')) $(dayTarget).select2('destroy');
+        if ($(nightTarget).data('select2')) $(nightTarget).select2('destroy');
+    }
+
+    let optionsHtml = '<option value="">(不改变)</option>';
+    if (tags.length > 0) {
+        optionsHtml += '<optgroup label="[随机] 从标签中选择">';
+        tags.forEach(t => {
+            optionsHtml += `<option value="[Tag] ${t.id}">随机标签: ${escapeHtml(t.name)}</option>`;
+        });
+        optionsHtml += '</optgroup>';
+    }
+    optionsHtml += '<optgroup label="[指定] 特定主题">';
+    (state.allParsedThemes || []).forEach(t => {
+        optionsHtml += `<option value="${escapeHtml(t.value)}">${escapeHtml(t.display)}</option>`;
+    });
+    optionsHtml += '</optgroup>';
+
+    dayTarget.innerHTML = optionsHtml;
+    nightTarget.innerHTML = optionsHtml;
+    dayTarget.value = state.autoThemeSettings.dayTarget || '';
+    nightTarget.value = state.autoThemeSettings.nightTarget || '';
+
+    const pairsContainer = modalContainer.querySelector('#tm-pairs-list-container');
+    if (pairsContainer) populateAutoThemePairsList(pairsContainer);
+
+    if (typeof $ !== 'undefined' && $.fn.select2) {
+        setTimeout(() => {
+            $([dayTarget, nightTarget]).select2({
+                dropdownParent: $(modalContainer).find('.tm-modal-content'),
+                width: '100%'
+            });
+        }, 0);
+    }
+}
+
 export function loadThemeDayNightPairs() {
+
     try {
         const raw = localStorage.getItem(THEME_DAYNIGHT_PAIRS_KEY);
         state.themeDayNightPairs = raw ? JSON.parse(raw) : [];

@@ -9,6 +9,8 @@ export const THEME_TAGS_KEY                = 'themeManager_themeTags';
 export const THEME_BACKGROUND_BINDINGS_KEY = 'themeManager_backgroundBindings';
 export const CHARACTER_THEME_BINDINGS_KEY  = 'themeManager_characterThemeBindings';
 export const THEME_DAY_NIGHT_PAIRS_KEY     = 'themeManager_themeDayNightPairs';
+export const THEME_DAYNIGHT_PAIRS_KEY     = 'themeManager_themeDayNightPairs';
+
 export const BATCH_EDIT_COLLAPSED_KEY      = 'themeManager_batchEditCollapsed';
 export const ACTIVE_TAGS_KEY               = 'themeManager_activeTagsFilters';
 export const AUTO_THEME_KEY                = 'themeManager_autoTheme';

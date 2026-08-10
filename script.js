@@ -16,8 +16,9 @@ import { handleTagFilterChange, filterThemeList } from './modules/search-filter.
 import { applyThemeDirect } from './modules/theme-apply.js';
 import { initBackgroundBindingListeners, applyBackgroundDirectly, initBackgroundEnhancements } from './modules/background.js';
 
-import { initCharacterBindingListeners } from './modules/avatar.js';
-import { initAutoThemeListeners, applyAutoThemeLoop, executeManualThemeToggle, checkAutoTheme, openDayNightPairModal } from './modules/auto-theme.js';
+import { initCharacterBindingListeners, applyBoundThemeForCharacter } from './modules/avatar.js';
+import { initAutoThemeListeners, applyAutoThemeLoop, executeManualThemeToggle, checkAutoTheme, openDayNightPairModal, applyEarlyAutoTheme } from './modules/auto-theme.js';
+
 import { openManageTagsPopup } from './modules/manage-tags.js';
 import { openSettingsPopup, importSettings } from './modules/settings.js';
 import { openAutoGroupWizard } from './modules/auto-group.js';
@@ -583,17 +584,39 @@ const initInterval = setInterval(() => {
             });
             observer.observe(originalSelect, { childList: true });
 
+            // 注册 SillyTavern 原生 EventSource 事件监听
+            const { eventSource, eventTypes } = sillyCtx;
+            if (eventSource && eventTypes) {
+                eventSource.on(eventTypes.CHAT_CHANGED, () => {
+                    const currentTheme = originalSelect.value;
+                    const boundBg = state.themeBackgroundBindings[currentTheme];
+                    if (boundBg) {
+                        setTimeout(() => applyBackgroundDirectly(boundBg), 300);
+                    }
+                });
+
+                eventSource.on(eventTypes.CHARACTER_SELECTED, () => {
+                    const { characters, characterId } = SillyTavern.getContext();
+                    const character = characters ? characters[characterId] : null;
+                    if (character && character.avatar) {
+                        setTimeout(() => applyBoundThemeForCharacter(character.avatar), 100);
+                    }
+                });
+            }
+
             // 初始化背景图关联、角色卡绑定、日夜随动监听
             initBackgroundBindingListeners();
             initBackgroundEnhancements();
             initCharacterBindingListeners();
             initAutoThemeListeners();
+            applyEarlyAutoTheme(originalSelect, state.autoThemeSettings);
             applyAutoThemeLoop();
 
             // 构建渲染插件主题列表 UI
             buildThemeUI();
         }
     } else if (initAttempts >= maxAttempts) {
+
         clearInterval(initInterval);
         console.error('[Theme Manager] 初始化超时：未在规定时间内找到 SillyTavern.getContext() 对象');
     }

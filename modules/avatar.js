@@ -120,4 +120,83 @@ export function initCharacterBindingListeners() {
             }
         });
     }
+
+    // 定时轮询注册替换卡图/头像按钮
+    setInterval(registerReplaceImageButtons, 1000);
 }
+
+export function removeReplaceImageButtons() {
+    if (typeof $ !== 'undefined') {
+        $('#theme-manager-char-replace-image-btn, .theme-manager-char-replace-image-btn').remove();
+        $('#theme-manager-user-replace-image-btn, .theme-manager-user-replace-image-btn').remove();
+    }
+}
+
+export function registerReplaceImageButtons() {
+    if (localStorage.getItem('themeManager_enableReplaceAvatarBtn') === 'false') {
+        removeReplaceImageButtons();
+        return;
+    }
+    if (typeof $ === 'undefined') return;
+
+    // 1. 角色卡详情页替换卡图按钮
+    $('.form_create_bottom_buttons_block').each(function() {
+        const $container = $(this);
+        if ($container.find('#theme-manager-char-replace-image-btn').length === 0) {
+            const $btn = $('<div>', {
+                id: 'theme-manager-char-replace-image-btn',
+                class: 'menu_button fa-solid fa-file-image theme-manager-char-replace-image-btn',
+                title: '替换角色卡图片',
+                'data-i18n': '[title]替换角色卡图片'
+            }).on('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const addAvatarBtn = document.getElementById('add_avatar_button');
+                if (addAvatarBtn) {
+                    addAvatarBtn.click();
+                } else {
+                    toastr.warning('未找到角色卡头像上传组件。');
+                }
+            });
+
+            const $deleteBtn = $container.find('#delete_button');
+            if ($deleteBtn.length > 0) {
+                $btn.insertBefore($deleteBtn);
+            } else {
+                $container.append($btn);
+            }
+        }
+    });
+
+    // 2. 用户详情页替换头像按钮
+    $('.persona_controls_buttons_block').each(function() {
+        const $container = $(this);
+        if ($container.find('#theme-manager-user-replace-image-btn').length === 0) {
+            const $btn = $('<div>', {
+                id: 'theme-manager-user-replace-image-btn',
+                class: 'menu_button fa-solid fa-file-image theme-manager-user-replace-image-btn',
+                title: '替换用户头像图片',
+                'data-i18n': '[title]替换用户头像图片'
+            }).on('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const personaSetImgBtn = document.getElementById('persona_set_image_button');
+                if (personaSetImgBtn) {
+                    personaSetImgBtn.click();
+                } else {
+                    const userAvatarInput = document.getElementById('avatar_upload_file');
+                    if (userAvatarInput) userAvatarInput.click();
+                    else toastr.warning('未找到用户头像上传组件。');
+                }
+            });
+
+            const $deleteBtn = $container.find('#persona_delete_button');
+            if ($deleteBtn.length > 0) {
+                $btn.insertBefore($deleteBtn);
+            } else {
+                $container.append($btn);
+            }
+        }
+    });
+}
+

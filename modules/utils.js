@@ -56,6 +56,15 @@ export function closePopup(popup) {
     }
 }
 
+/** 显示数据刷新的提示栏 */
+export function showRefreshNotification() {
+    const notice = document.querySelector('#tm-refresh-notice');
+    if (notice) {
+        notice.style.display = 'block';
+    }
+}
+
+
 
 // ─── 滚动工具 ────────────────────────────────────────────────────────────────
 
