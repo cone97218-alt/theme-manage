@@ -1089,6 +1089,58 @@
                     scheduleAsyncProtection();
                 }
 
+                // 获取当前系统实际存在的所有合法美化主题名称 Set
+                function getValidInstalledThemeNames() {
+                    const names = new Set();
+                    if (typeof stKnownThemes !== 'undefined' && stKnownThemes && stKnownThemes.size > 0) {
+                        stKnownThemes.forEach(name => { if (name) names.add(name); });
+                    }
+                    if (typeof allParsedThemes !== 'undefined' && allParsedThemes && allParsedThemes.length > 0) {
+                        allParsedThemes.forEach(t => { if (t && t.value) names.add(t.value); });
+                    }
+                    const select = document.querySelector('#themes');
+                    if (select && select.options) {
+                        Array.from(select.options).forEach(opt => { if (opt.value) names.add(opt.value); });
+                    }
+                    return names;
+                }
+
+                // 校验并规范化标签关联：
+                // 1. 自动过滤剔除不存在于当前机器的非本域美化死链接
+                // 2. 基于当前机器实际存在的美化，针对含有关键词的标签重新动态关联补全
+                // 3. 子标签包含的主题自动同步提升至其父级一级标签
+                function sanitizeTagsWithValidThemes(tags) {
+                    if (!Array.isArray(tags)) return tags;
+                    const validThemeNames = getValidInstalledThemeNames();
+
+                    tags.forEach(t => {
+                        if (!Array.isArray(t.themes)) t.themes = [];
+                        if (!Array.isArray(t.keywords)) t.keywords = [];
+                    });
+
+                    if (validThemeNames.size > 0) {
+                        // 过滤不存在于本机的异地美化名称
+                        tags.forEach(t => {
+                            t.themes = t.themes.filter(themeName => validThemeNames.has(themeName));
+                        });
+
+                        // 重新扫描本机美化，自动匹配已定义的关键词
+                        const allThemes = Array.from(validThemeNames);
+                        tags.forEach(tag => {
+                            if (!tag.keywords || tag.keywords.length === 0) return;
+                            allThemes.forEach(themeName => {
+                                const nameLC = themeName.toLowerCase();
+                                const matches = tag.keywords.some(kw => kw && nameLC.includes(kw.toLowerCase()));
+                                if (matches && !tag.themes.includes(themeName)) {
+                                    tag.themes.push(themeName);
+                                }
+                            });
+                        });
+                    }
+
+                    return sanitizeSubtagThemeAssociations(tags);
+                }
+
                 // 校验并规范化标签关联：子标签包含的主题必须自动同步提升至其父级一级标签
                 function sanitizeSubtagThemeAssociations(tags) {
                     if (!Array.isArray(tags)) return tags;
@@ -1123,7 +1175,7 @@
                 function loadThemeTags() {
                     if (_tagsCache) return _tagsCache;
                     _tagsCache = JSON.parse(localStorage.getItem(THEME_TAGS_KEY)) || [];
-                    sanitizeSubtagThemeAssociations(_tagsCache);
+                    sanitizeTagsWithValidThemes(_tagsCache);
                     return _tagsCache;
                 }
                 function refreshAllParsedThemesTags() {
@@ -1136,7 +1188,7 @@
                     }
                 }
                 function saveThemeTags(tags) {
-                    sanitizeSubtagThemeAssociations(tags);
+                    sanitizeTagsWithValidThemes(tags);
                     _tagsCache = tags; // 更新缓存
                     localStorage.setItem(THEME_TAGS_KEY, JSON.stringify(tags));
                     invalidateThemeTagIndex(); // 标签数据变了，反向索引也要失效
@@ -2403,6 +2455,9 @@
                     syncActiveLevel1TagId(tags);
 
                     if (tags.length > 0) {
+                        const validThemeNames = getValidInstalledThemeNames();
+                        const filterValid = (arr) => validThemeNames.size > 0 ? (arr || []).filter(t => validThemeNames.has(t)) : (arr || []);
+
                         const visibleLevel1Tags = subtagsEnabled
                             ? tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId))
                             : tags;
@@ -2418,13 +2473,13 @@
                             chip.className = `theme-tag-chip level1 ${isDirectActive || isL1Active || hasActiveChild || hasSubUncat ? 'active' : ''}`;
                             chip.dataset.tagId = tag.id;
 
-                            let count = tag.themes ? tag.themes.length : 0;
+                            let count = filterValid(tag.themes).length;
                             if (subtagsEnabled) {
-                                const allRelatedThemeNames = new Set(tag.themes || []);
+                                const allRelatedThemeNames = new Set(filterValid(tag.themes));
                                 childIds.forEach(cId => {
                                     const cTag = tags.find(t => t.id === cId);
                                     if (cTag && cTag.themes) {
-                                        cTag.themes.forEach(th => allRelatedThemeNames.add(th));
+                                        filterValid(cTag.themes).forEach(th => allRelatedThemeNames.add(th));
                                     }
                                 });
                                 count = allRelatedThemeNames.size;
@@ -2486,7 +2541,8 @@
                                     const subChip = document.createElement('div');
                                     subChip.className = `theme-tag-chip level2 ${activeTagFilters.has(childTag.id) ? 'active' : ''}`;
                                     subChip.dataset.tagId = childTag.id;
-                                    subChip.innerHTML = `${escapeHtml(childTag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${childTag.themes ? childTag.themes.length : 0})</span>`;
+                                    const cValidThemes = filterValid(childTag.themes);
+                                    subChip.innerHTML = `${escapeHtml(childTag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${cValidThemes.length})</span>`;
                                     subChip.addEventListener('click', (e) => {
                                         e.stopPropagation();
                                         if (activeTagFilters.has(childTag.id)) {
@@ -2507,7 +2563,7 @@
                                 });
 
                                 // 2. 渲染默认二级“未分类”标签 (属于当前一级分类，但无任何二级子分类标签的主题)
-                                const l1Themes = parentTag.themes || [];
+                                const l1Themes = filterValid(parentTag.themes);
                                 const subUncatCount = l1Themes.filter(themeName => {
                                     const themeTags = getTagsForTheme(themeName, tags);
                                     return !themeTags.some(tId => childTagIds.includes(tId));
@@ -5493,6 +5549,9 @@
                                 const batchBar = dlg.querySelector('#tm-batch-delete-bar');
                                 if (batchBar) batchBar.style.display = isBatchDeleteMode ? 'flex' : 'none';
 
+                                const validThemeNames = getValidInstalledThemeNames();
+                                const filterValid = (arr) => validThemeNames.size > 0 ? (arr || []).filter(t => validThemeNames.has(t)) : (arr || []);
+
                                 if (!subtagsEnabled) {
                                     let html = '<ul style="list-style:none; padding:0; margin:0;">';
                                     tags.forEach((t, idx) => {
@@ -5504,7 +5563,7 @@
                                                     ${isBatchDeleteMode ? `<input type="checkbox" class="tm-batch-tag-chk" data-id="${t.id}" ${isChecked ? 'checked' : ''} style="margin:0;">` : ''}
                                                     <i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
                                                     <span style="word-break: break-all; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(t.name)}</span>
-                                                    <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${t.themes ? t.themes.length : 0})</small>
+                                                    <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${filterValid(t.themes).length})</small>
                                                     ${kwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${kwCount}词]</small>` : ''}
                                                 </div>
                                                 <div style="display:flex; gap:3px; align-items:center; flex-shrink:0;">
@@ -5535,7 +5594,7 @@
                                                         ${isBatchDeleteMode ? `<input type="checkbox" class="tm-batch-tag-chk" data-id="${l1Tag.id}" ${isL1Checked ? 'checked' : ''} style="margin:0;">` : ''}
                                                         <i class="fa-solid fa-folder-open" style="color:var(--SmartThemeQuoteColor, #4a90e2); flex-shrink:0;"></i>
                                                         <span style="font-weight:bold; font-size:13px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(l1Tag.name)}</span>
-                                                        <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(二级:${childTags.length}/主题:${l1Tag.themes ? l1Tag.themes.length : 0})</small>
+                                                        <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(二级:${childTags.length}/主题:${filterValid(l1Tag.themes).length})</small>
                                                         ${kwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${kwCount}词]</small>` : ''}
                                                     </div>
                                                     <div style="display:flex; gap:3px; align-items:center; flex-shrink:0;">
@@ -5563,7 +5622,7 @@
                                                             ${isBatchDeleteMode ? `<input type="checkbox" class="tm-batch-tag-chk" data-id="${cTag.id}" ${isL2Checked ? 'checked' : ''} style="margin:0;">` : ''}
                                                             <i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
                                                             <span style="text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(cTag.name)}</span>
-                                                            <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${cTag.themes ? cTag.themes.length : 0})</small>
+                                                            <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${filterValid(cTag.themes).length})</small>
                                                             ${cKwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${cKwCount}词]</small>` : ''}
                                                         </div>
                                                         <div style="display:flex; gap:3px; align-items:center; flex-shrink:0;">
