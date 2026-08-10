@@ -28,19 +28,33 @@ import { loadThemeTags, getTagsForTheme, saveThemeTags } from './modules/tags-co
 import { openColorTransferModal } from './modules/color-transfer.js';
 import { apiRequest, deleteTheme, findThemeObject, updateSTThemeMemory, confirmAction, promptAction } from './modules/api.js';
 
-let initAttempts = 0;
-const maxAttempts = 50;
-
 const initInterval = setInterval(() => {
-    initAttempts++;
-
     if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
         const sillyCtx = SillyTavern.getContext();
         const originalSelect = document.querySelector('#themes');
         const updateButton = document.querySelector('#ui-preset-update-button') || document.querySelector('#theme_update_button');
         const saveAsButton = document.querySelector('#ui-preset-save-button') || document.querySelector('#save_theme_as');
 
-        if (originalSelect && updateButton && saveAsButton) {
+        if (originalSelect && !document.querySelector('#theme-manager-panel')) {
+            clearInterval(initInterval);
+            console.log('[Theme Manager] SillyTavern 上下文及 DOM 已就绪，初始化插件面板...');
+
+            initCtx(sillyCtx);
+            state.originalSelect = originalSelect;
+
+            window.themeManager = {
+                getTags: () => loadThemeTags(),
+                getThemeTags: (themeName) => getTagsForTheme(themeName),
+                onTagsChanged: (callback) => {
+                    document.addEventListener('themeManager:tagsChanged', (event) => {
+                        callback(event.detail);
+                    });
+                },
+                applyBoundThemeForCharacter: (avatarName) => {
+                    import('./modules/avatar.js').then(m => m.applyBoundThemeForCharacter(avatarName));
+                }
+            };
+
 
             clearInterval(initInterval);
             console.log('[Theme Manager] SillyTavern 上下文及 DOM 已就绪，开始初始化插件 (ES Modules 架构)...');
@@ -239,8 +253,10 @@ const initInterval = setInterval(() => {
             }
 
             const nativeButtonsContainer = managerPanel.querySelector('#native-buttons-container');
-            nativeButtonsContainer.appendChild(updateButton);
-            nativeButtonsContainer.appendChild(saveAsButton);
+            if (nativeButtonsContainer) {
+                if (updateButton) nativeButtonsContainer.appendChild(updateButton);
+                if (saveAsButton) nativeButtonsContainer.appendChild(saveAsButton);
+            }
 
             const settingsFileInput = document.createElement('input');
             settingsFileInput.type = 'file';
@@ -292,9 +308,9 @@ const initInterval = setInterval(() => {
                 batchImportBtn.addEventListener('click', () => themeBatchFileInput.click());
             }
 
-            managerPanel.querySelector('#manage-tags-btn').addEventListener('click', openManageTagsPopup);
-            managerPanel.querySelector('#tm-settings-btn').addEventListener('click', openSettingsPopup);
-            managerPanel.querySelector('#tm-auto-group-btn').addEventListener('click', openAutoGroupWizard);
+            managerPanel.querySelector('#manage-tags-btn')?.addEventListener('click', openManageTagsPopup);
+            managerPanel.querySelector('#tm-settings-btn')?.addEventListener('click', openSettingsPopup);
+            managerPanel.querySelector('#tm-auto-group-btn')?.addEventListener('click', openAutoGroupWizard);
 
             // 批量按钮事件注册
             const batchEditBtn = managerPanel.querySelector('#batch-edit-btn');
@@ -302,42 +318,49 @@ const initInterval = setInterval(() => {
             const toggleMoreActionsBtn = managerPanel.querySelector('#toggle-more-actions-btn');
             const moreActionsContainer = managerPanel.querySelector('#more-actions-container');
 
-            batchEditBtn.addEventListener('click', () => {
-                state.isBatchEditMode = !state.isBatchEditMode;
-                managerPanel.classList.toggle('batch-edit-mode', state.isBatchEditMode);
-                batchActionsBar.style.display = state.isBatchEditMode ? 'flex' : 'none';
-                batchEditBtn.classList.toggle('selected', state.isBatchEditMode);
-                batchEditBtn.innerHTML = state.isBatchEditMode ? '退出批量编辑' : '<i class="fa-solid fa-pen-to-square"></i> 编辑';
-                if (!state.isBatchEditMode) {
-                    state.selectedForBatch.clear();
-                    state.lastClickedThemeName = null;
-                    managerPanel.querySelectorAll('.selected-for-batch').forEach(item => item.classList.remove('selected-for-batch'));
-                }
-            });
-
-            const savedBatchEditCollapsed = localStorage.getItem(BATCH_EDIT_COLLAPSED_KEY);
-            if (savedBatchEditCollapsed === 'false') {
-                moreActionsContainer.classList.remove('collapsed');
-                toggleMoreActionsBtn.innerHTML = '<i class="fa-solid fa-chevron-up"></i>';
-                toggleMoreActionsBtn.title = '收起更多操作';
+            if (batchEditBtn && batchActionsBar) {
+                batchEditBtn.addEventListener('click', () => {
+                    state.isBatchEditMode = !state.isBatchEditMode;
+                    managerPanel.classList.toggle('batch-edit-mode', state.isBatchEditMode);
+                    batchActionsBar.style.display = state.isBatchEditMode ? 'flex' : 'none';
+                    batchEditBtn.classList.toggle('selected', state.isBatchEditMode);
+                    batchEditBtn.innerHTML = state.isBatchEditMode ? '退出批量编辑' : '<i class="fa-solid fa-pen-to-square"></i> 编辑';
+                    if (!state.isBatchEditMode) {
+                        state.selectedForBatch.clear();
+                        state.lastClickedThemeName = null;
+                        managerPanel.querySelectorAll('.selected-for-batch').forEach(item => item.classList.remove('selected-for-batch'));
+                    }
+                });
             }
 
-            toggleMoreActionsBtn.addEventListener('click', () => {
-                const isCollapsed = moreActionsContainer.classList.toggle('collapsed');
-                toggleMoreActionsBtn.innerHTML = isCollapsed ? '<i class="fa-solid fa-ellipsis"></i>' : '<i class="fa-solid fa-chevron-up"></i>';
-                toggleMoreActionsBtn.title = isCollapsed ? '展开更多操作' : '收起更多操作';
-                localStorage.setItem(BATCH_EDIT_COLLAPSED_KEY, isCollapsed ? 'true' : 'false');
-            });
+            const savedBatchEditCollapsed = localStorage.getItem(BATCH_EDIT_COLLAPSED_KEY);
+            if (moreActionsContainer && savedBatchEditCollapsed === 'false') {
+                moreActionsContainer.classList.remove('collapsed');
+                if (toggleMoreActionsBtn) {
+                    toggleMoreActionsBtn.innerHTML = '<i class="fa-solid fa-chevron-up"></i>';
+                    toggleMoreActionsBtn.title = '收起更多操作';
+                }
+            }
 
-            managerPanel.querySelector('#batch-select-all-btn').addEventListener('click', () => {
-                state.themeItemMap.forEach((item, themeName) => {
+            if (toggleMoreActionsBtn && moreActionsContainer) {
+                toggleMoreActionsBtn.addEventListener('click', () => {
+                    const isCollapsed = moreActionsContainer.classList.toggle('collapsed');
+                    toggleMoreActionsBtn.innerHTML = isCollapsed ? '<i class="fa-solid fa-ellipsis"></i>' : '<i class="fa-solid fa-chevron-up"></i>';
+                    toggleMoreActionsBtn.title = isCollapsed ? '展开更多操作' : '收起更多操作';
+                    localStorage.setItem(BATCH_EDIT_COLLAPSED_KEY, isCollapsed ? 'true' : 'false');
+                });
+            }
+
+            managerPanel.querySelector('#batch-select-all-btn')?.addEventListener('click', () => {
+                (state.themeItemMap || new Map()).forEach((item, themeName) => {
                     state.selectedForBatch.add(themeName);
                     item.classList.add('selected-for-batch');
                 });
                 toastr.info(`已全选当前 ${state.selectedForBatch.size} 项美化。`);
             });
 
-            managerPanel.querySelector('#batch-select-range-btn').addEventListener('click', () => {
+            managerPanel.querySelector('#batch-select-range-btn')?.addEventListener('click', () => {
+                if (!state.contentWrapper) return;
                 const items = Array.from(state.contentWrapper.querySelectorAll('.theme-item'));
                 const selectedItems = items.filter(item => state.selectedForBatch.has(item.dataset.value));
                 if (selectedItems.length < 2) {
@@ -354,8 +377,8 @@ const initInterval = setInterval(() => {
                 toastr.info(`连选成功！已选中 ${selectedItems[0].dataset.value} 至 ${selectedItems[selectedItems.length - 1].dataset.value} 共 ${lastIdx - firstIdx + 1} 项。`);
             });
 
-            managerPanel.querySelector('#batch-invert-select-btn').addEventListener('click', () => {
-                state.themeItemMap.forEach((item, themeName) => {
+            managerPanel.querySelector('#batch-invert-select-btn')?.addEventListener('click', () => {
+                (state.themeItemMap || new Map()).forEach((item, themeName) => {
                     if (state.selectedForBatch.has(themeName)) {
                         state.selectedForBatch.delete(themeName);
                         item.classList.remove('selected-for-batch');
@@ -367,34 +390,34 @@ const initInterval = setInterval(() => {
                 toastr.info(`反选成功！当前已选中 ${state.selectedForBatch.size} 项。`);
             });
 
-            managerPanel.querySelector('#batch-add-tag-btn').addEventListener('click', () => {
+            managerPanel.querySelector('#batch-add-tag-btn')?.addEventListener('click', () => {
                 if (state.selectedForBatch.size === 0) { toastr.info('请先选择至少一个主题。'); return; }
                 openTagAssignmentPopup(state.selectedForBatch);
             });
 
-            managerPanel.querySelector('#batch-remove-tag-btn').addEventListener('click', () => {
+            managerPanel.querySelector('#batch-remove-tag-btn')?.addEventListener('click', () => {
                 if (state.selectedForBatch.size === 0) { toastr.info('请先选择至少一个主题。'); return; }
                 openTagRemovalPopup(state.selectedForBatch);
             });
 
-            managerPanel.querySelector('#batch-rename-btn').addEventListener('click', () => {
+            managerPanel.querySelector('#batch-rename-btn')?.addEventListener('click', () => {
                 if (state.selectedForBatch.size === 0) { toastr.info('请先选择至少一个主题。'); return; }
                 openBatchRenamePopup(Array.from(state.selectedForBatch));
             });
 
-            managerPanel.querySelector('#batch-delete-btn').addEventListener('click', performBatchDelete);
+            managerPanel.querySelector('#batch-delete-btn')?.addEventListener('click', performBatchDelete);
 
-            managerPanel.querySelector('#random-theme-btn').addEventListener('click', () => {
+            managerPanel.querySelector('#random-theme-btn')?.addEventListener('click', () => {
                 if (state.allParsedThemes.length === 0) return;
                 const randomIndex = Math.floor(Math.random() * state.allParsedThemes.length);
                 const randomTheme = state.allParsedThemes[randomIndex].value;
                 applyThemeDirect(randomTheme);
             });
 
-            managerPanel.querySelector('#auto-theme-settings-btn').addEventListener('click', () => {
-                checkAutoTheme();
-                openSettingsPopup();
+            managerPanel.querySelector('#auto-theme-settings-btn')?.addEventListener('click', () => {
+                import('./modules/auto-theme.js').then(m => m.openAutoThemeSettingsModal());
             });
+
 
             const quickManualToggleBtn = managerPanel.querySelector('#tm-quick-manual-toggle-btn');
             if (quickManualToggleBtn) {
