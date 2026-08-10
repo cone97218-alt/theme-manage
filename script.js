@@ -2422,17 +2422,27 @@
                     // 筛选模式切换图标（OR / AND），放在最前面
                     const modeBtn = document.createElement('div');
                     modeBtn.className = `tm-filter-mode-btn${tagFilterMode === 'and' ? ' active' : ''}`;
-                    modeBtn.title = tagFilterMode === 'and' ? '当前：AND 交叉筛选（点击切换为 OR 模式）' : '当前：OR 任意筛选（点击切换为 AND 模式）';
+                    modeBtn.title = tagFilterMode === 'and'
+                        ? '当前：AND 交叉模式（支持跨排多选交集，点击切换为 OR 同层单选）'
+                        : '当前：OR 单选模式（每一层级同时只能选中一个，点击切换为 AND 交叉多选）';
                     modeBtn.innerHTML = tagFilterMode === 'and'
                         ? '<i class="fa-solid fa-layer-group"></i>'
                         : '<i class="fa-solid fa-circle-nodes"></i>';
                     modeBtn.addEventListener('click', () => {
                         tagFilterMode = tagFilterMode === 'or' ? 'and' : 'or';
                         localStorage.setItem(TAG_FILTER_MODE_KEY, tagFilterMode);
-                        if (tagFilterMode === 'or' && activeTagFilters.size > 1) {
-                            const firstTag = Array.from(activeTagFilters)[0];
+                        if (tagFilterMode === 'or') {
+                            let activeTagToKeep = null;
+                            if (activeTagAncestryPath.length > 0) {
+                                activeTagToKeep = activeTagAncestryPath[activeTagAncestryPath.length - 1];
+                            } else if (activeTagFilters.size > 0) {
+                                activeTagToKeep = Array.from(activeTagFilters)[0];
+                            }
                             activeTagFilters.clear();
-                            activeTagFilters.add(firstTag);
+                            if (activeTagToKeep) activeTagFilters.add(activeTagToKeep);
+                            toastr.info('已切换为 OR 模式 (每一层级仅限单选一个标签)');
+                        } else {
+                            toastr.info('已切换为 AND 模式 (跨层多选，多标签交集筛选)');
                         }
                         handleTagFilterChange();
                         renderTagsUI();
@@ -2677,18 +2687,31 @@
                                     subChip.innerHTML = `${escapeHtml(childTag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${cThemeNames.size})</span>`;
                                     subChip.addEventListener('click', (e) => {
                                         e.stopPropagation();
-                                        activeTagAncestryPath = [...activeTagAncestryPath.slice(0, depthIdx + 1), childTag.id];
-                                        saveActiveTagAncestryPath();
                                         if (tagFilterMode === 'or') {
-                                            activeTagFilters.clear();
-                                            activeTagFilters.add(childTag.id);
+                                            if (isSubInPath && isSubDirectActive) {
+                                                // OR 模式：同层级再次点击已选中的标签 -> 取消选中该层级，回退至父级标签
+                                                activeTagAncestryPath = activeTagAncestryPath.slice(0, depthIdx + 1);
+                                                activeTagFilters.clear();
+                                                const parentIdAtUpperLevel = activeTagAncestryPath[activeTagAncestryPath.length - 1];
+                                                if (parentIdAtUpperLevel) {
+                                                    activeTagFilters.add(parentIdAtUpperLevel);
+                                                }
+                                            } else {
+                                                // OR 模式：同层级点击不同标签 -> 替换本层级选中项 (单选)
+                                                activeTagAncestryPath = [...activeTagAncestryPath.slice(0, depthIdx + 1), childTag.id];
+                                                activeTagFilters.clear();
+                                                activeTagFilters.add(childTag.id);
+                                            }
                                         } else {
+                                            // AND 模式：多选 toggling
+                                            activeTagAncestryPath = [...activeTagAncestryPath.slice(0, depthIdx + 1), childTag.id];
                                             if (activeTagFilters.has(childTag.id)) {
                                                 activeTagFilters.delete(childTag.id);
                                             } else {
                                                 activeTagFilters.add(childTag.id);
                                             }
                                         }
+                                        saveActiveTagAncestryPath();
                                         handleTagFilterChange();
                                         renderTagsUI();
                                     });
@@ -2711,17 +2734,26 @@
                                     subUncatChip.innerHTML = `未分类 <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${subUncatCount})</span>`;
                                     subUncatChip.addEventListener('click', (e) => {
                                         e.stopPropagation();
-                                        if (isSubUncatActive) {
-                                            if (tagFilterMode === 'or') {
+                                        if (tagFilterMode === 'or') {
+                                            if (isSubUncatActive) {
+                                                // OR 模式：再次点击次级未分类 -> 回退取消
+                                                activeTagAncestryPath = activeTagAncestryPath.slice(0, depthIdx + 1);
                                                 activeTagFilters.clear();
                                                 activeTagFilters.add(parentTagId);
                                             } else {
-                                                activeTagFilters.delete(subUncatKey);
+                                                // OR 模式：同层单选替换为次级未分类
+                                                activeTagAncestryPath = activeTagAncestryPath.slice(0, depthIdx + 1);
+                                                activeTagFilters.clear();
+                                                activeTagFilters.add(subUncatKey);
                                             }
                                         } else {
-                                            if (tagFilterMode === 'or') activeTagFilters.clear();
-                                            activeTagFilters.add(subUncatKey);
+                                            if (isSubUncatActive) {
+                                                activeTagFilters.delete(subUncatKey);
+                                            } else {
+                                                activeTagFilters.add(subUncatKey);
+                                            }
                                         }
+                                        saveActiveTagAncestryPath();
                                         handleTagFilterChange();
                                         renderTagsUI();
                                     });
