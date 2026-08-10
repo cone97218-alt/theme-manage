@@ -3862,13 +3862,13 @@
                                 </div>
                                 <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding: 8px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;">
                                     <label for="tm-pop-select-tag-pill-mode" style="font-size: 12.5px; margin: 0; display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                        <i class="fa-solid fa-tags" style="color: var(--SmartThemeQuoteColor, #4a90e2);"></i> 标签胶囊显示范围：
+                                        <i id="tm-pill-mode-icon" class="${tagPillDisplayMode === 'none' ? 'fa-solid fa-eye-slash' : (tagPillDisplayMode === 'l1' ? 'fa-solid fa-folder-tree' : (tagPillDisplayMode === 'l2' ? 'fa-solid fa-tag' : 'fa-solid fa-tags'))}" style="color: var(--SmartThemeQuoteColor, #4a90e2);"></i> 标签胶囊显示范围：
                                     </label>
                                     <select id="tm-pop-select-tag-pill-mode" class="text_pole" style="font-size: 12px; height: 28px; padding: 2px 8px; width: 180px; margin: 0;">
-                                        <option value="all" ${tagPillDisplayMode === 'all' ? 'selected' : ''}>🏷️ 显示全部 (一级 + 二级)</option>
-                                        <option value="l1" ${tagPillDisplayMode === 'l1' ? 'selected' : ''}>📌 仅显示一级主标签</option>
-                                        <option value="l2" ${tagPillDisplayMode === 'l2' ? 'selected' : ''}>🔖 仅显示二级子标签</option>
-                                        <option value="none" ${tagPillDisplayMode === 'none' ? 'selected' : ''}>🚫 完全隐藏胶囊</option>
+                                        <option value="all" ${tagPillDisplayMode === 'all' ? 'selected' : ''}>显示全部 (一级 + 二级)</option>
+                                        <option value="l1" ${tagPillDisplayMode === 'l1' ? 'selected' : ''}>仅显示一级主标签</option>
+                                        <option value="l2" ${tagPillDisplayMode === 'l2' ? 'selected' : ''}>仅显示二级子标签</option>
+                                        <option value="none" ${tagPillDisplayMode === 'none' ? 'selected' : ''}>完全隐藏胶囊</option>
                                     </select>
                                 </div>
                             </div>
@@ -3950,6 +3950,15 @@
                                     if (contentWrapper) {
                                         contentWrapper.classList.toggle('hide-tag-pills', hideTagPills);
                                     }
+
+                                    const iconMap = {
+                                        'all': 'fa-solid fa-tags',
+                                        'l1': 'fa-solid fa-folder-tree',
+                                        'l2': 'fa-solid fa-tag',
+                                        'none': 'fa-solid fa-eye-slash'
+                                    };
+                                    const iconEl = dlg.querySelector('#tm-pill-mode-icon');
+                                    if (iconEl) iconEl.className = iconMap[tagPillDisplayMode] || 'fa-solid fa-tags';
 
                                     softRefreshUI();
 
