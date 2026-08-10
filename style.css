@@ -1179,5 +1179,64 @@
     flex-wrap: wrap !important;
 }
 
+/* ===== N级多层级分类：面包屑导航与多排横向子标签样式 ===== */
+.tm-tag-breadcrumbs {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    font-size: 11.5px;
+    padding: 4px 8px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 4px;
+    margin-bottom: 4px;
+    border-left: 3px solid var(--SmartThemeQuoteColor, #4a90e2);
+}
+
+.tm-crumb-item {
+    cursor: pointer;
+    padding: 1px 5px;
+    border-radius: 3px;
+    transition: all 0.15s ease;
+    user-select: none;
+    opacity: 0.8;
+}
+
+.tm-crumb-item:hover {
+    background: rgba(255, 255, 255, 0.15);
+    opacity: 1;
+    color: var(--SmartThemeQuoteColor, #4a90e2);
+}
+
+.tm-crumb-item.active {
+    font-weight: bold;
+    opacity: 1;
+    color: var(--SmartThemeQuoteColor, #4a90e2);
+}
+
+.tm-crumb-separator {
+    opacity: 0.4;
+    font-size: 9px;
+}
+
+.tm-subtag-level-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+    padding: 3px 6px;
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 4px;
+    margin-bottom: 4px;
+}
+
+.tm-tree-tag-card {
+    transition: background 0.15s ease;
+}
+
+.tm-tree-tag-header:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+}
+
 
 

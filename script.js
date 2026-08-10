@@ -1161,7 +1161,42 @@
                     return sanitizeSubtagThemeAssociations(tags);
                 }
 
-                // 校验并规范化标签关联：子标签包含的主题必须自动同步提升至其父级一级标签
+                // 递归获取某节点下的所有子代 (子、孙、重孙...) 标签 ID 数组
+                function getAllDescendantTagIds(tagId, tags) {
+                    if (!tagId || !Array.isArray(tags)) return [];
+                    const descendants = [];
+                    const queue = [tagId];
+                    const visited = new Set([tagId]);
+                    while (queue.length > 0) {
+                        const currId = queue.shift();
+                        for (let i = 0; i < tags.length; i++) {
+                            const t = tags[i];
+                            if (t.parentId === currId && !visited.has(t.id)) {
+                                visited.add(t.id);
+                                descendants.push(t.id);
+                                queue.push(t.id);
+                            }
+                        }
+                    }
+                    return descendants;
+                }
+
+                // 获取某标签的完整祖先路径链 [rootTag, level2Tag, ..., currentTag]
+                function getTagAncestorChain(tagId, tags) {
+                    if (!tagId || !Array.isArray(tags)) return [];
+                    const tagMap = new Map(tags.map(t => [t.id, t]));
+                    const chain = [];
+                    let curr = tagMap.get(tagId);
+                    const visited = new Set();
+                    while (curr && !visited.has(curr.id)) {
+                        visited.add(curr.id);
+                        chain.unshift(curr);
+                        curr = curr.parentId ? tagMap.get(curr.parentId) : null;
+                    }
+                    return chain;
+                }
+
+                // 校验并规范化标签关联：子孙标签包含的主题自动递归向上同步至其所有祖先节点 (支持 N 级多层级)
                 function sanitizeSubtagThemeAssociations(tags) {
                     if (!Array.isArray(tags)) return tags;
                     const tagMap = new Map(tags.map(t => [t.id, t]));
@@ -1172,10 +1207,14 @@
                         if (!Array.isArray(t.keywords)) t.keywords = [];
                     });
 
-                    // 自动向上同步 (Auto-promote)：子标签拥有的主题自动并入父级一级标签
+                    // 自动向上递归同步 (Recursive Auto-promote)：各级标签包含的主题逐级并入所有祖先节点
                     tags.forEach(t => {
-                        if (t.parentId) {
-                            const parent = tagMap.get(t.parentId);
+                        if (!t.themes || t.themes.length === 0) return;
+                        let currParentId = t.parentId;
+                        const visited = new Set();
+                        while (currParentId && !visited.has(currParentId)) {
+                            visited.add(currParentId);
+                            const parent = tagMap.get(currParentId);
                             if (parent) {
                                 if (!Array.isArray(parent.themes)) parent.themes = [];
                                 t.themes.forEach(themeName => {
@@ -1183,6 +1222,9 @@
                                         parent.themes.push(themeName);
                                     }
                                 });
+                                currParentId = parent.parentId;
+                            } else {
+                                break;
                             }
                         }
                     });
@@ -2136,14 +2178,9 @@
 
                 function getExpandedTagIds(tagId, tags) {
                     if (!isSubtagsEnabled()) return [tagId];
-                    const tag = tags.find(t => t.id === tagId);
-                    if (!tag) return [tagId];
-                    // 如果是一级标签（parentId 为空），包含其自身及所有二级子标签
-                    if (!tag.parentId) {
-                        const childIds = tags.filter(t => t.parentId === tagId).map(t => t.id);
-                        return [tagId, ...childIds];
-                    }
-                    return [tagId];
+                    if (!tagId) return [];
+                    const descendants = getAllDescendantTagIds(tagId, tags);
+                    return [tagId, ...descendants];
                 }
 
                 // 判断主题是否匹配当前标签筛选
@@ -2550,7 +2587,7 @@
 
                         visibleLevel1Tags.forEach(tag => {
                             const chip = document.createElement('div');
-                            const childIds = subtagsEnabled ? tags.filter(t => t.parentId === tag.id).map(t => t.id) : [];
+                            const childIds = subtagsEnabled ? getAllDescendantTagIds(tag.id, tags) : [];
                             const hasActiveChild = childIds.some(cId => activeTagFilters.has(cId));
                             const hasSubUncat = activeTagFilters.has(`__SUB_UNCATEGORIZED__:${tag.id}`);
                             const isL1Active = activeLevel1TagId === tag.id;
@@ -2609,74 +2646,130 @@
                             container.appendChild(chip);
                         });
 
-                        // 如果开启二级目录且选中的一级标签有效，渲染二级标签排
+                        // 如果开启多级目录且有选中的标签或激活分支，渲染面包屑与多排横向子标签区 (方案 A)
                         if (subtagsEnabled && activeLevel1TagId) {
-                            const parentTag = tags.find(t => t.id === activeLevel1TagId);
-                            if (parentTag) {
-                                const childTags = tags.filter(t => t.parentId === activeLevel1TagId);
-                                const childTagIds = childTags.map(t => t.id);
+                            const chain = getTagAncestorChain(activeLevel1TagId, tags);
+                            if (chain.length > 0) {
                                 subtagsContainer.style.display = 'flex';
+                                subtagsContainer.innerHTML = '';
 
-                                const labelSpan = document.createElement('span');
-                                labelSpan.className = 'tm-subtag-label';
-                                labelSpan.innerHTML = `<i class="fa-solid fa-angle-right"></i> ${escapeHtml(parentTag.name)}:`;
-                                subtagsContainer.appendChild(labelSpan);
-
-                                // 1. 渲染该一级分类下已定义的二级标签
-                                childTags.forEach(childTag => {
-                                    const subChip = document.createElement('div');
-                                    subChip.className = `theme-tag-chip level2 ${activeTagFilters.has(childTag.id) ? 'active' : ''}`;
-                                    subChip.dataset.tagId = childTag.id;
-                                    subChip.innerHTML = `${escapeHtml(childTag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${childTag.themes ? childTag.themes.length : 0})</span>`;
-                                    subChip.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        if (activeTagFilters.has(childTag.id)) {
-                                            if (tagFilterMode === 'or') {
-                                                activeTagFilters.clear();
-                                                activeTagFilters.add(activeLevel1TagId);
-                                            } else {
-                                                activeTagFilters.delete(childTag.id);
-                                            }
-                                        } else {
-                                            if (tagFilterMode === 'or') activeTagFilters.clear();
-                                            activeTagFilters.add(childTag.id);
-                                        }
-                                        handleTagFilterChange();
-                                        renderTagsUI();
-                                    });
-                                    subtagsContainer.appendChild(subChip);
+                                // 1. 渲染面包屑导航栏 (Breadcrumbs Bar)
+                                const breadcrumbsBar = document.createElement('div');
+                                breadcrumbsBar.className = 'tm-tag-breadcrumbs';
+                                let bHtml = `<i class="fa-solid fa-sitemap" style="margin-right:2px; opacity:0.7;"></i> <span class="tm-crumb-item" data-id="all">全部</span>`;
+                                chain.forEach((node, idx) => {
+                                    const isLast = idx === chain.length - 1;
+                                    bHtml += ` <i class="fa-solid fa-angle-right tm-crumb-separator"></i> `;
+                                    bHtml += `<span class="tm-crumb-item ${isLast ? 'active' : ''}" data-id="${node.id}">${escapeHtml(node.name)}</span>`;
                                 });
-
-                                // 2. 渲染默认二级“未分类”标签 (属于当前一级分类，但无任何二级子分类标签的主题)
-                                const l1Themes = parentTag.themes || [];
-                                const subUncatCount = l1Themes.filter(themeName => {
-                                    const themeTags = getTagsForTheme(themeName, tags);
-                                    return !themeTags.some(tId => childTagIds.includes(tId));
-                                }).length;
-
-                                const subUncatKey = `__SUB_UNCATEGORIZED__:${activeLevel1TagId}`;
-                                const isSubUncatActive = activeTagFilters.has(subUncatKey);
-                                const subUncatChip = document.createElement('div');
-                                subUncatChip.className = `theme-tag-chip level2 sub-uncategorized ${isSubUncatActive ? 'active' : ''}`;
-                                subUncatChip.dataset.special = 'sub-uncategorized';
-                                subUncatChip.innerHTML = `未分类 <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${subUncatCount})</span>`;
-                                subUncatChip.addEventListener('click', (e) => {
-                                    e.stopPropagation();
-                                    if (isSubUncatActive) {
+                                breadcrumbsBar.innerHTML = bHtml;
+                                breadcrumbsBar.addEventListener('click', (e) => {
+                                    const crumb = e.target.closest('.tm-crumb-item');
+                                    if (!crumb) return;
+                                    const cid = crumb.dataset.id;
+                                    if (cid === 'all') {
+                                        activeLevel1TagId = null;
+                                        activeTagFilters.clear();
+                                    } else {
+                                        activeLevel1TagId = cid;
                                         if (tagFilterMode === 'or') {
                                             activeTagFilters.clear();
-                                            activeTagFilters.add(activeLevel1TagId);
-                                        } else {
-                                            activeTagFilters.delete(subUncatKey);
+                                            activeTagFilters.add(cid);
                                         }
-                                    } else {
-                                        if (tagFilterMode === 'or') activeTagFilters.clear();
-                                        activeTagFilters.add(subUncatKey);
                                     }
                                     handleTagFilterChange();
                                     renderTagsUI();
                                 });
-                                subtagsContainer.appendChild(subUncatChip);
+                                subtagsContainer.appendChild(breadcrumbsBar);
+
+                                // 2. 逐级渲染所有节点的子标签排 (Multi-level Horizontal Rows)
+                                chain.forEach((currNode) => {
+                                    const childTags = tags.filter(t => t.parentId === currNode.id);
+                                    const childTagIds = childTags.map(t => t.id);
+
+                                    const levelRow = document.createElement('div');
+                                    levelRow.className = 'tm-subtag-level-row';
+
+                                    const labelSpan = document.createElement('span');
+                                    labelSpan.className = 'tm-subtag-label';
+                                    labelSpan.style.fontSize = '11.5px';
+                                    labelSpan.style.opacity = '0.9';
+                                    labelSpan.style.fontWeight = 'bold';
+                                    labelSpan.innerHTML = `<i class="fa-solid fa-angle-right"></i> ${escapeHtml(currNode.name)}:`;
+                                    levelRow.appendChild(labelSpan);
+
+                                    if (childTags.length > 0) {
+                                        childTags.forEach(childTag => {
+                                            const subChip = document.createElement('div');
+                                            const isChildActive = activeTagFilters.has(childTag.id) || chain.some(n => n.id === childTag.id);
+                                            subChip.className = `theme-tag-chip level2 ${isChildActive ? 'active' : ''}`;
+                                            subChip.dataset.tagId = childTag.id;
+
+                                            const expandedIds = getExpandedTagIds(childTag.id, tags);
+                                            const relatedThemes = new Set(childTag.themes || []);
+                                            expandedIds.forEach(eid => {
+                                                const etag = tags.find(t => t.id === eid);
+                                                if (etag && etag.themes) etag.themes.forEach(th => relatedThemes.add(th));
+                                            });
+
+                                            subChip.innerHTML = `${escapeHtml(childTag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${relatedThemes.size})</span>`;
+                                            subChip.addEventListener('click', (e) => {
+                                                e.stopPropagation();
+                                                if (activeTagFilters.has(childTag.id)) {
+                                                    if (tagFilterMode === 'or') {
+                                                        activeTagFilters.clear();
+                                                        activeTagFilters.add(currNode.id);
+                                                        activeLevel1TagId = currNode.id;
+                                                    } else {
+                                                        activeTagFilters.delete(childTag.id);
+                                                    }
+                                                } else {
+                                                    if (tagFilterMode === 'or') activeTagFilters.clear();
+                                                    activeTagFilters.add(childTag.id);
+                                                    activeLevel1TagId = childTag.id;
+                                                }
+                                                handleTagFilterChange();
+                                                renderTagsUI();
+                                            });
+                                            levelRow.appendChild(subChip);
+                                        });
+                                    }
+
+                                    // 默认子级“未分类”标签
+                                    const currNodeThemes = currNode.themes || [];
+                                    const subUncatCount = currNodeThemes.filter(themeName => {
+                                        const themeTags = getTagsForTheme(themeName, tags);
+                                        return !themeTags.some(tId => childTagIds.includes(tId));
+                                    }).length;
+
+                                    const subUncatKey = `__SUB_UNCATEGORIZED__:${currNode.id}`;
+                                    const isSubUncatActive = activeTagFilters.has(subUncatKey);
+                                    const subUncatChip = document.createElement('div');
+                                    subUncatChip.className = `theme-tag-chip level2 sub-uncategorized ${isSubUncatActive ? 'active' : ''}`;
+                                    subUncatChip.dataset.special = 'sub-uncategorized';
+                                    subUncatChip.innerHTML = `未分类 <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${subUncatCount})</span>`;
+                                    subUncatChip.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        if (isSubUncatActive) {
+                                            if (tagFilterMode === 'or') {
+                                                activeTagFilters.clear();
+                                                activeTagFilters.add(currNode.id);
+                                                activeLevel1TagId = currNode.id;
+                                            } else {
+                                                activeTagFilters.delete(subUncatKey);
+                                            }
+                                        } else {
+                                            if (tagFilterMode === 'or') activeTagFilters.clear();
+                                            activeTagFilters.add(subUncatKey);
+                                            activeLevel1TagId = currNode.id;
+                                        }
+                                        handleTagFilterChange();
+                                        renderTagsUI();
+                                    });
+                                    levelRow.appendChild(subUncatChip);
+
+                                    subtagsContainer.appendChild(levelRow);
+                                });
                             }
                         }
                     }
@@ -5603,7 +5696,7 @@
                         <div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; border-bottom:1px solid rgba(128,128,128,0.2); padding-bottom:10px;">
                             <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; font-weight:bold; user-select:none;">
                                 <input type="checkbox" id="chk-enable-subtags" ${subtagsEnabled ? 'checked' : ''}>
-                                <span>开启二级目录模式</span> <small style="opacity:0.6; font-weight:normal;">(支持一级目录/二级标签)</small>
+                                <span>开启多级目录模式</span> <small style="opacity:0.6; font-weight:normal;">(支持多级分类与面包屑导航)</small>
                             </label>
                             <button id="batch-delete-tags-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:4px 12px; white-space:nowrap; word-break:keep-all; flex-shrink:0; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; display:inline-flex !important; flex-direction:row !important; align-items:center !important; justify-content:center !important; writing-mode:horizontal-tb !important; width:auto !important; height:auto !important; min-height:28px !important; gap:4px;"><i class="fa-solid fa-trash-can" style="margin-right:4px;"></i> 批量删除标签</button>
                         </div>
@@ -5620,8 +5713,8 @@
                             </div>
                         </div>
                         <div style="margin-bottom:15px; display:flex; gap:8px; align-items:center;">
-                            <input type="text" id="new-tag-name" class="text_pole" placeholder="${subtagsEnabled ? '新一级标签名称...' : '新标签名称...'}" style="flex-grow:1; min-width:0;">
-                            <button id="add-new-tag-btn" class="menu_button" style="margin:0; white-space:nowrap; flex-shrink:0; width:auto;"><i class="fa-solid fa-plus"></i> ${subtagsEnabled ? '添加一级标签' : '添加标签'}</button>
+                            <input type="text" id="new-tag-name" class="text_pole" placeholder="${subtagsEnabled ? '新根目录名称...' : '新标签名称...'}" style="flex-grow:1; min-width:0;">
+                            <button id="add-new-tag-btn" class="menu_button" style="margin:0; white-space:nowrap; flex-shrink:0; width:auto;"><i class="fa-solid fa-plus"></i> ${subtagsEnabled ? '添加根目录' : '添加标签'}</button>
                         </div>
                         <div id="tags-management-list" style="max-height: 380px; overflow-y:auto; padding-right:4px;"></div>
                         <div style="margin-top:10px; border-top:1px solid rgba(128,128,128,0.2); padding-top:10px;">
@@ -5675,68 +5768,47 @@
                                     listContainer.innerHTML = html;
                                 } else {
                                     let html = '<div class="tm-subtags-tree">';
-                                    const l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
+                                    
+                                    const renderTreeNodes = (pId = null, depth = 0) => {
+                                        const siblings = tags.filter(t => t.parentId === pId || (!pId && !tags.some(p => p.id === t.parentId)));
+                                        if (siblings.length === 0) return '';
+                                        let subHtml = '';
+                                        siblings.forEach((t, idx) => {
+                                            const kwCount = t.keywords ? t.keywords.length : 0;
+                                            const isChecked = selectedTagIds.has(t.id);
+                                            const childTags = tags.filter(c => c.parentId === t.id);
+                                            const validThemesCount = filterValid(t.themes).length;
+                                            const indentPx = depth * 16;
 
-                                    l1Tags.forEach((l1Tag, l1Idx) => {
-                                        const kwCount = l1Tag.keywords ? l1Tag.keywords.length : 0;
-                                        const childTags = tags.filter(t => t.parentId === l1Tag.id);
-                                        const isL1Checked = selectedTagIds.has(l1Tag.id);
-
-                                        html += `
-                                            <div class="tm-level1-card" data-id="${l1Tag.id}" data-index="${l1Idx}">
-                                                <div class="tm-level1-header" data-id="${l1Tag.id}">
-                                                    <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
-                                                        ${isBatchDeleteMode ? `<input type="checkbox" class="tm-batch-tag-chk" data-id="${l1Tag.id}" ${isL1Checked ? 'checked' : ''} style="margin:0;">` : ''}
-                                                        <i class="fa-solid fa-folder-open" style="color:var(--SmartThemeQuoteColor, #4a90e2); flex-shrink:0;"></i>
-                                                        <span style="font-weight:bold; font-size:13px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(l1Tag.name)}</span>
-                                                        <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(二级:${childTags.length}/主题:${filterValid(l1Tag.themes).length})</small>
-                                                        ${kwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${kwCount}词]</small>` : ''}
-                                                    </div>
-                                                    <div style="display:flex; gap:3px; align-items:center; flex-shrink:0;">
-                                                        <button class="menu_button move-l1-up tm-btn-icon-only" data-id="${l1Tag.id}" title="向上移动一级目录" ${l1Idx === 0 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-up"></i></button>
-                                                        <button class="menu_button move-l1-down tm-btn-icon-only" data-id="${l1Tag.id}" title="向下移动一级目录" ${l1Idx === l1Tags.length - 1 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-down"></i></button>
-                                                        <button class="menu_button add-subtag-btn tm-btn-icon-only" data-id="${l1Tag.id}" title="添加二级标签"><i class="fa-solid fa-plus"></i></button>
-                                                        <button class="menu_button demote-tag-inline tm-btn-icon-only" data-id="${l1Tag.id}" title="降为二级标签（划入别的一级目录）"><i class="fa-solid fa-turn-down"></i></button>
-                                                        <button class="menu_button keywords-tag-inline tm-btn-icon-only" data-id="${l1Tag.id}" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
-                                                        <button class="menu_button rename-tag-inline tm-btn-icon-only" data-id="${l1Tag.id}" title="重命名"><i class="fa-solid fa-pen"></i></button>
-                                                        <button class="menu_button delete-tag-inline tm-btn-icon-only" data-id="${l1Tag.id}" title="删除"><i class="fa-solid fa-trash"></i></button>
-                                                    </div>
-                                                </div>
-                                                <div class="tm-level2-container" data-parent-id="${l1Tag.id}">
-                                        `;
-
-                                        if (childTags.length === 0) {
-                                            html += `<div class="tm-empty-subtags-dropzone" data-parent-id="${l1Tag.id}">(暂无二级标签)</div>`;
-                                        } else {
-                                            childTags.forEach((cTag, cIdx) => {
-                                                const cKwCount = cTag.keywords ? cTag.keywords.length : 0;
-                                                const isL2Checked = selectedTagIds.has(cTag.id);
-                                                html += `
-                                                    <div class="tm-level2-item" data-id="${cTag.id}" data-parent-id="${l1Tag.id}" data-index="${cIdx}">
+                                            subHtml += `
+                                                <div class="tm-tree-tag-card" data-id="${t.id}" data-parent-id="${pId || ''}" data-index="${idx}" style="margin-left:${indentPx}px; margin-bottom:4px;">
+                                                    <div class="tm-tree-tag-header" style="display:flex; justify-content:space-between; padding:5px 8px; background:rgba(255,255,255,${depth === 0 ? '0.06' : '0.03'}); border-radius:4px; align-items:center; border-left:${depth === 0 ? '3px solid var(--SmartThemeQuoteColor, #4a90e2)' : '2px dashed rgba(255,255,255,0.2)'};">
                                                         <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
-                                                            ${isBatchDeleteMode ? `<input type="checkbox" class="tm-batch-tag-chk" data-id="${cTag.id}" ${isL2Checked ? 'checked' : ''} style="margin:0;">` : ''}
-                                                            <i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
-                                                            <span style="text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(cTag.name)}</span>
-                                                            <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${filterValid(cTag.themes).length})</small>
-                                                            ${cKwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${cKwCount}词]</small>` : ''}
+                                                            ${isBatchDeleteMode ? `<input type="checkbox" class="tm-batch-tag-chk" data-id="${t.id}" ${isChecked ? 'checked' : ''} style="margin:0;">` : ''}
+                                                            <i class="fa-solid ${depth === 0 ? 'fa-folder-open' : (childTags.length > 0 ? 'fa-folder' : 'fa-tag')}" style="color:${depth === 0 ? 'var(--SmartThemeQuoteColor, #4a90e2)' : 'inherit'}; font-size:${12 - Math.min(depth, 2)}px; flex-shrink:0;"></i>
+                                                            <span style="font-weight:${depth === 0 ? 'bold' : 'normal'}; font-size:${13 - Math.min(depth, 2)}px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(t.name)}</span>
+                                                            <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${childTags.length > 0 ? `子:${childTags.length}/` : ''}主题:${validThemesCount})</small>
+                                                            ${kwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${kwCount}词]</small>` : ''}
                                                         </div>
                                                         <div style="display:flex; gap:3px; align-items:center; flex-shrink:0;">
-                                                            <button class="menu_button move-l2-up tm-btn-icon-only" data-id="${cTag.id}" title="向上移动" ${cIdx === 0 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-up"></i></button>
-                                                            <button class="menu_button move-l2-down tm-btn-icon-only" data-id="${cTag.id}" title="向下移动" ${cIdx === childTags.length - 1 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-down"></i></button>
-                                                            <button class="menu_button promote-tag-inline tm-btn-icon-only" data-id="${cTag.id}" title="升为独立一级目录/标签"><i class="fa-solid fa-turn-up"></i></button>
-                                                            <button class="menu_button keywords-tag-inline tm-btn-icon-only" data-id="${cTag.id}" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
-                                                            <button class="menu_button rename-tag-inline tm-btn-icon-only" data-id="${cTag.id}" title="重命名"><i class="fa-solid fa-pen"></i></button>
-                                                            <button class="menu_button delete-tag-inline tm-btn-icon-only" data-id="${cTag.id}" title="删除"><i class="fa-solid fa-trash"></i></button>
+                                                            <button class="menu_button move-tag-up tm-btn-icon-only" data-id="${t.id}" title="向上移动" ${idx === 0 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-up"></i></button>
+                                                            <button class="menu_button move-tag-down tm-btn-icon-only" data-id="${t.id}" title="向下移动" ${idx === siblings.length - 1 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-down"></i></button>
+                                                            <button class="menu_button add-subtag-btn tm-btn-icon-only" data-id="${t.id}" title="给【${escapeHtml(t.name)}】添加子标签"><i class="fa-solid fa-plus"></i></button>
+                                                            ${depth > 0 ? `<button class="menu_button promote-tag-inline tm-btn-icon-only" data-id="${t.id}" title="升一级 (提升至父级的同级)"><i class="fa-solid fa-turn-up"></i></button>` : ''}
+                                                            ${idx > 0 ? `<button class="menu_button demote-tag-inline tm-btn-icon-only" data-id="${t.id}" title="降一级 (划入上方同级标签的子节点)"><i class="fa-solid fa-turn-down"></i></button>` : ''}
+                                                            <button class="menu_button keywords-tag-inline tm-btn-icon-only" data-id="${t.id}" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
+                                                            <button class="menu_button rename-tag-inline tm-btn-icon-only" data-id="${t.id}" title="重命名"><i class="fa-solid fa-pen"></i></button>
+                                                            <button class="menu_button delete-tag-inline tm-btn-icon-only" data-id="${t.id}" title="删除"><i class="fa-solid fa-trash"></i></button>
                                                         </div>
                                                     </div>
-                                                `;
-                                            });
-                                        }
-                                        html += `
+                                                    ${childTags.length > 0 ? renderTreeNodes(t.id, depth + 1) : ''}
                                                 </div>
-                                            </div>
-                                        `;
-                                    });
+                                            `;
+                                        });
+                                        return subHtml;
+                                    };
+
+                                    html += renderTreeNodes(null, 0);
                                     html += '</div>';
                                     listContainer.innerHTML = html;
                                 }
@@ -5839,9 +5911,9 @@
                                     });
                                 });
 
-                                // 移动端整行大区域触控勾选辅助
+                                 // 移动端整行大区域触控勾选辅助
                                 if (isBatchDeleteMode) {
-                                    dlg.querySelectorAll('.tm-flat-tag-item, .tm-level1-header, .tm-level2-item').forEach(row => {
+                                    dlg.querySelectorAll('.tm-flat-tag-item, .tm-tree-tag-header').forEach(row => {
                                         row.style.cursor = 'pointer';
                                         row.addEventListener('click', (e) => {
                                             if (e.target.closest('.tm-btn-icon-only') || e.target.classList.contains('tm-batch-tag-chk')) return;
@@ -5854,16 +5926,17 @@
                                         });
                                     });
                                 }
-                                // 删除
+                                 // 删除
                                 dlg.querySelectorAll('.delete-tag-inline').forEach(btn => {
                                     btn.addEventListener('click', (e) => {
                                         e.stopPropagation();
                                         const id = e.currentTarget.dataset.id;
-                                        if (confirm('确定删除此标签吗？(不会删除主题本身)')) {
-                                            const targetTag = tags.find(t => t.id === id);
+                                        const targetTag = tags.find(t => t.id === id);
+                                        if (confirm(`确定删除标签【${targetTag ? targetTag.name : ''}】吗？(不会删除美化本身)`)) {
                                             const affectedThemes = targetTag && targetTag.themes ? [...targetTag.themes] : [];
+                                            // 将其直接子节点的 parentId 提升为当前标签的 parentId (保留子分类)
                                             tags.forEach(t => {
-                                                if (t.parentId === id) t.parentId = null;
+                                                if (t.parentId === id) t.parentId = targetTag ? targetTag.parentId : null;
                                             });
                                             tags = tags.filter(t => t.id !== id);
                                             saveThemeTags(tags);
@@ -5909,17 +5982,17 @@
                                     });
                                 });
 
-                                // 添加二级标签
+                                // 添加子标签
                                 dlg.querySelectorAll('.add-subtag-btn').forEach(btn => {
                                     btn.addEventListener('click', (e) => {
                                         e.stopPropagation();
                                         const parentId = e.currentTarget.dataset.id;
                                         const parentTag = tags.find(t => t.id === parentId);
-                                        const subName = prompt(`为一级目录「${parentTag ? parentTag.name : ''}」添加二级标签名称:`);
+                                        const subName = prompt(`为【${parentTag ? parentTag.name : '未知标签'}】添加子标签名称:`);
                                         if (subName && subName.trim()) {
                                             const name = subName.trim();
                                             if (tags.some(t => t.name === name && t.parentId === parentId)) {
-                                                toastr.warning('该一级目录已存在同名二级标签');
+                                                toastr.warning('该层级下已存在同名子标签');
                                                 return;
                                             }
                                             tags.push({ id: Date.now().toString(), name: name, parentId: parentId, themes: [], keywords: [] });
@@ -5930,164 +6003,90 @@
                                     });
                                 });
 
-                                // 提升为一级标签
+                                // 升一级 (提升至父级的同级)
                                 dlg.querySelectorAll('.promote-tag-inline').forEach(btn => {
                                     btn.addEventListener('click', (e) => {
                                         e.stopPropagation();
                                         const id = e.currentTarget.dataset.id;
                                         const tag = tags.find(t => t.id === id);
-                                        if (tag) {
-                                            tag.parentId = null;
+                                        if (tag && tag.parentId) {
+                                            const parentTag = tags.find(t => t.id === tag.parentId);
+                                            tag.parentId = parentTag ? (parentTag.parentId || null) : null;
                                             saveThemeTags(tags);
                                             renderList();
                                             softRefreshUI([]);
-                                            toastr.success(`已将「${tag.name}」升为一级标签`);
+                                            toastr.success(`已将「${tag.name}」升一级`);
                                         }
                                     });
                                 });
 
-                                // 降为二级标签（划入别的一级目录）
+                                // 降一级 (划入上方同级标签的子节点)
                                 dlg.querySelectorAll('.demote-tag-inline').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        const id = e.currentTarget.dataset.id;
-                                        const l1Tag = tags.find(t => t.id === id);
-                                        if (!l1Tag) return;
-                                        const otherL1Tags = tags.filter(t => (!t.parentId || !tags.some(p => p.id === t.parentId)) && t.id !== id);
-                                        if (otherL1Tags.length === 0) {
-                                            toastr.warning('没有其他一级目录，请先新建另一个一级目录');
-                                            return;
-                                        }
-
-                                        let selectHtml = `<p style="margin-bottom:10px;">选择将「<b>${escapeHtml(l1Tag.name)}</b>」转为哪个一级目录下的二级标签：</p>
-                                        <div style="display:flex; flex-direction:column; gap:8px; max-height:260px; overflow-y:auto; padding-right:4px;">`;
-                                        otherL1Tags.forEach((targetL1, idx) => {
-                                            selectHtml += `
-                                                <label class="target-l1-label" style="display:flex; align-items:center; gap:10px; padding:10px 12px; background:rgba(255,255,255,0.05); border-radius:6px; cursor:pointer; user-select:none; border:1px solid rgba(128,128,128,0.2); transition:background 0.2s;">
-                                                    <input type="radio" name="target_l1_radio" value="${targetL1.id}" ${idx === 0 ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px; accent-color:var(--SmartThemeQuoteColor, #4a90e2);">
-                                                    <i class="fa-solid fa-folder-open" style="color:var(--SmartThemeQuoteColor, #4a90e2); font-size:14px;"></i>
-                                                    <span style="font-weight:bold; font-size:13px; flex:1; min-width:0; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(targetL1.name)}</span>
-                                                    <small style="opacity:0.6; flex-shrink:0;">(${targetL1.themes ? targetL1.themes.length : 0}个主题)</small>
-                                                </label>
-                                            `;
-                                        });
-                                        selectHtml += `</div>`;
-
-                                        callGenericPopup(selectHtml, 'confirm', null, {
-                                            title: '降为二级标签',
-                                            okButton: '确定转换',
-                                            cancelButton: '取消',
-                                            wide: true,
-                                            onOpen: (subPopup) => {
-                                                const subDlg = subPopup.dlg;
-                                                subDlg.querySelectorAll('.target-l1-label').forEach(lbl => {
-                                                    lbl.addEventListener('click', () => {
-                                                        const rad = lbl.querySelector('input[type="radio"]');
-                                                        if (rad) rad.checked = true;
-                                                    });
-                                                });
-                                                const okBtn = subDlg ? subDlg.querySelector('.popup-button-ok') : null;
-                                                if (okBtn) {
-                                                    okBtn.addEventListener('click', () => {
-                                                        const checkedRadio = subDlg.querySelector('input[name="target_l1_radio"]:checked');
-                                                        if (!checkedRadio) return;
-                                                        const targetL1Id = checkedRadio.value;
-                                                        tags.forEach(t => {
-                                                            if (t.parentId === l1Tag.id) t.parentId = null;
-                                                        });
-                                                        l1Tag.parentId = targetL1Id;
-                                                        saveThemeTags(tags);
-                                                        renderList();
-                                                        softRefreshUI();
-                                                        toastr.success(`已将「${l1Tag.name}」划入别的一级目录作为二级标签`);
-                                                    });
-                                                }
-                                            }
-                                        });
-                                    });
-                                });
-
-                                // 上下移动按钮事件 (平级模式)
-                                dlg.querySelectorAll('.move-flat-up').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        const id = e.currentTarget.dataset.id;
-                                        const idx = tags.findIndex(t => t.id === id);
-                                        if (idx > 0) {
-                                            const [moved] = tags.splice(idx, 1);
-                                            tags.splice(idx - 1, 0, moved);
-                                            saveThemeTags(tags);
-                                            renderList();
-                                            softRefreshUI();
-                                        }
-                                    });
-                                });
-                                dlg.querySelectorAll('.move-flat-down').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        const id = e.currentTarget.dataset.id;
-                                        const idx = tags.findIndex(t => t.id === id);
-                                        if (idx > -1 && idx < tags.length - 1) {
-                                            const [moved] = tags.splice(idx, 1);
-                                            tags.splice(idx + 1, 0, moved);
-                                            saveThemeTags(tags);
-                                            renderList();
-                                            softRefreshUI();
-                                        }
-                                    });
-                                });
-
-                                // 上下移动按钮事件 (一级目录)
-                                dlg.querySelectorAll('.move-l1-up').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        const id = e.currentTarget.dataset.id;
-                                        const l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
-                                        const l1Idx = l1Tags.findIndex(t => t.id === id);
-                                        if (l1Idx > 0) {
-                                            const srcTag = l1Tags[l1Idx];
-                                            const tgtTag = l1Tags[l1Idx - 1];
-                                            const posA = tags.indexOf(srcTag);
-                                            const posB = tags.indexOf(tgtTag);
-                                            if (posA > -1 && posB > -1) {
-                                                const [moved] = tags.splice(posA, 1);
-                                                tags.splice(posB, 0, moved);
-                                                saveThemeTags(tags);
-                                                renderList();
-                                                softRefreshUI();
-                                            }
-                                        }
-                                    });
-                                });
-                                dlg.querySelectorAll('.move-l1-down').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        const id = e.currentTarget.dataset.id;
-                                        const l1Tags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
-                                        const l1Idx = l1Tags.findIndex(t => t.id === id);
-                                        if (l1Idx > -1 && l1Idx < l1Tags.length - 1) {
-                                            const srcTag = l1Tags[l1Idx];
-                                            const tgtTag = l1Tags[l1Idx + 1];
-                                            const posA = tags.indexOf(srcTag);
-                                            const posB = tags.indexOf(tgtTag);
-                                            if (posA > -1 && posB > -1) {
-                                                const [moved] = tags.splice(posA, 1);
-                                                tags.splice(posB, 0, moved);
-                                                saveThemeTags(tags);
-                                                renderList();
-                                                softRefreshUI();
-                                            }
-                                        }
-                                    });
-                                });
-
-                                // 上下移动按钮事件 (二级标签)
-                                dlg.querySelectorAll('.move-l2-up').forEach(btn => {
                                     btn.addEventListener('click', (e) => {
                                         e.stopPropagation();
                                         const id = e.currentTarget.dataset.id;
                                         const tag = tags.find(t => t.id === id);
                                         if (!tag) return;
+                                        const siblings = tags.filter(t => t.parentId === tag.parentId || (!tag.parentId && !tags.some(p => p.id === t.parentId)));
+                                        const idx = siblings.findIndex(t => t.id === id);
+                                        if (idx > 0) {
+                                            const prevSibling = siblings[idx - 1];
+                                            tag.parentId = prevSibling.id;
+                                            saveThemeTags(tags);
+                                            renderList();
+                                            softRefreshUI([]);
+                                            toastr.success(`已将「${tag.name}」划入「${prevSibling.name}」下方作为子标签`);
+                                        } else {
+                                            toastr.warning('上方没有同级标签可供划分入内');
+                                        }
+                                    });
+                                });
+
+                                // 节点平级向上/向下移动
+                                dlg.querySelectorAll('.move-tag-up').forEach(btn => {
+                                    btn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        const id = e.currentTarget.dataset.id;
+                                        const tag = tags.find(t => t.id === id);
+                                        if (!tag) return;
+                                        const siblings = tags.filter(t => t.parentId === tag.parentId || (!tag.parentId && !tags.some(p => p.id === t.parentId)));
+                                        const idx = siblings.findIndex(t => t.id === id);
+                                        if (idx > 0) {
+                                            const prev = siblings[idx - 1];
+                                            const posA = tags.indexOf(tag);
+                                            const posB = tags.indexOf(prev);
+                                            if (posA > -1 && posB > -1) {
+                                                const [moved] = tags.splice(posA, 1);
+                                                tags.splice(posB, 0, moved);
+                                                saveThemeTags(tags);
+                                                renderList();
+                                                softRefreshUI();
+                                            }
+                                        }
+                                    });
+                                });
+                                dlg.querySelectorAll('.move-tag-down').forEach(btn => {
+                                    btn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        const id = e.currentTarget.dataset.id;
+                                        const tag = tags.find(t => t.id === id);
+                                        if (!tag) return;
+                                        const siblings = tags.filter(t => t.parentId === tag.parentId || (!tag.parentId && !tags.some(p => p.id === t.parentId)));
+                                        const idx = siblings.findIndex(t => t.id === id);
+                                        if (idx > -1 && idx < siblings.length - 1) {
+                                            const next = siblings[idx + 1];
+                                            const posA = tags.indexOf(tag);
+                                            const posB = tags.indexOf(next);
+                                            if (posA > -1 && posB > -1) {
+                                                const [moved] = tags.splice(posA, 1);
+                                                tags.splice(posB, 0, moved);
+                                                saveThemeTags(tags);
+                                                renderList();
+                                                softRefreshUI();
+                                            }
+                                        }
+                                    });
+                                });
                                         const childTags = tags.filter(t => t.parentId === tag.parentId);
                                         const cIdx = childTags.findIndex(t => t.id === id);
                                         if (cIdx > 0) {
