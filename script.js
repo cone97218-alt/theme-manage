@@ -1631,15 +1631,40 @@
                     contentWrapper.innerHTML = '正在加载主题...';
                     try {
                         allThemeObjects = await getCachedThemes();
+
+                        const getThemeName = (t) => {
+                            if (!t) return '';
+                            if (typeof t === 'string') return t;
+                            return t.name || t.value || '';
+                        };
+
+                        // 若 API 返回空或失败，自动降级为读取原生下拉框选项 (#themes)
+                        if (!Array.isArray(allThemeObjects) || allThemeObjects.length === 0) {
+                            if (originalSelect && originalSelect.options && originalSelect.options.length > 0) {
+                                allThemeObjects = Array.from(originalSelect.options).filter(opt => opt.value).map(opt => ({
+                                    name: opt.value,
+                                    value: opt.value,
+                                    mtime: 0
+                                }));
+                            }
+                        }
+
+                        // 规范化对象格式 (兼容 string 与 object 结构)
+                        allThemeObjects = (allThemeObjects || []).map(t => {
+                            const themeName = getThemeName(t);
+                            if (!themeName) return null;
+                            if (typeof t === 'string') return { name: themeName, value: themeName, mtime: 0 };
+                            return { ...t, name: themeName, value: themeName };
+                        }).filter(Boolean);
+
                         allThemeObjectsMap.clear();
                         allThemeObjects.forEach(t => {
-                            const name = t.name || t.value;
-                            if (name) allThemeObjectsMap.set(name, t);
+                            allThemeObjectsMap.set(t.value, t);
                         });
 
-                        // 🧹 严格以服务端 API 返回的真实磁盘文件列表为准，清理原生下拉框中已从磁盘删除的死选项节点
+                        // 仅在获取到了有效主题列表时，才做死选项清理
                         const serverThemeNames = new Set(Array.from(allThemeObjectsMap.keys()));
-                        if (originalSelect && originalSelect.options) {
+                        if (serverThemeNames.size > 0 && originalSelect && originalSelect.options) {
                             Array.from(originalSelect.options).forEach(opt => {
                                 if (opt.value && !serverThemeNames.has(opt.value)) {
                                     console.log(`[Theme Manager] 🧹 清理原生下拉框中的死选项: "${opt.value}"`);
@@ -1662,9 +1687,9 @@
                         // 构建反向索引，将 getTagsForTheme 从 O(tags*themes) 降为 O(1)
                         buildThemeTagIndex(cachedTags);
 
-                        // 仅以服务器真实存在的主题数据对象构建 UI 列表，彻底隔离已被物理删除的残留项
+                        // 仅以有效存在的主题数据对象构建 UI 列表
                         allParsedThemes = allThemeObjects.map(t => {
-                            const themeName = t.name || t.value;
+                            const themeName = getThemeName(t);
                             if (!themeName) return null;
                             return { value: themeName, display: themeName, tags: [], mtime: t.mtime || 0 };
                         }).filter(Boolean);
