@@ -1542,13 +1542,13 @@
                         applyKeywordMappings();
 
                         // 重新加载并更新反向索引与 tag 关联
-                        const cachedTags = loadThemeTags();
-                        buildThemeTagIndex(cachedTags);
+                        const updatedTags = loadThemeTags();
+                        buildThemeTagIndex(updatedTags);
                         allParsedThemes.forEach(t => {
-                            t.tags = getTagsForTheme(t.value, cachedTags);
+                            t.tags = getTagsForTheme(t.value, updatedTags);
                         });
 
-                        renderTagsUI(cachedTags);
+                        renderTagsUI(updatedTags);
                         buildThemeListLazy(scrollTop);
 
                     } catch (err) {
