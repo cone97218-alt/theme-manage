@@ -354,6 +354,17 @@
                     console.log(`[Theme Manager Delete] ══════════════════════════════════════`);
                     console.log(`[Theme Manager Delete] 开始擦除物理文件: "${themeName}"`);
 
+                    // 1. 第一优先级：优先绝对精准擦除原始名称
+                    const rawName = String(themeName).trim();
+                    try {
+                        await apiRequest('themes/delete', 'POST', { name: rawName }, true);
+                        console.log(`[Theme Manager Delete] ✅ 成功精准擦除磁盘文件: "${rawName}.json"`);
+                        updateSTThemeMemory({ name: themeName }, 'delete', themeName);
+                        return true;
+                    } catch (err) {
+                        console.log(`[Theme Manager Delete] ℹ️ 精确匹配 "${rawName}.json" 未直接删除 (${err.message})，继续尝试变体文件...`);
+                    }
+
                     const candidateSet = new Set();
                     const addNameVariants = (str) => {
                         if (!str || typeof str !== 'string') return;
@@ -6627,125 +6638,120 @@
                                     toastr.warning(`主题 "${finalNewName}" 已存在，请使用其他名称。`);
                                     return;
                                 }
-                                // ⚠️ 在清内存前先快照完整数据（后台异步块需要用它写盘，届时内存已清）
-                                const fullThemeObj = findThemeObject(oldName) || { name: oldName };
-                                const isActive = originalSelect.value === oldName;
-                                const newThemeObject = { ...fullThemeObj, name: finalNewName };
 
-                                // 0ms 乐观 UI 重命名：在后台写入物理文件的同时，立刻增量更新本地 DOM、下拉框与关系数据
-                                manualUpdateOriginalSelect('rename', oldName, finalNewName);
-                                updateSTThemeMemory({ name: oldName }, 'delete');
-                                updateSTThemeMemory(newThemeObject, 'add');
-                                invalidateThemesCache();
-
-                                const favIndex = favorites.indexOf(oldName);
-                                if (favIndex > -1) {
-                                    const updatedFavs = [...favorites];
-                                    updatedFavs[favIndex] = finalNewName;
-                                    updateFavorites(updatedFavs);
-                                }
-
-                                if (themeBackgroundBindings[oldName]) {
-                                    themeBackgroundBindings[finalNewName] = themeBackgroundBindings[oldName];
-                                    delete themeBackgroundBindings[oldName];
-                                    localStorage.setItem(THEME_BACKGROUND_BINDINGS_KEY, JSON.stringify(themeBackgroundBindings));
-                                }
-
-                                // 同步更新标签数据中的主题名
-                                let tagsToUpdate = loadThemeTags();
-                                tagsToUpdate.forEach(tag => {
-                                    if (tag.themes) {
-                                        const idx = tag.themes.indexOf(oldName);
-                                        if (idx > -1) tag.themes[idx] = finalNewName;
+                                showLoader();
+                                try {
+                                    // 1. 获取完整的主题对象（包含所有 CSS 与颜色字段，若内存缺少则向 API 重新拉取）
+                                    let fullThemeObj = findThemeObject(oldName);
+                                    if (!fullThemeObj || (!fullThemeObj.main_text_color && !fullThemeObj.custom_css)) {
+                                        const allThemesFromAPI = await getAllThemesFromAPI();
+                                        const fetched = allThemesFromAPI.find(t => t && t.name === oldName);
+                                        if (fetched) fullThemeObj = fetched;
                                     }
-                                });
-                                saveThemeTags(tagsToUpdate);
 
-                                // 同步更新角色绑定的主题名
-                                let charBindings = JSON.parse(localStorage.getItem(CHARACTER_THEME_BINDINGS_KEY)) || {};
-                                let charBindingsChanged = false;
-                                Object.keys(charBindings).forEach(chid => {
-                                    if (charBindings[chid] === oldName) {
-                                        charBindings[chid] = finalNewName;
-                                        charBindingsChanged = true;
+                                    if (!fullThemeObj) {
+                                        hideLoader();
+                                        toastr.error(`无法获取主题「${oldName}」的完整配置数据，重命名失败！`);
+                                        return;
                                     }
-                                });
-                                if (charBindingsChanged) {
-                                    localStorage.setItem(CHARACTER_THEME_BINDINGS_KEY, JSON.stringify(charBindings));
-                                }
 
-                                // 同步更新自动切换主题设置
-                                let autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || {};
-                                let autoThemeChanged = false;
-                                if (autoThemeSettings.dayTarget === oldName) {
-                                    autoThemeSettings.dayTarget = finalNewName;
-                                    autoThemeChanged = true;
-                                }
-                                if (autoThemeSettings.nightTarget === oldName) {
-                                    autoThemeSettings.nightTarget = finalNewName;
-                                    autoThemeChanged = true;
-                                }
-                                if (autoThemeChanged) {
-                                    localStorage.setItem(AUTO_THEME_KEY, JSON.stringify(autoThemeSettings));
-                                }
+                                    const isActive = originalSelect.value === oldName;
+                                    const { mtime: _mtime, ...cleanObj } = fullThemeObj;
+                                    const objectToSave = { ...cleanObj, name: finalNewName };
 
-                                if (Array.isArray(themeDayNightPairs)) {
-                                    let pairsChanged = false;
-                                    themeDayNightPairs.forEach(p => {
-                                        if (p.dayTheme === oldName) { p.dayTheme = finalNewName; pairsChanged = true; }
-                                        if (p.nightTheme === oldName) { p.nightTheme = finalNewName; pairsChanged = true; }
+                                    // 2. 写入新文件到磁盘
+                                    await apiRequest('themes/save', 'POST', objectToSave, true);
+                                    console.log(`[Theme Manager Rename] ✅ Step 1 新文件保存落盘成功: "${finalNewName}.json"`);
+
+                                    // 3. 擦除旧物理文件
+                                    const deleteOk = await deleteTheme(oldName, fullThemeObj);
+                                    console.log(`[Theme Manager Rename] Step 2 旧文件物理擦除 ${deleteOk ? '成功' : '完成'}`);
+
+                                    // 4. 同步更新本地 DOM、原生下拉框与内存数据
+                                    manualUpdateOriginalSelect('rename', oldName, finalNewName);
+                                    updateSTThemeMemory({ name: oldName }, 'delete');
+                                    updateSTThemeMemory(objectToSave, 'add');
+                                    allThemeObjectsMap.delete(oldName);
+                                    allThemeObjectsMap.set(finalNewName, objectToSave);
+                                    invalidateThemesCache();
+
+                                    const favIndex = favorites.indexOf(oldName);
+                                    if (favIndex > -1) {
+                                        const updatedFavs = [...favorites];
+                                        updatedFavs[favIndex] = finalNewName;
+                                        updateFavorites(updatedFavs);
+                                    }
+
+                                    if (themeBackgroundBindings[oldName]) {
+                                        themeBackgroundBindings[finalNewName] = themeBackgroundBindings[oldName];
+                                        delete themeBackgroundBindings[oldName];
+                                        localStorage.setItem(THEME_BACKGROUND_BINDINGS_KEY, JSON.stringify(themeBackgroundBindings));
+                                    }
+
+                                    // 同步更新标签数据中的主题名
+                                    let tagsToUpdate = loadThemeTags();
+                                    tagsToUpdate.forEach(tag => {
+                                        if (tag.themes) {
+                                            const idx = tag.themes.indexOf(oldName);
+                                            if (idx > -1) tag.themes[idx] = finalNewName;
+                                        }
                                     });
-                                    if (pairsChanged) saveThemeDayNightPairs(themeDayNightPairs);
-                                }
+                                    saveThemeTags(tagsToUpdate);
 
-                                // 增量更新 UI（0ms 即时响应，不销毁重建整个 DOM 列表）
-                                softRenameThemeUI(oldName, finalNewName);
-
-                                // 重命名后，如果是当前激活的主题，我们需要更新当前选择并重新应用以同步ST内部状态
-                                if (isActive) {
-                                    originalSelect.value = finalNewName;
-                                    applyThemeDirect(finalNewName);
-                                }
-                                toastr.success(`已将「${oldName}」重命名为「${finalNewName}」`);
-                                updateActiveState();
-
-                                // 后台异步：写新文件，再删旧文件（使用上面已快照的 fullThemeObj，不重新查内存）
-                                (async () => {
-                                    console.log(`[Theme Manager Rename] ══════════════════`);
-                                    console.log(`[Theme Manager Rename] "${oldName}" → "${finalNewName}"`);
-                                    try {
-                                        if (!fullThemeObj.main_text_color && !fullThemeObj.custom_css) {
-                                            console.warn(`[Theme Manager Rename] ⚠️ 快照数据可能不完整，字段数: ${Object.keys(fullThemeObj).length}`);
+                                    // 同步更新角色绑定的主题名
+                                    let charBindings = JSON.parse(localStorage.getItem(CHARACTER_THEME_BINDINGS_KEY)) || {};
+                                    let charBindingsChanged = false;
+                                    Object.keys(charBindings).forEach(chid => {
+                                        if (charBindings[chid] === oldName) {
+                                            charBindings[chid] = finalNewName;
+                                            charBindingsChanged = true;
                                         }
-                                        // 去掉 mtime，保存时不应携带
-                                        const { mtime: _mtime, ...cleanObj } = fullThemeObj;
-                                        const objectToSave = { ...cleanObj, name: finalNewName };
-
-                                        // Step 1: 写入新文件（suppressToast，避免出现重复报错弹窗）
-                                        let saveOk = false;
-                                        try {
-                                            await apiRequest('themes/save', 'POST', objectToSave, true);
-                                            saveOk = true;
-                                            console.log(`[Theme Manager Rename] Step 1 ✅ 新文件写入成功: "${finalNewName}.json"`);
-                                        } catch (saveErr) {
-                                            console.warn(`[Theme Manager Rename] ⚠️ 写入报错 (${saveErr.message})，文件可能已写入，仍继续删旧文件`);
-                                        }
-
-                                        // Step 2: 无论 save 是否报错都删旧文件
-                                        const deleteOk = await deleteTheme(oldName, fullThemeObj);
-                                        console.log(`[Theme Manager Rename] Step 2 ${deleteOk ? '✅' : '⚠️'} 旧文件: "${oldName}"`);
-
-                                        if (!saveOk && !deleteOk) {
-                                            toastr.error(`重命名磁盘操作失败：新文件写入与旧文件删除均出错`);
-                                        } else if (!deleteOk) {
-                                            toastr.warning(`「${oldName}」旧文件未能删除，刷新后可能出现重复`);
-                                        }
-                                    } catch (e) {
-                                        console.error(`[Theme Manager Rename] ❌ 重命名磁盘操作失败:`, e);
-                                        toastr.error(`重命名磁盘操作失败: ${e.message || e}`);
+                                    });
+                                    if (charBindingsChanged) {
+                                        localStorage.setItem(CHARACTER_THEME_BINDINGS_KEY, JSON.stringify(charBindings));
                                     }
-                                    console.log(`[Theme Manager Rename] ══════════════════`);
-                                })();
+
+                                    // 同步更新自动切换主题设置
+                                    let autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || {};
+                                    let autoThemeChanged = false;
+                                    if (autoThemeSettings.dayTarget === oldName) {
+                                        autoThemeSettings.dayTarget = finalNewName;
+                                        autoThemeChanged = true;
+                                    }
+                                    if (autoThemeSettings.nightTarget === oldName) {
+                                        autoThemeSettings.nightTarget = finalNewName;
+                                        autoThemeChanged = true;
+                                    }
+                                    if (autoThemeChanged) {
+                                        localStorage.setItem(AUTO_THEME_KEY, JSON.stringify(autoThemeSettings));
+                                    }
+
+                                    if (Array.isArray(themeDayNightPairs)) {
+                                        let pairsChanged = false;
+                                        themeDayNightPairs.forEach(p => {
+                                            if (p.dayTheme === oldName) { p.dayTheme = finalNewName; pairsChanged = true; }
+                                            if (p.nightTheme === oldName) { p.nightTheme = finalNewName; pairsChanged = true; }
+                                        });
+                                        if (pairsChanged) saveThemeDayNightPairs(themeDayNightPairs);
+                                    }
+
+                                    // 增量更新 UI
+                                    softRenameThemeUI(oldName, finalNewName);
+
+                                    // 若是当前激活主题，重新应用
+                                    if (isActive) {
+                                        originalSelect.value = finalNewName;
+                                        applyThemeDirect(finalNewName);
+                                    }
+                                    updateActiveState();
+                                    hideLoader();
+                                    toastr.success(`已成功将「${oldName}」重命名为「${finalNewName}」！`);
+
+                                } catch (e) {
+                                    hideLoader();
+                                    console.error(`[Theme Manager Rename] 重命名失败:`, e);
+                                    toastr.error(`重命名失败: ${e.message || e}`);
+                                }
                             }
                         }
                         else if (button && button.classList.contains('delete-btn')) {
