@@ -1826,6 +1826,21 @@
                     renderedCount = nextIndex;
                 }
 
+                function isTagPillVisible(tagObj, themeTagIds, tagMode, tagsById) {
+                    if (tagMode === 'none') return false;
+                    const isSub = !!(tagObj.parentId && tagsById.has(tagObj.parentId));
+                    if (tagMode === 'l1') return !isSub;
+                    if (tagMode === 'l2' || tagMode === 'sub') return isSub;
+                    if (tagMode === 'leaf') {
+                        return !themeTagIds.some(otherId => {
+                            if (otherId === tagObj.id) return false;
+                            const otherTag = tagsById.get(otherId);
+                            return otherTag && otherTag.parentId === tagObj.id;
+                        });
+                    }
+                    return true;
+                }
+
                 function checkScrollLoad() {
                     if (listMode !== 'scroll') return;
                     if (renderedCount >= filteredThemes.length) return;
@@ -1928,17 +1943,13 @@
                         usageSpan.style.display = 'none';
                     }
 
-                    // 设置标签药丸
+                    // 设置标签药丸 (N 级显示范围支持)
                     if (theme.tags && theme.tags.length > 0 && tagPillDisplayMode !== 'none') {
                         const tagsDiv = document.createElement('div');
                         tagsDiv.className = 'theme-item-tags';
                         theme.tags.forEach(tagId => {
                             const tagObj = tagsMap.get(tagId);
-                            if (tagObj) {
-                                const isSub = !!tagObj.parentId;
-                                if (tagPillDisplayMode === 'l1' && isSub) return;
-                                if (tagPillDisplayMode === 'l2' && !isSub) return;
-
+                            if (tagObj && isTagPillVisible(tagObj, theme.tags, tagPillDisplayMode, tagsMap)) {
                                 const pill = document.createElement('span');
                                 pill.className = 'theme-item-tag-pill';
                                 pill.textContent = tagObj.name;
@@ -2324,11 +2335,7 @@
                             tagsDiv.className = 'theme-item-tags';
                             theme.tags.forEach(tagId => {
                                 const tagObj = tagsById.get(tagId); // O(1) 查找
-                                if (tagObj) {
-                                    const isSub = !!tagObj.parentId;
-                                    if (tagPillDisplayMode === 'l1' && isSub) return;
-                                    if (tagPillDisplayMode === 'l2' && !isSub) return;
-
+                                if (tagObj && isTagPillVisible(tagObj, theme.tags, tagPillDisplayMode, tagsById)) {
                                     const pill = document.createElement('span');
                                     pill.className = 'theme-item-tag-pill';
                                     pill.textContent = tagObj.name;
@@ -4184,13 +4191,14 @@
                                 </div>
                                 <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding: 8px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;">
                                     <label for="tm-pop-select-tag-pill-mode" style="font-size: 12.5px; margin: 0; display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                        <i id="tm-pill-mode-icon" class="${tagPillDisplayMode === 'none' ? 'fa-solid fa-eye-slash' : (tagPillDisplayMode === 'l1' ? 'fa-solid fa-folder-tree' : (tagPillDisplayMode === 'l2' ? 'fa-solid fa-tag' : 'fa-solid fa-tags'))}" style="color: var(--SmartThemeQuoteColor, #4a90e2);"></i> 标签胶囊显示范围：
+                                        <i id="tm-pill-mode-icon" class="${tagPillDisplayMode === 'none' ? 'fa-solid fa-eye-slash' : (tagPillDisplayMode === 'l1' ? 'fa-solid fa-folder-tree' : (tagPillDisplayMode === 'leaf' ? 'fa-solid fa-tag' : 'fa-solid fa-tags'))}" style="color: var(--SmartThemeQuoteColor, #4a90e2);"></i> 标签胶囊显示范围：
                                     </label>
-                                    <select id="tm-pop-select-tag-pill-mode" class="text_pole" style="font-size: 12px; height: 28px; padding: 2px 8px; width: 180px; margin: 0;">
-                                        <option value="all" ${tagPillDisplayMode === 'all' ? 'selected' : ''}>显示全部 (一级 + 二级)</option>
-                                        <option value="l1" ${tagPillDisplayMode === 'l1' ? 'selected' : ''}>仅显示一级主标签</option>
-                                        <option value="l2" ${tagPillDisplayMode === 'l2' ? 'selected' : ''}>仅显示二级子标签</option>
-                                        <option value="none" ${tagPillDisplayMode === 'none' ? 'selected' : ''}>完全隐藏胶囊</option>
+                                    <select id="tm-pop-select-tag-pill-mode" class="text_pole" style="font-size: 12px; height: 28px; padding: 2px 8px; width: 210px; margin: 0;">
+                                        <option value="all" ${tagPillDisplayMode === 'all' ? 'selected' : ''}>显示全部层级标签 (所有分类)</option>
+                                        <option value="l1" ${tagPillDisplayMode === 'l1' ? 'selected' : ''}>仅显示顶级主分类 (一级标签)</option>
+                                        <option value="l2" ${tagPillDisplayMode === 'l2' || tagPillDisplayMode === 'sub' ? 'selected' : ''}>仅显示所有子级标签 (二级及以上)</option>
+                                        <option value="leaf" ${tagPillDisplayMode === 'leaf' ? 'selected' : ''}>仅显示末级细分标签 (最深子标签)</option>
+                                        <option value="none" ${tagPillDisplayMode === 'none' ? 'selected' : ''}>完全隐藏标签胶囊</option>
                                     </select>
                                 </div>
                             </div>
@@ -4264,7 +4272,9 @@
                                     const iconMap = {
                                         'all': 'fa-solid fa-tags',
                                         'l1': 'fa-solid fa-folder-tree',
-                                        'l2': 'fa-solid fa-tag',
+                                        'l2': 'fa-solid fa-sitemap',
+                                        'sub': 'fa-solid fa-sitemap',
+                                        'leaf': 'fa-solid fa-tag',
                                         'none': 'fa-solid fa-eye-slash'
                                     };
                                     const iconEl = dlg.querySelector('#tm-pill-mode-icon');
@@ -4273,10 +4283,12 @@
                                     softRefreshUI();
 
                                     const labels = {
-                                        'all': '显示全部 (一级 + 二级)',
-                                        'l1': '仅显示一级主标签',
-                                        'l2': '仅显示二级子标签',
-                                        'none': '完全隐藏胶囊'
+                                        'all': '显示全部层级标签',
+                                        'l1': '仅显示顶级主分类',
+                                        'l2': '仅显示所有子级标签',
+                                        'sub': '仅显示所有子级标签',
+                                        'leaf': '仅显示末级细分标签',
+                                        'none': '完全隐藏标签胶囊'
                                     };
                                     toastr.info(`标签胶囊显示模式已切换为：${labels[tagPillDisplayMode] || tagPillDisplayMode}`);
                                 });
