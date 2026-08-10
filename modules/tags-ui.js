@@ -1,115 +1,24 @@
 /**
  * tags-ui.js
- * 标签芯片 UI 渲染、多级树面包屑与切换状态
+ * 标签栏 UI 渲染函数：renderTagsUI、updateTagChipsActiveState
+ * 以及面包屑导航、子标签行渲染、祖先路径管理等
  */
 
 import { state } from './state.js';
-import { ACTIVE_TAGS_KEY, ACTIVE_TAG_PATH_KEY, TAG_FILTER_MODE_KEY, ENABLE_SUBTAGS_KEY } from './constants.js';
-import { loadThemeTags, buildThemeTagIndex, getTagsForTheme, getAllDescendantTagIds, isTagPillVisible } from './tags-core.js';
-import { handleTagFilterChange, filterThemeList } from './search-filter.js';
+import {
+    ACTIVE_TAGS_KEY, ACTIVE_TAG_PATH_KEY, TAG_FILTER_MODE_KEY, ENABLE_SUBTAGS_KEY
+} from './constants.js';
+import { loadThemeTags, getAllDescendantTagIds, getTagsForTheme } from './tags-core.js';
+import { handleTagFilterChange } from './search-filter.js';
 import { escapeHtml } from './utils.js';
+
+// ─── 子标签功能开关 ────────────────────────────────────────────────────────────
 
 export function isSubtagsEnabled() {
     return localStorage.getItem(ENABLE_SUBTAGS_KEY) !== 'false';
 }
 
-/**
- * 快速更新标签芯片的 active 状态（纯 CSS 切换，不重建 DOM）
- */
-export function updateTagChipsActiveState() {
-    if (!state.managerPanel) return;
-    const container = state.managerPanel.querySelector('#theme-tags-container');
-    const subtagsContainers = state.managerPanel.querySelectorAll('.theme-subtags-row');
-    const cachedTags = loadThemeTags();
-    if (!container) return;
-
-    container.querySelectorAll('.theme-tag-chip').forEach(chip => {
-        const tagId = chip.dataset.tagId;
-        if (tagId) {
-            const isL1 = chip.classList.contains('level1');
-            if (isL1) {
-                const childIds = isSubtagsEnabled() ? cachedTags.filter(t => t.parentId === tagId).map(t => t.id) : [];
-                const hasActiveChild = childIds.some(cId => state.activeTagFilters.has(cId));
-                const hasSubUncat = state.activeTagFilters.has(`__SUB_UNCATEGORIZED__:${tagId}`);
-                const isL1Active = state.activeLevel1TagId === tagId;
-                const isDirectActive = state.activeTagFilters.has(tagId);
-
-                chip.classList.toggle('active', isDirectActive || isL1Active || hasActiveChild || hasSubUncat);
-            } else {
-                chip.classList.toggle('active', state.activeTagFilters.has(tagId));
-            }
-        } else if (chip.dataset.special === 'favorites') {
-            chip.classList.toggle('active', state.activeTagFilters.has('__FAVORITES__'));
-        } else if (chip.dataset.special === 'uncategorized') {
-            chip.classList.toggle('active', state.activeTagFilters.has('__UNCATEGORIZED__'));
-        } else if (chip.dataset.special === 'all') {
-            chip.classList.toggle('active', state.activeTagFilters.size === 0);
-        }
-    });
-
-    subtagsContainers.forEach(subtagsContainer => {
-        subtagsContainer.querySelectorAll('.theme-tag-chip').forEach(chip => {
-            const tagId = chip.dataset.tagId;
-            if (tagId) {
-                chip.classList.toggle('active', state.activeTagFilters.has(tagId));
-            } else if (chip.dataset.special === 'sub-uncategorized') {
-                const subUncatKey = `__SUB_UNCATEGORIZED__:${state.activeLevel1TagId}`;
-                chip.classList.toggle('active', state.activeTagFilters.has(subUncatKey));
-            }
-        });
-    });
-
-    const modeBtn = container.querySelector('.tm-filter-mode-btn');
-    if (modeBtn) {
-        modeBtn.title = state.tagFilterMode === 'and' ? '当前：AND 交叉筛选（点击切换为 OR 模式）' : '当前：OR 任意筛选（点击切换为 AND 模式）';
-        modeBtn.innerHTML = state.tagFilterMode === 'and'
-            ? '<i class="fa-solid fa-layer-group"></i>'
-            : '<i class="fa-solid fa-circle-nodes"></i>';
-        modeBtn.classList.toggle('active', state.tagFilterMode === 'and');
-    }
-}
-
-// 注册回调给 state 供其他模块反向引用（解耦循环依赖）
-state.updateTagChipsActiveStateFn = updateTagChipsActiveState;
-
-/**
- * 轻量级更新标签和界面，不重建 DOM
- * @param {Array<string>|null} changedThemeNames 若指定则只更新这些主题的标签 pill
- */
-export function softRefreshUI(changedThemeNames = null) {
-    const cachedTags = loadThemeTags();
-    buildThemeTagIndex(cachedTags);
-
-    if (Array.isArray(changedThemeNames) && changedThemeNames.length === 0) {
-        renderTagsUI(cachedTags);
-        updateTagChipsActiveState();
-        return;
-    }
-
-    const tagsById = new Map(cachedTags.map(t => [t.id, t]));
-
-    if (changedThemeNames) {
-        changedThemeNames.forEach(name => {
-            const theme = state.allParsedThemesMap.get(name);
-            if (theme) theme.tags = getTagsForTheme(name, cachedTags);
-        });
-    } else {
-        state.allParsedThemes.forEach(theme => {
-            theme.tags = getTagsForTheme(theme.value, cachedTags);
-        });
-    }
-
-    renderTagsUI(cachedTags);
-    updateTagChipsActiveState();
-
-    if (typeof state.updateThemeItemTagsFn === 'function') {
-        state.updateThemeItemTagsFn(changedThemeNames, tagsById);
-    }
-
-    filterThemeList();
-}
-
-state.softRefreshUIFn = softRefreshUI;
+// ─── 祖先路径持久化 ───────────────────────────────────────────────────────────
 
 export function saveActiveTagAncestryPath() {
     localStorage.setItem(ACTIVE_TAG_PATH_KEY, JSON.stringify(state.activeTagAncestryPath));
@@ -158,21 +67,78 @@ export function syncActiveAncestryPath(allTags) {
     }
 }
 
-/**
- * 渲染全量标签过滤栏与多级树面包屑
- * @param {Array} [cachedTags]
- */
+// ─── 标签 chip active 状态快速更新 ────────────────────────────────────────────
+
+export function updateTagChipsActiveState() {
+    const container = state.managerPanel ? state.managerPanel.querySelector('#theme-tags-container') : null;
+    const cachedTags = loadThemeTags();
+    if (!container) return;
+
+    container.querySelectorAll('.theme-tag-chip').forEach(chip => {
+        const tagId = chip.dataset.tagId;
+        if (tagId) {
+            const isL1 = chip.classList.contains('level1');
+            if (isL1) {
+                const childIds = isSubtagsEnabled() ? cachedTags.filter(t => t.parentId === tagId).map(t => t.id) : [];
+                const hasActiveChild = childIds.some(cId => state.activeTagFilters.has(cId));
+                const hasSubUncat = state.activeTagFilters.has(`__SUB_UNCATEGORIZED__:${tagId}`);
+                const isL1Active = state.activeLevel1TagId === tagId;
+                const isDirectActive = state.activeTagFilters.has(tagId);
+
+                chip.classList.toggle('active', isDirectActive || isL1Active || hasActiveChild || hasSubUncat);
+            } else {
+                chip.classList.toggle('active', state.activeTagFilters.has(tagId));
+            }
+        } else if (chip.dataset.special === 'favorites') {
+            chip.classList.toggle('active', state.activeTagFilters.has('__FAVORITES__'));
+        } else if (chip.dataset.special === 'uncategorized') {
+            chip.classList.toggle('active', state.activeTagFilters.has('__UNCATEGORIZED__'));
+        } else if (chip.dataset.special === 'all') {
+            chip.classList.toggle('active', state.activeTagFilters.size === 0);
+        }
+    });
+
+    // 同步子标签行 chip 状态
+    if (state.managerPanel) {
+        state.managerPanel.querySelectorAll('.theme-subtags-row .theme-tag-chip').forEach(chip => {
+            const tagId = chip.dataset.tagId;
+            if (tagId) {
+                chip.classList.toggle('active', state.activeTagFilters.has(tagId));
+            } else if (chip.dataset.special === 'sub-uncategorized') {
+                const subUncatKey = `__SUB_UNCATEGORIZED__:${state.activeLevel1TagId}`;
+                chip.classList.toggle('active', state.activeTagFilters.has(subUncatKey));
+            }
+        });
+    }
+
+    // 同步筛选模式图标
+    const modeBtn = container.querySelector('.tm-filter-mode-btn');
+    if (modeBtn) {
+        modeBtn.title = state.tagFilterMode === 'and'
+            ? '当前：AND 交叉筛选（点击切换为 OR 模式）'
+            : '当前：OR 任意筛选（点击切换为 AND 模式）';
+        modeBtn.innerHTML = state.tagFilterMode === 'and'
+            ? '<i class="fa-solid fa-layer-group"></i>'
+            : '<i class="fa-solid fa-circle-nodes"></i>';
+        modeBtn.classList.toggle('active', state.tagFilterMode === 'and');
+    }
+}
+
+// ─── 主标签栏 UI 渲染 ──────────────────────────────────────────────────────────
+
 export function renderTagsUI(cachedTags) {
-    if (!state.managerPanel) return;
-    const container = state.managerPanel.querySelector('#theme-tags-container');
+    const container = state.managerPanel ? state.managerPanel.querySelector('#theme-tags-container') : null;
     if (!container) return;
     container.innerHTML = '';
 
-    const oldSubtags = state.managerPanel.querySelectorAll('.theme-subtags-row, .tm-breadcrumb-bar');
-    oldSubtags.forEach(el => el.remove());
+    // 清理旧有的多级子标签排和面包屑 Bar
+    if (state.managerPanel) {
+        state.managerPanel.querySelectorAll('.theme-subtags-row, .tm-breadcrumb-bar').forEach(el => el.remove());
+    }
 
     const subtagsEnabled = isSubtagsEnabled();
 
+    // 筛选模式切换图标（OR / AND），放在最前面
     const modeBtn = document.createElement('div');
     modeBtn.className = `tm-filter-mode-btn${state.tagFilterMode === 'and' ? ' active' : ''}`;
     modeBtn.title = state.tagFilterMode === 'and'
@@ -202,6 +168,7 @@ export function renderTagsUI(cachedTags) {
     });
     container.appendChild(modeBtn);
 
+    // 「全部」 chip
     const allChip = document.createElement('div');
     allChip.className = `theme-tag-chip ${state.activeTagFilters.size === 0 && state.activeTagAncestryPath.length === 0 ? 'active' : ''}`;
     allChip.dataset.special = 'all';
@@ -216,6 +183,7 @@ export function renderTagsUI(cachedTags) {
     });
     container.appendChild(allChip);
 
+    // 「收藏」 chip
     const favChip = document.createElement('div');
     favChip.className = `theme-tag-chip ${state.activeTagFilters.has('__FAVORITES__') ? 'active' : ''}`;
     favChip.dataset.special = 'favorites';
@@ -235,6 +203,7 @@ export function renderTagsUI(cachedTags) {
     });
     container.appendChild(favChip);
 
+    // 「未分类」 chip
     const uncatChip = document.createElement('div');
     uncatChip.className = `theme-tag-chip ${state.activeTagFilters.has('__UNCATEGORIZED__') ? 'active' : ''}`;
     uncatChip.dataset.special = 'uncategorized';
@@ -325,9 +294,11 @@ export function renderTagsUI(cachedTags) {
             container.appendChild(chip);
         });
 
+        // 渲染面包屑导航与动态多级子标签排
         if (subtagsEnabled && state.activeTagAncestryPath.length > 0) {
             let lastRowRef = container;
 
+            // 面包屑 Bar
             const breadcrumbBar = document.createElement('div');
             breadcrumbBar.className = 'tm-breadcrumb-bar';
 
@@ -395,6 +366,7 @@ export function renderTagsUI(cachedTags) {
             container.parentNode.insertBefore(breadcrumbBar, lastRowRef.nextSibling);
             lastRowRef = breadcrumbBar;
 
+            // 子标签行渲染（默认仅最下级，可展开）
             const displayDepthIndices = state.renderAllAncestorSubtagRows
                 ? state.activeTagAncestryPath.map((_, idx) => idx)
                 : [state.activeTagAncestryPath.length - 1];
@@ -436,6 +408,7 @@ export function renderTagsUI(cachedTags) {
                         e.stopPropagation();
                         if (state.tagFilterMode === 'or') {
                             if (isSubInPath && isSubDirectActive) {
+                                // OR 模式：再次点击已选 -> 回退到父级
                                 state.activeTagAncestryPath = state.activeTagAncestryPath.slice(0, depthIdx + 1);
                                 state.activeTagFilters.clear();
                                 const parentIdAtUpperLevel = state.activeTagAncestryPath[state.activeTagAncestryPath.length - 1];
@@ -443,11 +416,13 @@ export function renderTagsUI(cachedTags) {
                                     state.activeTagFilters.add(parentIdAtUpperLevel);
                                 }
                             } else {
+                                // OR 模式：同层单选替换
                                 state.activeTagAncestryPath = [...state.activeTagAncestryPath.slice(0, depthIdx + 1), childTag.id];
                                 state.activeTagFilters.clear();
                                 state.activeTagFilters.add(childTag.id);
                             }
                         } else {
+                            // AND 模式：多选 toggle
                             state.activeTagAncestryPath = [...state.activeTagAncestryPath.slice(0, depthIdx + 1), childTag.id];
                             if (state.activeTagFilters.has(childTag.id)) {
                                 state.activeTagFilters.delete(childTag.id);
@@ -462,6 +437,7 @@ export function renderTagsUI(cachedTags) {
                     subRow.appendChild(subChip);
                 });
 
+                // 次级"未分类"胶囊
                 const lThemes = parentTag.themes || [];
                 const subUncatCount = lThemes.filter(themeName => {
                     const themeTags = getTagsForTheme(themeName, tags);
@@ -506,4 +482,11 @@ export function renderTagsUI(cachedTags) {
             });
         }
     }
+}
+
+/**
+ * 注册回调到 state，供 search-filter.js 调用（避免循环依赖）
+ */
+export function registerTagsUICallbacks() {
+    state.updateTagChipsActiveStateFn = updateTagChipsActiveState;
 }

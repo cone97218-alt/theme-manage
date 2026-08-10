@@ -2,9 +2,8 @@ import { state, ctx } from './state.js';
 import { CACHE_TTL } from './constants.js';
 import { escapeHtml } from './utils.js';
 
-// NOTE: invalidateValidThemeNamesCache is defined in another module (e.g. themeIndex.js)
-// and must be imported there or passed in. Declared here as a forward-reference shim.
-import { invalidateValidThemeNamesCache } from './tags-core.js';
+// invalidateValidThemeNamesCache 直接内联，避免与 tags-core.js 产生循环依赖
+function invalidateValidThemeNamesCache() { state._cachedValidThemeNames = null; }
 
 export async function apiRequest(endpoint, method = 'POST', body = {}, suppressToast = false) {
     try {
