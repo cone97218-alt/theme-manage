@@ -262,13 +262,36 @@ export async function promptAction(message, defaultValue = '') {
 
 export async function getCachedThemes() {
     const now = Date.now();
-    if (state._themesCache && (now - state._themesCacheTime) < CACHE_TTL) {
+    if (state._themesCache && state._themesCache.length > 0 && (now - state._themesCacheTime) < CACHE_TTL) {
         return state._themesCache;
     }
-    state._themesCache = await getAllThemesFromAPI();
+    let themes = [];
+    try {
+        themes = await getAllThemesFromAPI();
+    } catch (e) {
+        console.warn('[Theme Manager] getAllThemesFromAPI 提示异常, 尝试内存与 DOM 备选源:', e);
+    }
+
+    if (!Array.isArray(themes) || themes.length === 0) {
+        if (ctx.themes && Array.isArray(ctx.themes) && ctx.themes.length > 0) {
+            themes = ctx.themes;
+        } else if (typeof power_user !== 'undefined' && power_user && Array.isArray(power_user.themes) && power_user.themes.length > 0) {
+            themes = power_user.themes;
+        } else {
+            const selectEl = document.querySelector('#themes');
+            if (selectEl && selectEl.options && selectEl.options.length > 0) {
+                themes = Array.from(selectEl.options)
+                    .map(opt => opt.value ? { name: opt.value, value: opt.value } : null)
+                    .filter(Boolean);
+            }
+        }
+    }
+
+    state._themesCache = themes || [];
     state._themesCacheTime = now;
     return state._themesCache;
 }
+
 
 export function invalidateThemesCache() {
     state._themesCache = null;

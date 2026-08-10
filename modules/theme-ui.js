@@ -437,7 +437,7 @@ export async function buildThemeUI() {
         });
 
         const serverThemeNames = new Set(Array.from(state.allThemeObjectsMap.keys()));
-        if (originalSelect && originalSelect.options) {
+        if (serverThemeNames.size > 0 && originalSelect && originalSelect.options) {
             Array.from(originalSelect.options).forEach(opt => {
                 if (opt.value && !serverThemeNames.has(opt.value)) {
                     console.log(`[Theme Manager] 🧹 清理原生下拉框中的死选项: "${opt.value}"`);
@@ -445,6 +445,7 @@ export async function buildThemeUI() {
                 }
             });
         }
+
 
         if (state.allParsedThemes.length > 0 && isThemeListIdentical() && state.themeItemMap.size > 0) {
             state.contentWrapper.innerHTML = '';
