@@ -1070,23 +1070,32 @@
                     scheduleAsyncProtection();
                 }
 
-                // 校验并净化二级子标签的主题关联：二级标签包含的主题必须严格属于其父级一级标签
+                // 校验并规范化标签关联：子标签包含的主题必须自动同步提升至其父级一级标签
                 function sanitizeSubtagThemeAssociations(tags) {
                     if (!Array.isArray(tags)) return tags;
                     const tagMap = new Map(tags.map(t => [t.id, t]));
+                    
+                    // 确保数组初始化完整
+                    tags.forEach(t => {
+                        if (!Array.isArray(t.themes)) t.themes = [];
+                        if (!Array.isArray(t.keywords)) t.keywords = [];
+                    });
+
+                    // 自动向上同步 (Auto-promote)：子标签拥有的主题自动并入父级一级标签
                     tags.forEach(t => {
                         if (t.parentId) {
                             const parent = tagMap.get(t.parentId);
-                            if (parent && Array.isArray(parent.themes)) {
-                                const parentThemes = new Set(parent.themes);
-                                if (Array.isArray(t.themes)) {
-                                    t.themes = t.themes.filter(themeName => parentThemes.has(themeName));
-                                }
-                            } else {
-                                t.themes = [];
+                            if (parent) {
+                                if (!Array.isArray(parent.themes)) parent.themes = [];
+                                t.themes.forEach(themeName => {
+                                    if (!parent.themes.includes(themeName)) {
+                                        parent.themes.push(themeName);
+                                    }
+                                });
                             }
                         }
                     });
+
                     return tags;
                 }
 
@@ -1522,13 +1531,22 @@
                         allParsedThemes = allThemeObjects.map(t => {
                             const themeName = t.name || t.value;
                             if (!themeName) return null;
-                            const tagIds = getTagsForTheme(themeName, cachedTags);
-                            return { value: themeName, display: themeName, tags: tagIds, mtime: t.mtime || 0 };
+                            return { value: themeName, display: themeName, tags: [], mtime: t.mtime || 0 };
                         }).filter(Boolean);
 
                         // 刷新 Map 索引
                         allParsedThemesMap.clear();
                         allParsedThemes.forEach(t => allParsedThemesMap.set(t.value, t));
+
+                        // 系统初始化时运行关键词自动映射（支持仅包含关键词的配置文件自动推导主题）
+                        applyKeywordMappings();
+
+                        // 重新加载并更新反向索引与 tag 关联
+                        const cachedTags = loadThemeTags();
+                        buildThemeTagIndex(cachedTags);
+                        allParsedThemes.forEach(t => {
+                            t.tags = getTagsForTheme(t.value, cachedTags);
+                        });
 
                         renderTagsUI(cachedTags);
                         buildThemeListLazy(scrollTop);
@@ -2845,10 +2863,26 @@
                             }
                         }
 
-                        toastr.success(`成功导入 ${importCount} 条配置！请刷新页面以应用所有更改。`, '导入成功');
+                        toastr.success(`成功导入 ${importCount} 条配置！`, '导入成功');
                         // 导入后刷新缓存
                         invalidateTagsCache();
                         invalidateThemesCache();
+
+                        // 立即应用关键词自动映射（自动还原基于关键词导出的配置关联）
+                        applyKeywordMappings();
+
+                        // 重新刷新界面
+                        const freshTags = loadThemeTags();
+                        buildThemeTagIndex(freshTags);
+                        if (allParsedThemes && allParsedThemes.length > 0) {
+                            allParsedThemes.forEach(t => {
+                                t.tags = getTagsForTheme(t.value, freshTags);
+                            });
+                        }
+                        renderTagsUI(freshTags);
+                        renderThemesList();
+                        updateActiveState();
+
                         showRefreshNotification(); // 显示那个“请刷新页面”的横幅提示
 
                     } catch (error) {
@@ -4009,21 +4043,15 @@
 
                     const themesToCheck = themeNames
                         ? (Array.isArray(themeNames) ? themeNames : [themeNames])
-                        : allParsedThemes.map(t => t.value);
+                        : (allParsedThemes ? allParsedThemes.map(t => t.value) : []);
+                    if (themesToCheck.length === 0) return false;
                     let changed = false;
 
                     for (const tag of tags) {
                         if (!tag.keywords || tag.keywords.length === 0) continue;
 
-                        // 如果是二级子标签，只能在其归属的一级父级标签拥有的主题中进行关键词检索！
-                        let candidateThemes = themesToCheck;
-                        if (tag.parentId) {
-                            const parentTag = tags.find(p => p.id === tag.parentId);
-                            const parentThemes = parentTag && Array.isArray(parentTag.themes) ? parentTag.themes : [];
-                            candidateThemes = themesToCheck.filter(th => parentThemes.includes(th));
-                        }
-
-                        for (const themeName of candidateThemes) {
+                        // 无论是一级还是二级标签，基于设置的关键词全量检索匹配美化
+                        for (const themeName of themesToCheck) {
                             const nameLC = themeName.toLowerCase();
                             const matches = tag.keywords.some(kw => kw && nameLC.includes(kw.toLowerCase()));
                             if (matches) {
