@@ -2352,6 +2352,7 @@
                 // N-Level 激活祖先链路径与持久化
                 const ACTIVE_TAG_PATH_KEY = 'theme_manager_active_tag_path';
                 let activeTagAncestryPath = JSON.parse(localStorage.getItem(ACTIVE_TAG_PATH_KEY)) || [];
+                let renderAllAncestorSubtagRows = false; // 默认折叠上级子标签排，只显示最小/最深层级
 
                 function saveActiveTagAncestryPath() {
                     localStorage.setItem(ACTIVE_TAG_PATH_KEY, JSON.stringify(activeTagAncestryPath));
@@ -2609,11 +2610,34 @@
                                 breadcrumbBar.appendChild(item);
                             });
 
+                            if (activeTagAncestryPath.length > 1) {
+                                const toggleFoldBtn = document.createElement('span');
+                                toggleFoldBtn.className = 'tm-breadcrumb-item tm-toggle-fold';
+                                toggleFoldBtn.style.opacity = '0.6';
+                                toggleFoldBtn.style.marginLeft = 'auto';
+                                toggleFoldBtn.style.fontSize = '10px';
+                                toggleFoldBtn.title = renderAllAncestorSubtagRows ? '折叠上级标签胶囊 (仅显示最小层级)' : '展开所有上级标签胶囊';
+                                toggleFoldBtn.innerHTML = renderAllAncestorSubtagRows
+                                    ? `<i class="fa-solid fa-chevron-up"></i> 折叠上级`
+                                    : `<i class="fa-solid fa-chevron-down"></i> 展开所有层级`;
+                                toggleFoldBtn.addEventListener('click', (e) => {
+                                    e.stopPropagation();
+                                    renderAllAncestorSubtagRows = !renderAllAncestorSubtagRows;
+                                    renderTagsUI();
+                                });
+                                breadcrumbBar.appendChild(toggleFoldBtn);
+                            }
+
                             container.parentNode.insertBefore(breadcrumbBar, lastRowRef.nextSibling);
                             lastRowRef = breadcrumbBar;
 
-                            // 2. 逐级渲染当下激活祖先链的各级子标签横排
-                            activeTagAncestryPath.forEach((parentTagId, depthIdx) => {
+                            // 2. 渲染当下激活祖先链的子标签排 (默认仅显示最下级/最小层级，上级层级折叠收起)
+                            const displayDepthIndices = renderAllAncestorSubtagRows
+                                ? activeTagAncestryPath.map((_, idx) => idx)
+                                : [activeTagAncestryPath.length - 1];
+
+                            displayDepthIndices.forEach(depthIdx => {
+                                const parentTagId = activeTagAncestryPath[depthIdx];
                                 const parentTag = tags.find(t => t.id === parentTagId);
                                 if (!parentTag) return;
 

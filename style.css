@@ -256,13 +256,12 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 4px;
-    margin-top: 6px;
-    margin-bottom: 4px;
-    padding: 3px 8px;
-    background: rgba(0, 0, 0, 0.15);
-    border-radius: 6px;
+    margin-top: 4px;
+    margin-bottom: 2px;
+    padding: 2px 4px;
+    background: transparent;
     font-size: 11px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: none;
 }
 
 .tm-breadcrumb-item {
