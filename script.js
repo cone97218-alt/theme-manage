@@ -518,6 +518,7 @@
                     if (typeof callGenericPopup === 'function') {
                         try {
                             const inputId = 'tm-prompt-input-' + Date.now();
+                            let currentInputValue = defaultValue;
                             const res = await callGenericPopup(`
                                 <div style="text-align:left; padding:5px;">
                                     <h3 style="margin:0 0 10px 0; color:var(--SmartThemeQuoteColor, #4a90e2); text-align:center;"><i class="fa-solid fa-pen" style="margin-right:6px;"></i>${escapeHtml(message)}</h3>
@@ -534,14 +535,23 @@
                                         dlg.style.maxWidth = '380px';
                                         const input = dlg.querySelector(`#${inputId}`);
                                         if (input) {
+                                            input.addEventListener('input', (e) => {
+                                                currentInputValue = e.target.value;
+                                            });
+                                            input.addEventListener('keydown', (e) => {
+                                                if (e.key === 'Enter') {
+                                                    currentInputValue = input.value;
+                                                    const okBtn = dlg.querySelector('.popup_ok');
+                                                    if (okBtn) okBtn.click();
+                                                }
+                                            });
                                             setTimeout(() => { input.focus(); input.select(); }, 100);
                                         }
                                     }
                                 }
                             });
                             if (res === 1 || res === true || (res && res.result === 1)) {
-                                const inputEl = document.querySelector(`#${inputId}`);
-                                return inputEl ? inputEl.value : defaultValue;
+                                return currentInputValue;
                             }
                             return null;
                         } catch (e) {
