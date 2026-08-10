@@ -1462,8 +1462,10 @@
                 originalContainer.prepend(managerPanel);
 
                 const nativeButtonsContainer = managerPanel.querySelector('#native-buttons-container');
-                nativeButtonsContainer.appendChild(updateButton);
-                nativeButtonsContainer.appendChild(saveAsButton);
+                if (nativeButtonsContainer) {
+                    if (updateButton) nativeButtonsContainer.appendChild(updateButton);
+                    if (saveAsButton) nativeButtonsContainer.appendChild(saveAsButton);
+                }
 
                 // 原生保存/另存为按钮点击后的内存与已知主题防爆同步
                 if (updateButton) {
