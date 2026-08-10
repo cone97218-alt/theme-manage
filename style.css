@@ -250,6 +250,51 @@
     margin-bottom: 5px;
 }
 
+/* ======== 面包屑导航样式 (Breadcrumb Bar) ======== */
+.tm-breadcrumb-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    margin-bottom: 4px;
+    padding: 3px 8px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 6px;
+    font-size: 11px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tm-breadcrumb-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    cursor: pointer;
+    opacity: 0.8;
+    color: var(--SmartThemeBodyColor, #fff);
+    font-weight: 500;
+    transition: opacity 0.15s, color 0.15s;
+    user-select: none;
+}
+
+.tm-breadcrumb-item:hover {
+    opacity: 1;
+    color: var(--SmartThemeQuoteColor, #4a90e2);
+    text-decoration: underline;
+}
+
+.tm-breadcrumb-item.active {
+    opacity: 1;
+    font-weight: bold;
+    color: var(--SmartThemeQuoteColor, #4a90e2);
+}
+
+.tm-breadcrumb-separator {
+    opacity: 0.4;
+    font-size: 10px;
+    margin: 0 1px;
+}
+
 .theme-tag-chip {
     display: inline-flex;
     align-items: center;
@@ -1177,65 +1222,6 @@
     padding-top: 8px !important;
     border-top: 1px solid rgba(128, 128, 128, 0.2) !important;
     flex-wrap: wrap !important;
-}
-
-/* ===== N级多层级分类：面包屑导航与多排横向子标签样式 ===== */
-.tm-tag-breadcrumbs {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 4px 6px;
-    font-size: 11.5px;
-    padding: 4px 8px;
-    background: rgba(0, 0, 0, 0.15);
-    border-radius: 4px;
-    margin-bottom: 4px;
-    border-left: 3px solid var(--SmartThemeQuoteColor, #4a90e2);
-}
-
-.tm-crumb-item {
-    cursor: pointer;
-    padding: 1px 5px;
-    border-radius: 3px;
-    transition: all 0.15s ease;
-    user-select: none;
-    opacity: 0.8;
-}
-
-.tm-crumb-item:hover {
-    background: rgba(255, 255, 255, 0.15);
-    opacity: 1;
-    color: var(--SmartThemeQuoteColor, #4a90e2);
-}
-
-.tm-crumb-item.active {
-    font-weight: bold;
-    opacity: 1;
-    color: var(--SmartThemeQuoteColor, #4a90e2);
-}
-
-.tm-crumb-separator {
-    opacity: 0.4;
-    font-size: 9px;
-}
-
-.tm-subtag-level-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 6px;
-    padding: 3px 6px;
-    background: rgba(0, 0, 0, 0.08);
-    border-radius: 4px;
-    margin-bottom: 4px;
-}
-
-.tm-tree-tag-card {
-    transition: background 0.15s ease;
-}
-
-.tm-tree-tag-header:hover {
-    background: rgba(255, 255, 255, 0.08) !important;
 }
 
 
