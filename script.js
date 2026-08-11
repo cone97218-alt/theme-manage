@@ -5801,13 +5801,17 @@
                     let subtagsEnabled = isSubtagsEnabled();
                     let isBatchDeleteMode = false;
                     const selectedTagIds = new Set();
+                    const collapsedTagIds = new Set();
 
                     let popupHtml = `
                         <div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; border-bottom:1px solid rgba(128,128,128,0.2); padding-bottom:10px;">
-                            <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; font-weight:bold; user-select:none;">
-                                <input type="checkbox" id="chk-enable-subtags" ${subtagsEnabled ? 'checked' : ''}>
-                                <span>开启二级目录模式</span> <small style="opacity:0.6; font-weight:normal;">(支持一级目录/二级标签)</small>
-                            </label>
+                            <div style="display:flex; align-items:center; gap:12px;">
+                                <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; font-weight:bold; user-select:none;">
+                                    <input type="checkbox" id="chk-enable-subtags" ${subtagsEnabled ? 'checked' : ''}>
+                                    <span>开启二级目录模式</span> <small style="opacity:0.6; font-weight:normal;">(支持一级目录/二级标签)</small>
+                                </label>
+                                ${subtagsEnabled ? `<button id="tm-toggle-all-tree-fold" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;"><i class="fa-solid fa-compress"></i> 折叠/展开全部</button>` : ''}
+                            </div>
                             <button id="batch-delete-tags-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:4px 12px; white-space:nowrap; word-break:keep-all; flex-shrink:0; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; display:inline-flex !important; flex-direction:row !important; align-items:center !important; justify-content:center !important; writing-mode:horizontal-tb !important; width:auto !important; height:auto !important; min-height:28px !important; gap:4px;"><i class="fa-solid fa-trash-can" style="margin-right:4px;"></i> 批量删除标签</button>
                         </div>
                         <div id="tm-batch-delete-bar" style="display:none; background:rgba(220,53,69,0.12); padding:8px 12px; border-radius:6px; margin-bottom:10px; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; border:1px solid rgba(220,53,69,0.25); writing-mode:horizontal-tb !important;">
@@ -5894,7 +5898,8 @@
                                                 <div class="tm-tree-node-header" data-id="${nodeTag.id}" style="display:flex; justify-content:space-between; padding:5px 8px; background:${depth === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)'}; border-radius:4px; align-items:center; border:1px solid rgba(128,128,128,0.15);">
                                                     <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
                                                         ${isBatchDeleteMode ? `<input type="checkbox" class="tm-batch-tag-chk" data-id="${nodeTag.id}" ${isChecked ? 'checked' : ''} style="margin:0;">` : ''}
-                                                        <i class="${depth === 0 ? 'fa-solid fa-folder-open' : 'fa-solid fa-tag'}" style="${depth === 0 ? 'color:var(--SmartThemeQuoteColor, #4a90e2);' : 'opacity:0.7; font-size:11px;'} flex-shrink:0;"></i>
+                                                        ${hasChildren ? `<i class="fa-solid ${isCollapsed ? 'fa-caret-right' : 'fa-caret-down'} tm-tag-tree-fold-toggle" data-id="${nodeTag.id}" style="cursor:pointer; padding:2px 4px; color:var(--SmartThemeQuoteColor, #4a90e2); flex-shrink:0; font-size:12px;" title="${isCollapsed ? '点击展开子标签' : '点击折叠子标签'}"></i>` : '<span style="width:14px; flex-shrink:0; display:inline-block;"></span>'}
+                                                        <i class="${iconClass}" style="${depth === 0 ? 'color:var(--SmartThemeQuoteColor, #4a90e2);' : 'opacity:0.7; font-size:11px;'} flex-shrink:0;"></i>
                                                         <span style="font-weight:${depth === 0 ? 'bold' : 'normal'}; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(nodeTag.name)}</span>
                                                         <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${childTags.length > 0 ? `子级:${childTags.length}/` : ''}主题:${themeCount})</small>
                                                         ${kwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${kwCount}词]</small>` : ''}
@@ -5914,7 +5919,7 @@
                                                 </div>
 
 
-                                                <div class="tm-tree-node-children" data-parent-id="${nodeTag.id}">
+                                                <div class="tm-tree-node-children" data-parent-id="${nodeTag.id}" style="display:${isCollapsed ? 'none' : 'block'};">
                                         `;
 
                                         childTags.forEach((cTag, cIdx) => {
@@ -5935,6 +5940,19 @@
 
                                 BindEvents();
                             };
+
+                            const toggleAllBtn = dlg.querySelector('#tm-toggle-all-tree-fold');
+                            if (toggleAllBtn) {
+                                toggleAllBtn.addEventListener('click', () => {
+                                    const parentTagIds = tags.filter(t => tags.some(child => child.parentId === t.id)).map(t => t.id);
+                                    if (collapsedTagIds.size >= parentTagIds.length) {
+                                        collapsedTagIds.clear();
+                                    } else {
+                                        parentTagIds.forEach(id => collapsedTagIds.add(id));
+                                    }
+                                    renderList();
+                                });
+                            }
 
                             let lastCheckedIdx = -1;
                             let isMobileRangeActive = false;
@@ -6020,6 +6038,18 @@
                             };
 
                             const BindEvents = () => {
+                                dlg.querySelectorAll('.tm-tag-tree-fold-toggle').forEach(toggleBtn => {
+                                    toggleBtn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        const id = toggleBtn.dataset.id;
+                                        if (collapsedTagIds.has(id)) {
+                                            collapsedTagIds.delete(id);
+                                        } else {
+                                            collapsedTagIds.add(id);
+                                        }
+                                        renderList();
+                                    });
+                                });
                                 // 绑定【⋮】更多操作菜单的展开/隐藏
                                 dlg.querySelectorAll('.tm-tag-more-btn').forEach(btn => {
                                     btn.addEventListener('click', (e) => {
