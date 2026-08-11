@@ -6094,14 +6094,13 @@
                             if (dlg) {
                                 dlg.style.maxHeight = '90vh';
                                 dlg.style.height = 'auto';
-                                dlg.style.top = '5vh';
-                                dlg.style.transform = 'translate(-50%, 0)';
                                 const content = dlg.querySelector('.popup-content');
                                 if (content) {
-                                    content.style.maxHeight = 'calc(90vh - 80px)';
+                                    content.style.maxHeight = 'calc(90vh - 70px)';
                                     content.style.overflowY = 'auto';
                                 }
                             }
+
 
 
                             const renderList = () => {
