@@ -271,9 +271,51 @@
                     return themeDayNightPairs.find(p => p && (p.dayTheme === themeName || p.nightTheme === themeName)) || null;
                 }
 
+                const THEME_MTIMES_KEY = 'theme_manager_theme_mtimes';
+
+                function getThemeMtimes() {
+                    try {
+                        return JSON.parse(localStorage.getItem(THEME_MTIMES_KEY)) || {};
+                    } catch (e) {
+                        return {};
+                    }
+                }
+
+                function saveThemeMtimes(mtimesMap) {
+                    try {
+                        localStorage.setItem(THEME_MTIMES_KEY, JSON.stringify(mtimesMap));
+                    } catch (e) {}
+                }
+
+                function recordThemeMtime(themeName, timestamp = Date.now()) {
+                    if (!themeName) return;
+                    const mtimes = getThemeMtimes();
+                    mtimes[themeName] = timestamp;
+                    saveThemeMtimes(mtimes);
+                }
+
+                function removeThemeMtime(themeName) {
+                    if (!themeName) return;
+                    const mtimes = getThemeMtimes();
+                    if (mtimes[themeName]) {
+                        delete mtimes[themeName];
+                        saveThemeMtimes(mtimes);
+                    }
+                }
+
+                function renameThemeMtime(oldName, newName) {
+                    if (!oldName || !newName) return;
+                    const mtimes = getThemeMtimes();
+                    const val = mtimes[oldName] || Date.now();
+                    delete mtimes[oldName];
+                    mtimes[newName] = val;
+                    saveThemeMtimes(mtimes);
+                }
+
                 function isSubtagsEnabled() {
                     return localStorage.getItem(ENABLE_SUBTAGS_KEY) === 'true';
                 }
+
 
                 let listMode = localStorage.getItem(LIST_MODE_KEY) || 'scroll';
                 let pageSize = parseInt(localStorage.getItem(PAGE_SIZE_KEY)) || 50;
@@ -488,7 +530,13 @@
                     console.log(`[Theme Manager] saveTheme → 写入 "${themeObject.name}.json"`);
                     await apiRequest('themes/save', 'POST', themeObject);
                     console.log(`[Theme Manager] saveTheme ✅ 写入成功: "${themeObject.name}.json"`);
+
+                    const now = Date.now();
+                    recordThemeMtime(themeObject.name, now);
+                    const parsed = allParsedThemesMap.get(themeObject.name);
+                    if (parsed) parsed.mtime = now;
                 }
+
 
                 // === 移动端/跨端通用确认弹窗助手 ===
                 async function confirmAction(message, okText = '确认删除') {
@@ -1625,11 +1673,26 @@
                         buildThemeTagIndex(cachedTags);
 
                         // 仅以服务器真实存在的主题数据对象构建 UI 列表，彻底隔离已被物理删除的残留项
-                        allParsedThemes = allThemeObjects.map(t => {
+                        const storedMtimes = getThemeMtimes();
+                        let mtimesChanged = false;
+                        const fallbackBaseTime = Date.now() - (allThemeObjects.length * 1000);
+
+                        allParsedThemes = allThemeObjects.map((t, idx) => {
                             const themeName = t.name || t.value;
                             if (!themeName) return null;
-                            return { value: themeName, display: themeName, tags: [], mtime: t.mtime || 0 };
+                            let mtime = t.mtime || storedMtimes[themeName];
+                            if (!mtime) {
+                                mtime = fallbackBaseTime + (idx * 1000);
+                                storedMtimes[themeName] = mtime;
+                                mtimesChanged = true;
+                            }
+                            return { value: themeName, display: themeName, tags: [], mtime: mtime };
                         }).filter(Boolean);
+
+                        if (mtimesChanged) {
+                            saveThemeMtimes(storedMtimes);
+                        }
+
 
                         // 刷新 Map 索引
                         allParsedThemesMap.clear();
@@ -2360,13 +2423,16 @@
                 function softAddThemeUI(themeObject, cachedTags = null, parentContainer = null) {
                     if (!themeObject || !themeObject.name) return null;
                     const themeName = themeObject.name;
+                    const now = Date.now();
+                    recordThemeMtime(themeName, now);
                     const currentTags = cachedTags || loadThemeTags();
                     const tags = getTagsForTheme(themeName, currentTags);
                     const parsedTheme = {
                         value: themeName,
                         display: themeName,
                         tags: tags,
-                        data: themeObject
+                        data: themeObject,
+                        mtime: now
                     };
 
                     const existingParsedIdx = allParsedThemes.findIndex(t => t.value === themeName);
@@ -2403,6 +2469,7 @@
 
                 function softDeleteThemeUI(themeName) {
                     if (!themeName) return;
+                    removeThemeMtime(themeName);
                     const item = themeItemMap.get(themeName);
                     if (item) {
                         item.remove();
@@ -2429,6 +2496,7 @@
 
                 function softRenameThemeUI(oldName, newName) {
                     if (!oldName || !newName || oldName === newName) return;
+                    renameThemeMtime(oldName, newName);
                     const item = themeItemMap.get(oldName);
                     if (item) {
                         item.dataset.value = newName;
@@ -2456,6 +2524,7 @@
                     stKnownThemes.delete(oldName);
                     stKnownThemes.add(newName);
                 }
+
 
                 // N-Level 激活祖先链路径与持久化
 
