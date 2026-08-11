@@ -4314,6 +4314,11 @@
                                 list.appendChild(listFragment);
                             }
 
+                            // 关键词自动映射：导入时自动为新主题打标签
+                            if (importedThemes.length > 0) {
+                                applyKeywordMappings(importedThemes.map(t => t.name));
+                            }
+
                             // 依照当前排序规则 (sortBy) 重新对全量美化卡片排序并定位到顶部
                             filterThemeList(0);
 
@@ -4336,10 +4341,6 @@
                             updateActiveState();
                         }
 
-                        // 关键词自动映射：导入时自动为新主题打标签
-                        if (importedThemes.length > 0) {
-                            applyKeywordMappings(importedThemes.map(t => t.name));
-                        }
 
                     } catch (err) {
                         console.error('[Theme Manager Error] 批量导入产生未捕获异常:', err);
