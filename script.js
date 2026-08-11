@@ -4718,31 +4718,19 @@
                         const existingThemesSet = new Set(tag.themes);
 
                         // 判别搜索作用域：
-                        // 1. 未设置父级标签，或显式勾选了全局匹配 (globalKeywords: true)，在全局范围搜索；
-                        // 2. 直属父级已配置关键词时，子标签【严格只能在匹配了父级关键词的美化集合中】二次搜索；
-                        // 3. 若父级未配置关键词但有归集美化，在父级美化中搜索；若父级无关键词且无归集，则允许子标签搜寻并向上同步
+                        // 1. 未设置父级标签 (一级标签)，或显式勾选了全局匹配 (globalKeywords: true)，在全局范围搜索；
+                        // 2. 二级/多级子标签：严格仅在直属父级标签已有的美化集合 (parentTag.themes) 中匹配关键词
                         const isGlobalSearch = !tag.parentId || tag.globalKeywords === true;
                         let scopedThemesToCheck = themesToCheck;
 
                         if (!isGlobalSearch) {
                             const parentTag = tagsById.get(tag.parentId);
-                            if (parentTag) {
-                                const parentHasKeywords = Array.isArray(parentTag.keywords) && parentTag.keywords.filter(Boolean).length > 0;
-                                const parentThemes = Array.isArray(parentTag.themes) ? parentTag.themes : [];
-
-                                if (parentHasKeywords) {
-                                    // 父标签配置了关键词：严格限定在已挂载到父标签的美化集合中二次二次筛选
-                                    const parentThemesSet = new Set(parentThemes);
-                                    scopedThemesToCheck = themesToCheck.filter(n => parentThemesSet.has(n));
-                                } else if (parentThemes.length > 0) {
-                                    // 父标签未设置关键词但已有归集美化：在父级已归集的美化范围内匹配
-                                    const parentThemesSet = new Set(parentThemes);
-                                    scopedThemesToCheck = themesToCheck.filter(n => parentThemesSet.has(n));
-                                }
-                            }
+                            const parentThemesSet = new Set(parentTag && Array.isArray(parentTag.themes) ? parentTag.themes : []);
+                            scopedThemesToCheck = themesToCheck.filter(n => parentThemesSet.has(n));
                         }
 
                         if (scopedThemesToCheck.length === 0) continue;
+
 
 
 
