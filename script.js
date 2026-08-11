@@ -5851,7 +5851,18 @@
                                 const batchBar = dlg.querySelector('#tm-batch-delete-bar');
                                 if (batchBar) batchBar.style.display = isBatchDeleteMode ? 'flex' : 'none';
 
+                                const toggleAllBtn = dlg.querySelector('#tm-toggle-all-tree-fold');
+                                if (toggleAllBtn) {
+                                    toggleAllBtn.style.display = subtagsEnabled ? 'inline-flex' : 'none';
+                                    const parentTagIds = tags.filter(t => tags.some(c => c.parentId === t.id)).map(t => t.id);
+                                    const allCollapsed = parentTagIds.length > 0 && parentTagIds.every(id => collapsedTagIds.has(id));
+                                    toggleAllBtn.innerHTML = allCollapsed 
+                                        ? `<i class="fa-solid fa-expand"></i> <span>展开全部</span>` 
+                                        : `<i class="fa-solid fa-compress"></i> <span>折叠全部</span>`;
+                                }
+
                                 const validThemeNames = getValidInstalledThemeNames();
+
                                 const filterValid = (arr) => validThemeNames.size > 0 ? (arr || []).filter(t => validThemeNames.has(t)) : (arr || []);
 
                                 if (!subtagsEnabled) {
@@ -5889,9 +5900,12 @@
 
                                     const renderSubtagTreeNodeHTML = (nodeTag, depth, siblings, idx) => {
                                         const childTags = tags.filter(t => t.parentId === nodeTag.id);
+                                        const hasChildren = childTags.length > 0;
                                         const isChecked = selectedTagIds.has(nodeTag.id);
+                                        const isCollapsed = collapsedTagIds.has(nodeTag.id);
                                         const kwCount = nodeTag.keywords ? nodeTag.keywords.length : 0;
                                         const themeCount = filterValid(nodeTag.themes).length;
+                                        const iconClass = depth === 0 ? (hasChildren && isCollapsed ? 'fa-solid fa-folder' : 'fa-solid fa-folder-open') : 'fa-solid fa-tag';
 
                                         let nodeHtml = `
                                             <div class="tm-tree-node-card" data-id="${nodeTag.id}" data-depth="${depth}" style="margin-left:${depth * 16}px; margin-bottom:4px;">
@@ -5904,6 +5918,7 @@
                                                         <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${childTags.length > 0 ? `子级:${childTags.length}/` : ''}主题:${themeCount})</small>
                                                         ${kwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${kwCount}词]</small>` : ''}
                                                     </div>
+
                                                     <div style="display:flex; gap:3px; align-items:center; flex-shrink:0; position:relative;">
                                                         <button class="menu_button add-subtag-btn tm-btn-icon-only" data-id="${nodeTag.id}" title="添加子标签"><i class="fa-solid fa-plus"></i></button>
                                                         <button class="menu_button keywords-tag-inline tm-btn-icon-only" data-id="${nodeTag.id}" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
