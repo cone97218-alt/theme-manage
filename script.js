@@ -312,16 +312,16 @@
                     saveThemeMtimes(mtimes);
                 }
 
-                // 读取 ST 主题 CSS 变量并提取 100% 不透明度的 RGB 颜色
-                function getSolidRgbFromCssVar(varName, fallbackHex = '#1e1e24') {
+                // 读取 ST 主题 CSS 变量并提取 100% 不透明度的 Solid RGB 颜色
+                function getSolidRgbFromCssVar(varName) {
                     try {
-                        const val = (getComputedStyle(document.documentElement).getPropertyValue(varName) ||
-                                     getComputedStyle(document.body).getPropertyValue(varName) || '').trim();
+                        let val = (getComputedStyle(document.documentElement).getPropertyValue(varName) ||
+                                   getComputedStyle(document.body).getPropertyValue(varName) || '').trim();
                         if (!val) return null;
 
                         const match = val.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
                         if (match) {
-                            return `rgb(${match[1]}, ${match[2]}, ${match[3]})`;
+                            return { r: parseInt(match[1]), g: parseInt(match[2]), b: parseInt(match[3]), str: `rgb(${match[1]}, ${match[2]}, ${match[3]})` };
                         }
 
                         if (val.startsWith('#')) {
@@ -334,15 +334,38 @@
                                 const g = parseInt(hex.slice(2, 4), 16);
                                 const b = parseInt(hex.slice(4, 6), 16);
                                 if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
-                                    return `rgb(${r}, ${g}, ${b})`;
+                                    return { r, g, b, str: `rgb(${r}, ${g}, ${b})` };
                                 }
                             }
                         }
-                        return val;
+                        return null;
                     } catch (e) {
-                        return fallbackHex;
+                        return null;
                     }
                 }
+
+                function getAdaptivePopoverBg() {
+                    // 按优先级检索 ST 主题的背景模糊色调与聊天卡片背景色
+                    const candidateVars = [
+                        '--SmartThemeBlurTintColor',
+                        '--SmartThemeBotMesBlurTintColor',
+                        '--SmartThemeUserMesBlurTintColor',
+                        '--SmartThemeChatTintColor'
+                    ];
+
+                    for (const v of candidateVars) {
+                        const parsed = getSolidRgbFromCssVar(v);
+                        if (parsed) {
+                            // 如果提取到的 RGB 过于靠近纯黑 (r+g+b < 30)，提升适度亮阶以区分图层
+                            if (parsed.r + parsed.g + parsed.b < 30) {
+                                return `rgb(${parsed.r + 32}, ${parsed.g + 34}, ${parsed.b + 42})`;
+                            }
+                            return parsed.str;
+                        }
+                    }
+                    return '#24262e'; // 高质感沉浸暗色兜底
+                }
+
 
 
                 function isSubtagsEnabled() {
@@ -6093,6 +6116,7 @@
                                                     <button class="menu_button keywords-tag-inline tm-btn-icon-only" data-id="${t.id}" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
                                                     <button class="menu_button rename-tag-inline tm-btn-icon-only" data-id="${t.id}" title="重命名"><i class="fa-solid fa-pen"></i></button>
                                                     <button class="menu_button tm-tag-more-btn tm-btn-icon-only" data-id="${t.id}" title="更多操作"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                                                    <div class="tm-tag-more-menu" data-id="${t.id}" style="display:none; position:absolute; right:0; top:100%; margin-top:2px; z-index:99999; border:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.18)); border-radius:6px; padding:4px; box-shadow:0 6px 16px var(--SmartThemeShadowColor, rgba(0,0,0,0.6)); flex-direction:row; gap:4px; align-items:center; color:var(--SmartThemeBodyColor, #ffffff); writing-mode:horizontal-tb !important; white-space:nowrap;">
                                                         <button class="menu_button move-flat-up tm-btn-icon-only" data-id="${t.id}" title="向上移动" ${idx === 0 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-up"></i></button>
                                                         <button class="menu_button move-flat-down tm-btn-icon-only" data-id="${t.id}" title="向下移动" ${idx === tags.length - 1 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-down"></i></button>
                                                         <button class="menu_button delete-tag-inline tm-btn-icon-only" data-id="${t.id}" title="删除标签" style="color:#ff8888 !important; background:rgba(220,53,69,0.2) !important;"><i class="fa-solid fa-trash"></i></button>
@@ -6134,7 +6158,7 @@
                                                         <button class="menu_button keywords-tag-inline tm-btn-icon-only" data-id="${nodeTag.id}" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
                                                         <button class="menu_button rename-tag-inline tm-btn-icon-only" data-id="${nodeTag.id}" title="重命名"><i class="fa-solid fa-pen"></i></button>
                                                         <button class="menu_button tm-tag-more-btn tm-btn-icon-only" data-id="${nodeTag.id}" title="更多操作"><i class="fa-solid fa-ellipsis-vertical"></i></button>
-                                                        <div class="tm-tag-more-menu" data-id="${nodeTag.id}" style="display:none; position:absolute; right:0; top:100%; margin-top:2px; z-index:99999; background:var(--color-bg-subtle, #1e1e24); border:1px solid rgba(255,255,255,0.18); border-radius:6px; padding:4px; box-shadow:0 6px 16px rgba(0,0,0,0.6); flex-direction:row; gap:4px; align-items:center; writing-mode:horizontal-tb !important; white-space:nowrap;">
+                                                        <div class="tm-tag-more-menu" data-id="${nodeTag.id}" style="display:none; position:absolute; right:0; top:100%; margin-top:2px; z-index:99999; border:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.18)); border-radius:6px; padding:4px; box-shadow:0 6px 16px var(--SmartThemeShadowColor, rgba(0,0,0,0.6)); flex-direction:row; gap:4px; align-items:center; color:var(--SmartThemeBodyColor, #ffffff); writing-mode:horizontal-tb !important; white-space:nowrap;">
                                                             <button class="menu_button move-node-up tm-btn-icon-only" data-id="${nodeTag.id}" title="向上移动" ${idx === 0 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-up"></i></button>
                                                             <button class="menu_button move-node-down tm-btn-icon-only" data-id="${nodeTag.id}" title="向下移动" ${idx === siblings.length - 1 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-down"></i></button>
                                                             ${depth > 0 ? `<button class="menu_button promote-tag-inline tm-btn-icon-only" data-id="${nodeTag.id}" title="升一级 (提升给父级的父级)"><i class="fa-solid fa-turn-up"></i></button>` : ''}
@@ -6288,10 +6312,18 @@
                                         dlg.querySelectorAll('.tm-tag-more-menu').forEach(m => m.style.display = 'none');
 
                                         if (!isCurrentlyOpen) {
+                                            const bgSolid = getAdaptivePopoverBg();
+                                            menu.style.setProperty('background', bgSolid, 'important');
+                                            menu.style.setProperty('background-color', bgSolid, 'important');
+                                            menu.style.setProperty('opacity', '1', 'important');
+                                            menu.style.border = '1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.18))';
+                                            menu.style.boxShadow = '0 6px 16px var(--SmartThemeShadowColor, rgba(0,0,0,0.6))';
+                                            menu.style.color = 'var(--SmartThemeBodyColor, #ffffff)';
                                             menu.style.display = 'flex';
                                         }
                                     });
                                 });
+
 
                                 dlg.querySelectorAll('.tm-tag-more-menu button').forEach(menuItemBtn => {
                                     menuItemBtn.addEventListener('click', () => {
