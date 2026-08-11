@@ -4435,7 +4435,7 @@
                 }
 
 
-                // 将定义放在 openManageTagsPopup 之前，以便弹窗内可直接调用 (极致算法优化)
+                // 根据已设定的关键词规则，自动对已有美化/新美化应用映射（支持直属父级作用域匹配与深度优先处理）
                 function applyKeywordMappings(themeNames) {
                     const tags = loadThemeTags();
                     const hasKeywords = tags.some(t => t.keywords && t.keywords.length > 0);
@@ -4448,7 +4448,24 @@
                     if (themesToCheck.length === 0) return false;
                     let changed = false;
 
-                    for (const tag of tags) {
+                    const tagsById = new Map(tags.map(t => [t.id, t]));
+
+                    // 计算标签在继承树中的深度（Depth），并按深度升序排序（保证父级标签优先匹配）
+                    function getTagDepth(t) {
+                        let depth = 0;
+                        let curr = t;
+                        const visited = new Set();
+                        while (curr && curr.parentId && !visited.has(curr.parentId)) {
+                            visited.add(curr.parentId);
+                            curr = tagsById.get(curr.parentId);
+                            if (curr) depth++;
+                        }
+                        return depth;
+                    }
+
+                    const sortedTags = [...tags].sort((a, b) => getTagDepth(a) - getTagDepth(b));
+
+                    for (const tag of sortedTags) {
                         if (!tag.keywords || tag.keywords.length === 0) continue;
                         const kwLCs = tag.keywords.filter(Boolean).map(kw => kw.toLowerCase());
                         if (kwLCs.length === 0) continue;
@@ -4456,8 +4473,21 @@
                         if (!tag.themes) tag.themes = [];
                         const existingThemesSet = new Set(tag.themes);
 
-                        for (let i = 0; i < themesToCheck.length; i++) {
-                            const themeName = themesToCheck[i];
+                        // 判别搜索作用域：未设置父级标签，或显式勾选了允许全局匹配的子标签，在全局范围搜索；
+                        // 否则仅在直属父级标签已包含的美化集合中搜索
+                        const isGlobalSearch = !tag.parentId || tag.globalKeywords === true;
+                        let scopedThemesToCheck = themesToCheck;
+
+                        if (!isGlobalSearch) {
+                            const parentTag = tagsById.get(tag.parentId);
+                            const parentThemesSet = new Set(parentTag && Array.isArray(parentTag.themes) ? parentTag.themes : []);
+                            scopedThemesToCheck = themesToCheck.filter(n => parentThemesSet.has(n));
+                        }
+
+                        if (scopedThemesToCheck.length === 0) continue;
+
+                        for (let i = 0; i < scopedThemesToCheck.length; i++) {
+                            const themeName = scopedThemesToCheck[i];
                             if (existingThemesSet.has(themeName)) continue;
                             const nameLC = themeName.toLowerCase();
                             for (let j = 0; j < kwLCs.length; j++) {
@@ -4472,11 +4502,13 @@
                     }
 
                     if (changed) {
+                        sanitizeSubtagThemeAssociations(tags);
                         saveThemeTags(tags);
                         softRefreshUI(themeNames && Array.isArray(themeNames) ? themeNames : null);
                     }
                     return changed;
                 }
+
 
                 // === 超强分词与停止词过滤 (解决 700+ 超量美化在移动端卡顿) ===
                 // === 超强分词与停止词过滤 (解决 700+ 超量美化在移动端卡顿) ===
@@ -5585,6 +5617,9 @@
                 // 高级关键词映射管理弹窗：可直观查看关键词胶囊、一键删除独立关键词、无损追加新关键词
                 async function openTagKeywordsModal(tag, onSave) {
                     let keywords = [...(tag.keywords || [])];
+                    const allTags = loadThemeTags();
+                    const parentTag = tag.parentId ? allTags.find(t => t.id === tag.parentId) : null;
+                    const parentName = parentTag ? parentTag.name : '';
 
                     const buildKeywordsPillsHtml = () => {
                         if (keywords.length === 0) {
@@ -5603,7 +5638,9 @@
                         <div style="display:flex; flex-direction:column; gap:12px; writing-mode:horizontal-tb !important;">
                             <div style="font-size:12px; opacity:0.85; line-height:1.5; background:rgba(255,255,255,0.04); padding:10px 12px; border-radius:6px; border-left:3px solid var(--SmartThemeQuoteColor, #4a90e2);">
                                 <i class="fa-solid fa-circle-info" style="color:var(--SmartThemeQuoteColor, #4a90e2); margin-right:4px;"></i>
-                                当导入或重命名美化主题时，如果主题名称或文件名中包含以下任一关键词，将自动匹配归入标签「<b>${escapeHtml(tag.name)}</b>」。
+                                ${parentTag 
+                                    ? `当导入或重命名美化主题时，如果<b>直属父级标签「${escapeHtml(parentName)}」下</b>的美化名称中包含以下任一关键词，将自动匹配归入子标签「<b>${escapeHtml(tag.name)}</b>」。`
+                                    : `当导入或重命名美化主题时，如果主题名称或文件名中包含以下任一关键词，将自动匹配归入标签「<b>${escapeHtml(tag.name)}</b>」。`}
                             </div>
 
                             <div style="display:flex; gap:8px; align-items:center;">
@@ -5620,7 +5657,14 @@
                                 ${buildKeywordsPillsHtml()}
                             </div>
 
-                            <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:11px; opacity:0.85; margin-top:4px; user-select:none;">
+                            ${parentTag ? `
+                            <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:11px; opacity:0.9; margin-top:2px; user-select:none;">
+                                <input type="checkbox" id="chk-kw-global-match" ${tag.globalKeywords ? 'checked' : ''}>
+                                <span>🌐 允许在全局所有美化中匹配关键词 (打勾则忽略父级标签范围限制)</span>
+                            </label>
+                            ` : ''}
+
+                            <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:11px; opacity:0.85; margin-top:2px; user-select:none;">
                                 <input type="checkbox" id="chk-auto-apply-kw" checked>
                                 <span>保存时自动对现有所有美化重新应用此关键词映射</span>
                             </label>
@@ -5702,6 +5746,10 @@
                             if (okBtn) {
                                 okBtn.addEventListener('click', () => {
                                     tag.keywords = keywords;
+                                    if (parentTag) {
+                                        const globalChk = dlg.querySelector('#chk-kw-global-match');
+                                        tag.globalKeywords = globalChk ? globalChk.checked : false;
+                                    }
                                     const autoApply = dlg.querySelector('#chk-auto-apply-kw')?.checked;
                                     if (onSave) onSave(tag, autoApply);
                                 });
@@ -5711,6 +5759,7 @@
                         }
                     });
                 }
+
 
                 async function openManageTagsPopup() {
                     let tags = loadThemeTags();
