@@ -2356,7 +2356,109 @@
                     filterThemeList();
                 }
 
+                // === 增量无缝更新 DOM 节点与内存 UI 助手函数 ===
+                function softAddThemeUI(themeObject, cachedTags = null, parentContainer = null) {
+                    if (!themeObject || !themeObject.name) return null;
+                    const themeName = themeObject.name;
+                    const currentTags = cachedTags || loadThemeTags();
+                    const tags = getTagsForTheme(themeName, currentTags);
+                    const parsedTheme = {
+                        value: themeName,
+                        display: themeName,
+                        tags: tags,
+                        data: themeObject
+                    };
+
+                    const existingParsedIdx = allParsedThemes.findIndex(t => t.value === themeName);
+                    if (existingParsedIdx > -1) {
+                        allParsedThemes[existingParsedIdx] = parsedTheme;
+                    } else {
+                        allParsedThemes.push(parsedTheme);
+                    }
+                    allParsedThemesMap.set(themeName, parsedTheme);
+
+                    const existingObjIdx = allThemeObjects.findIndex(t => (t.name === themeName || t.value === themeName));
+                    if (existingObjIdx > -1) {
+                        allThemeObjects[existingObjIdx] = themeObject;
+                    } else {
+                        allThemeObjects.push(themeObject);
+                    }
+                    allThemeObjectsMap.set(themeName, themeObject);
+                    stKnownThemes.add(themeName);
+
+                    const tagsMap = new Map(currentTags.map(t => [t.id, t]));
+                    const item = createThemeItem(parsedTheme, tagsMap);
+
+                    const oldItem = themeItemMap.get(themeName);
+                    if (oldItem) oldItem.remove();
+
+                    themeItemMap.set(themeName, item);
+
+                    const targetContainer = parentContainer || contentWrapper?.querySelector('.theme-list');
+                    if (targetContainer) {
+                        targetContainer.appendChild(item);
+                    }
+                    return item;
+                }
+
+                function softDeleteThemeUI(themeName) {
+                    if (!themeName) return;
+                    const item = themeItemMap.get(themeName);
+                    if (item) {
+                        item.remove();
+                        themeItemMap.delete(themeName);
+                    }
+
+                    const idx = allParsedThemes.findIndex(t => t.value === themeName);
+                    if (idx > -1) {
+                        allParsedThemes.splice(idx, 1);
+                    }
+                    allParsedThemesMap.delete(themeName);
+
+                    const objIdx = allThemeObjects.findIndex(t => (t.name === themeName || t.value === themeName));
+                    if (objIdx > -1) {
+                        allThemeObjects.splice(objIdx, 1);
+                    }
+                    allThemeObjectsMap.delete(themeName);
+                    stKnownThemes.delete(themeName);
+
+                    if (_activeThemeItem && _activeThemeItem.dataset.value === themeName) {
+                        _activeThemeItem = null;
+                    }
+                }
+
+                function softRenameThemeUI(oldName, newName) {
+                    if (!oldName || !newName || oldName === newName) return;
+                    const item = themeItemMap.get(oldName);
+                    if (item) {
+                        item.dataset.value = newName;
+                        const nameSpan = item.querySelector('.theme-item-name-text');
+                        if (nameSpan) nameSpan.textContent = newName;
+                        themeItemMap.delete(oldName);
+                        themeItemMap.set(newName, item);
+                    }
+
+                    const parsed = allParsedThemesMap.get(oldName);
+                    if (parsed) {
+                        parsed.value = newName;
+                        parsed.display = newName;
+                        allParsedThemesMap.delete(oldName);
+                        allParsedThemesMap.set(newName, parsed);
+                    }
+
+                    const obj = allThemeObjectsMap.get(oldName);
+                    if (obj) {
+                        obj.name = newName;
+                        allThemeObjectsMap.delete(oldName);
+                        allThemeObjectsMap.set(newName, obj);
+                    }
+
+                    stKnownThemes.delete(oldName);
+                    stKnownThemes.add(newName);
+                }
+
                 // N-Level 激活祖先链路径与持久化
+
                 const ACTIVE_TAG_PATH_KEY = 'theme_manager_active_tag_path';
                 let activeTagAncestryPath = JSON.parse(localStorage.getItem(ACTIVE_TAG_PATH_KEY)) || [];
                 let renderAllAncestorSubtagRows = false; // 默认折叠上级子标签排，只显示最小/最深层级
@@ -3968,150 +4070,155 @@
 
                     showLoader();
 
-                    // 1. 并行读取文件内容并解析 JSON
-                    const fileReadPromises = Array.from(files).map(async (file) => {
-                        try {
-                            const fileContent = await file.text();
-                            const themeObject = JSON.parse(fileContent);
-                            const filenameWithoutExt = file.name.replace(/\.json$/i, '');
-                            if (themeObject && typeof themeObject.main_text_color !== 'undefined') {
-                                // 确保 themeObject.name 保持与导入的文件名完全一致，防止保存文件名与 UI 注册不一致
-                                themeObject.name = filenameWithoutExt || themeObject.name;
-                                return { file, themeObject, valid: true };
-                            }
-                            return { file, valid: false, error: '非有效的主题文件' };
-                        } catch (err) {
-                            return { file, valid: false, error: err.message };
-                        }
-                    });
-
-                    console.log(`[Theme Manager] 开始处理批量导入文件, 选择的文件数: ${files.length}`);
-
-                    const parsedFiles = await Promise.all(fileReadPromises);
-                    const validFiles = parsedFiles.filter(f => f.valid);
-                    const invalidFiles = parsedFiles.filter(f => !f.valid);
-
-                    if (invalidFiles.length > 0) {
-                        invalidFiles.forEach(f => {
-                            console.error(`[Theme Manager Error] 无效的主题文件 "${f.file.name}":`, f.error);
-                        });
-                    }
-
-                    let successCount = 0;
-                    let errorCount = invalidFiles.length;
-                    const importedThemes = [];
-                    let needsUIUpdate = false;
-
-                    // 2. 并行发送 API 保存请求 (限制并发为 5)
-                    if (validFiles.length > 0) {
-                        console.log(`[Theme Manager] 开始并发保存 ${validFiles.length} 个有效主题...`);
-                        const saveResults = await limitConcurrency(5, validFiles, async ({ themeObject }) => {
+                    try {
+                        // 1. 并行读取文件内容并解析 JSON
+                        const fileReadPromises = Array.from(files).map(async (file) => {
                             try {
-                                await saveTheme(themeObject);
-                                return { success: true, themeObject };
+                                const fileContent = await file.text();
+                                const themeObject = JSON.parse(fileContent);
+                                const filenameWithoutExt = file.name.replace(/\.json$/i, '');
+                                if (themeObject && typeof themeObject.main_text_color !== 'undefined') {
+                                    // 确保 themeObject.name 保持与导入的文件名完全一致，防止保存文件名与 UI 注册不一致
+                                    themeObject.name = filenameWithoutExt || themeObject.name;
+                                    return { file, themeObject, valid: true };
+                                }
+                                return { file, valid: false, error: '非有效的主题文件' };
                             } catch (err) {
-                                return { success: false, themeObject, error: err };
+                                return { file, valid: false, error: err.message };
                             }
                         });
 
-                        // 收集保存成功的主题
-                        saveResults.forEach((res, index) => {
-                            const orig = validFiles[index];
-                            if (res.status === 'fulfilled' && res.value.success) {
-                                successCount++;
-                                const themeObject = res.value.themeObject;
-                                importedThemes.push(themeObject);
-                                console.log(`[Theme Manager] 成功保存主题到服务器: "${themeObject.name}"`);
-                            } else {
-                                errorCount++;
-                                console.error(`[Theme Manager Error] 保存主题 "${orig.themeObject.name}" 失败:`, res.status === 'fulfilled' ? res.value.error : res.reason);
-                            }
-                        });
-                    }
+                        console.log(`[Theme Manager] 开始处理批量导入文件, 选择的文件数: ${files.length}`);
 
-                    // 3. 批量更新下拉框、内存及 UI DOM
-                    if (importedThemes.length > 0) {
-                        needsUIUpdate = true;
+                        const parsedFiles = await Promise.all(fileReadPromises);
+                        const validFiles = parsedFiles.filter(f => f.valid);
+                        const invalidFiles = parsedFiles.filter(f => !f.valid);
 
-                        // 批量更新 ST 原生下拉框 & 同步内部内存
-                        _suspendObserver = true;
-                        try {
-                            importedThemes.forEach(themeObject => {
-                                updateSTThemeMemory(themeObject, 'add');
-                                const existingOption = findOptionByValue(originalSelect, themeObject.name);
-                                if (!existingOption) {
-                                    const option = document.createElement('option');
-                                    option.value = themeObject.name;
-                                    option.textContent = themeObject.name;
-                                    originalSelect.appendChild(option);
-                                }
-                                stKnownThemes.add(themeObject.name);
+                        if (invalidFiles.length > 0) {
+                            invalidFiles.forEach(f => {
+                                console.error(`[Theme Manager Error] 无效的主题文件 "${f.file.name}":`, f.error);
                             });
-                            syncStKnownThemes();
-                        } finally {
-                            setTimeout(() => { _suspendObserver = false; }, 0);
                         }
 
-                        invalidateThemesCache();
+                        let successCount = 0;
+                        let errorCount = invalidFiles.length;
+                        const importedThemes = [];
+                        let needsUIUpdate = false;
 
-                        // 预先读取一次标签并缓存
-                        const cachedTags = loadThemeTags();
-                        const listFragment = document.createDocumentFragment();
-                        const list = contentWrapper.querySelector('.theme-list');
-
-                        importedThemes.forEach(themeObject => {
-                            const themeName = themeObject.name;
-                            const existingParsed = allParsedThemesMap.get(themeName);
-                            const isNewTheme = !existingParsed;
-
-                            if (isNewTheme) {
-                                // 批量构建并追加到 DocumentFragment
-                                softAddThemeUI(themeObject, cachedTags, listFragment);
-                            } else {
-                                // 覆盖现有主题：使用 Object.assign 原地更新数据，免去 findIndex 的 O(N) 搜索开销
-                                const existingObj = allThemeObjectsMap.get(themeName);
-                                if (existingObj) {
-                                    Object.assign(existingObj, themeObject);
-                                } else {
-                                    allThemeObjects.push(themeObject);
-                                    allThemeObjectsMap.set(themeName, themeObject);
+                        // 2. 并行发送 API 保存请求 (限制并发为 5)
+                        if (validFiles.length > 0) {
+                            console.log(`[Theme Manager] 开始并发保存 ${validFiles.length} 个有效主题...`);
+                            const saveResults = await limitConcurrency(5, validFiles, async ({ themeObject }) => {
+                                try {
+                                    await saveTheme(themeObject);
+                                    return { success: true, themeObject };
+                                } catch (err) {
+                                    return { success: false, themeObject, error: err };
                                 }
+                            });
+
+                            // 收集保存成功的主题
+                            saveResults.forEach((res, index) => {
+                                const orig = validFiles[index];
+                                if (res.status === 'fulfilled' && res.value.success) {
+                                    successCount++;
+                                    const themeObject = res.value.themeObject;
+                                    importedThemes.push(themeObject);
+                                    console.log(`[Theme Manager] 成功保存主题到服务器: "${themeObject.name}"`);
+                                } else {
+                                    errorCount++;
+                                    console.error(`[Theme Manager Error] 保存主题 "${orig.themeObject.name}" 失败:`, res.status === 'fulfilled' ? res.value.error : res.reason);
+                                }
+                            });
+                        }
+
+                        // 3. 批量更新下拉框、内存及 UI DOM
+                        if (importedThemes.length > 0) {
+                            needsUIUpdate = true;
+
+                            // 批量更新 ST 原生下拉框 & 同步内部内存
+                            _suspendObserver = true;
+                            try {
+                                importedThemes.forEach(themeObject => {
+                                    updateSTThemeMemory(themeObject, 'add');
+                                    const existingOption = findOptionByValue(originalSelect, themeObject.name);
+                                    if (!existingOption) {
+                                        const option = document.createElement('option');
+                                        option.value = themeObject.name;
+                                        option.textContent = themeObject.name;
+                                        originalSelect.appendChild(option);
+                                    }
+                                    stKnownThemes.add(themeObject.name);
+                                });
+                                syncStKnownThemes();
+                            } finally {
+                                setTimeout(() => { _suspendObserver = false; }, 0);
                             }
-                        });
 
-                        // 一次性挂载到 DOM，减少 Reflow
-                        if (list && listFragment.children.length > 0) {
-                            list.appendChild(listFragment);
+                            invalidateThemesCache();
+
+                            // 预先读取一次标签并缓存
+                            const cachedTags = loadThemeTags();
+                            const listFragment = document.createDocumentFragment();
+                            const list = contentWrapper.querySelector('.theme-list');
+
+                            importedThemes.forEach(themeObject => {
+                                const themeName = themeObject.name;
+                                const existingParsed = allParsedThemesMap.get(themeName);
+                                const isNewTheme = !existingParsed;
+
+                                if (isNewTheme) {
+                                    // 批量构建并追加到 DocumentFragment
+                                    softAddThemeUI(themeObject, cachedTags, listFragment);
+                                } else {
+                                    // 覆盖现有主题：使用 Object.assign 原地更新数据，免去 findIndex 的 O(N) 搜索开销
+                                    const existingObj = allThemeObjectsMap.get(themeName);
+                                    if (existingObj) {
+                                        Object.assign(existingObj, themeObject);
+                                    } else {
+                                        allThemeObjects.push(themeObject);
+                                        allThemeObjectsMap.set(themeName, themeObject);
+                                    }
+                                }
+                            });
+
+                            // 一次性挂载到 DOM，减少 Reflow
+                            if (list && listFragment.children.length > 0) {
+                                list.appendChild(listFragment);
+                            }
+
+                            if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                                const ctx = SillyTavern.getContext();
+                                if (ctx.saveSettingsDebounced) ctx.saveSettingsDebounced();
+                            }
                         }
 
-                        if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
-                            const ctx = SillyTavern.getContext();
-                            if (ctx.saveSettingsDebounced) ctx.saveSettingsDebounced();
+                        let summary = `批量导入完成！成功 ${successCount} 个`;
+                        if (errorCount > 0) {
+                            summary += `，失败 ${errorCount} 个。`;
+                            toastr.warning(summary);
+                        } else {
+                            summary += '。';
+                            toastr.success(summary);
                         }
-                    }
 
-                    hideLoader();
-                    
-                    let summary = `批量导入完成！成功 ${successCount} 个`;
-                    if (errorCount > 0) {
-                        summary += `，失败 ${errorCount} 个。`;
-                        toastr.warning(summary);
-                    } else {
-                        summary += '。';
-                        toastr.success(summary);
-                    }
+                        if (needsUIUpdate) {
+                            updateActiveState();
+                        }
 
-                    if (needsUIUpdate) {
-                        updateActiveState();
+                        // 关键词自动映射：导入时自动为新主题打标签
+                        if (importedThemes.length > 0) {
+                            applyKeywordMappings(importedThemes.map(t => t.name));
+                        }
+                    } catch (err) {
+                        console.error('[Theme Manager Error] 批量导入产生未捕获异常:', err);
+                        toastr.error('导入美化发生异常: ' + (err.message || err));
+                    } finally {
+                        hideLoader();
+                        event.target.value = '';
                     }
-
-                    // 关键词自动映射：导入时自动为新主题打标签
-                    if (importedThemes.length > 0) {
-                        applyKeywordMappings(importedThemes.map(t => t.name));
-                    }
-
-                    event.target.value = '';
                 });
+
 
                 batchImportBtn.addEventListener('click', () => {
                     fileInput.click();
