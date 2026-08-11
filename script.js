@@ -4675,16 +4675,21 @@
 
                 // 根据已设定的关键词规则，自动对已有美化/新美化应用映射（支持直属父级作用域匹配与深度优先处理）
                 function applyKeywordMappings(themeNames) {
+                    invalidateValidThemeNamesCache();
                     const tags = loadThemeTags();
                     const hasKeywords = tags.some(t => t.keywords && t.keywords.length > 0);
                     if (!hasKeywords) return false;
 
                     const validNames = getValidInstalledThemeNames();
-                    const themesToCheck = themeNames
-                        ? (Array.isArray(themeNames) ? themeNames : [themeNames]).filter(n => validNames.has(n))
-                        : Array.from(validNames);
+                    const inputNames = themeNames ? (Array.isArray(themeNames) ? themeNames : [themeNames]).filter(Boolean) : null;
+                    if (inputNames) {
+                        inputNames.forEach(n => validNames.add(n));
+                    }
+
+                    const themesToCheck = inputNames ? inputNames.filter(n => validNames.has(n)) : Array.from(validNames);
                     if (themesToCheck.length === 0) return false;
                     let changed = false;
+
 
                     const tagsById = new Map(tags.map(t => [t.id, t]));
 
