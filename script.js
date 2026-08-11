@@ -6078,7 +6078,7 @@
                             <input type="text" id="new-tag-name" class="text_pole" placeholder="${subtagsEnabled ? '新一级标签名称...' : '新标签名称...'}" style="flex-grow:1; min-width:0;">
                             <button id="add-new-tag-btn" class="menu_button" style="margin:0; white-space:nowrap; flex-shrink:0; width:auto;"><i class="fa-solid fa-plus"></i> ${subtagsEnabled ? '添加一级标签' : '添加标签'}</button>
                         </div>
-                        <div id="tags-management-list" style="max-height: 380px; overflow-y:auto; padding-right:4px;"></div>
+                        <div id="tags-management-list" style="max-height: calc(90vh - 220px); min-height: 250px; overflow-y:auto; padding-right:4px;"></div>
                         <div style="margin-top:10px; border-top:1px solid rgba(128,128,128,0.2); padding-top:10px;">
                             <button id="apply-keyword-mappings-btn" class="menu_button" style="width:100%; justify-content:center;"><i class="fa-solid fa-wand-magic-sparkles"></i> 对所有现有美化重新应用关键词映射</button>
                         </div>
@@ -6091,6 +6091,18 @@
                         wide: true,
                         onOpen: (popup) => {
                             const dlg = popup.dlg;
+                            if (dlg) {
+                                dlg.style.maxHeight = '90vh';
+                                dlg.style.height = 'auto';
+                                dlg.style.top = '5vh';
+                                dlg.style.transform = 'translate(-50%, 0)';
+                                const content = dlg.querySelector('.popup-content');
+                                if (content) {
+                                    content.style.maxHeight = 'calc(90vh - 80px)';
+                                    content.style.overflowY = 'auto';
+                                }
+                            }
+
 
                             const renderList = () => {
                                 const listContainer = dlg.querySelector('#tags-management-list');
