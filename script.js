@@ -2516,12 +2516,14 @@
 
                     themeItemMap.set(themeName, item);
 
-                    const targetContainer = parentContainer || contentWrapper?.querySelector('.theme-list');
-                    if (targetContainer) {
-                        targetContainer.appendChild(item);
+                    if (parentContainer) {
+                        parentContainer.appendChild(item);
+                    } else {
+                        filterThemeList(0);
                     }
                     return item;
                 }
+
 
                 function softDeleteThemeUI(themeName) {
                     if (!themeName) return;
@@ -4312,6 +4314,9 @@
                                 list.appendChild(listFragment);
                             }
 
+                            // 依照当前排序规则 (sortBy) 重新对全量美化卡片排序并定位到顶部
+                            filterThemeList(0);
+
                             if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
                                 const ctx = SillyTavern.getContext();
                                 if (ctx.saveSettingsDebounced) ctx.saveSettingsDebounced();
@@ -4335,6 +4340,7 @@
                         if (importedThemes.length > 0) {
                             applyKeywordMappings(importedThemes.map(t => t.name));
                         }
+
                     } catch (err) {
                         console.error('[Theme Manager Error] 批量导入产生未捕获异常:', err);
                         toastr.error('导入美化发生异常: ' + (err.message || err));
