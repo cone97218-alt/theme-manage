@@ -4758,6 +4758,12 @@
                     const filteredCount = typeof filteredThemes !== 'undefined' ? filteredThemes.length : allParsedThemes.length;
                     const scopeFilteredLabel = selectedCount > 0 ? `当前批量勾选的美化 (共 ${selectedCount} 个)` : `当前界面已筛选的美化 (共 ${filteredCount} 个)`;
 
+                    // 自动感知当前界面处于的最深层级标签
+                    const deepestActiveTagId = (typeof activeTagAncestryPath !== 'undefined' && Array.isArray(activeTagAncestryPath) && activeTagAncestryPath.length > 0)
+                        ? activeTagAncestryPath[activeTagAncestryPath.length - 1]
+                        : null;
+                    const hasDeepestTag = deepestActiveTagId && existingTags.some(t => t.id === deepestActiveTagId);
+
                     const setupHtml = `
                         <div style="padding:4px; height:100%; display:flex; flex-direction:column; box-sizing:border-box;">
                             <h4 style="margin:0 0 10px 0; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
@@ -4770,12 +4776,12 @@
                                     </div>
                                     <div style="display:flex; flex-direction:column; gap:8px; padding-left:12px;">
                                         <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                            <input type="radio" name="tm-auto-scope" value="all" checked style="margin:0;">
-                                            <span>全部美化主题 (共 <b>${allParsedThemes.length}</b> 个)</span>
+                                            <input type="radio" name="tm-auto-scope" value="filtered" checked style="margin:0;">
+                                            <span>${scopeFilteredLabel}</span>
                                         </label>
                                         <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                            <input type="radio" name="tm-auto-scope" value="filtered" style="margin:0;">
-                                            <span>${scopeFilteredLabel}</span>
+                                            <input type="radio" name="tm-auto-scope" value="all" style="margin:0;">
+                                            <span>全部美化主题 (共 <b>${allParsedThemes.length}</b> 个)</span>
                                         </label>
                                         <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
                                             <input type="radio" name="tm-auto-scope" value="tag" style="margin:0;">
@@ -4795,14 +4801,14 @@
                                     </div>
                                     <div style="display:flex; flex-direction:column; gap:8px; padding-left:12px;">
                                         <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                            <input type="radio" name="tm-auto-level" value="l1" checked style="margin:0;">
+                                            <input type="radio" name="tm-auto-level" value="l1" ${!hasDeepestTag ? 'checked' : ''} style="margin:0;">
                                             <span>创建为 <b>一级主标签/分类</b></span>
                                         </label>
                                         <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                            <input type="radio" name="tm-auto-level" value="l2" style="margin:0;">
+                                            <input type="radio" name="tm-auto-level" value="l2" ${hasDeepestTag ? 'checked' : ''} style="margin:0;">
                                             <span>创建为 <b>二级子标签</b> (支持向归属主分类融合/合并)</span>
                                         </label>
-                                        <div id="tm-auto-parent-container" style="margin-left:24px; display:none;">
+                                        <div id="tm-auto-parent-container" style="margin-left:24px; display:${hasDeepestTag ? 'block' : 'none'};">
                                             <select id="tm-auto-parent-select" class="text_pole" style="font-size:12px; height:30px; padding:2px 8px; width:100%; max-width:280px;">
                                                 ${l1SelectOptionsHtml}
                                             </select>
@@ -4844,7 +4850,7 @@
                                     <div style="display:flex; flex-direction:column; gap:8px; padding-left:12px;">
                                         <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
                                             <input type="checkbox" id="tm-auto-untagged-only" style="margin:0;">
-                                            <span>🎯 仅分析<b>未归类</b>的美化 (跳过已有标签覆盖的美化，专注新增内容)</span>
+                                            <span>🎯 仅分析<b>未归类</b>的美化 (在该目标层级下尚无更细分子标签的美化)</span>
                                         </label>
                                     </div>
                                 </div>
@@ -4852,9 +4858,9 @@
                         </div>
                     `;
 
-                    let selectedScope = 'all';
-                    let selectedLevel = 'l1';
-                    let parentId = null;
+                    let selectedScope = 'filtered';
+                    let selectedLevel = hasDeepestTag ? 'l2' : 'l1';
+                    let parentId = hasDeepestTag ? deepestActiveTagId : null;
                     let minMatch = 2;
                     let maxCandidates = 200;
                     let untaggedOnly = false;
@@ -4873,6 +4879,12 @@
                                 dlg.style.maxHeight = '80vh';
                                 dlg.style.display = 'flex';
                                 dlg.style.flexDirection = 'column';
+                            }
+
+                            const parentSelect = dlg.querySelector('#tm-auto-parent-select');
+                            if (parentSelect && hasDeepestTag) {
+                                parentSelect.value = deepestActiveTagId;
+                                parentId = deepestActiveTagId;
                             }
 
                             const scopeRadios = dlg.querySelectorAll('input[name="tm-auto-scope"]');
@@ -4894,7 +4906,6 @@
                             });
 
                             const minMatchInput = dlg.querySelector('#tm-auto-min-match');
-                            const parentSelect = dlg.querySelector('#tm-auto-parent-select');
                             const maxCandidatesSelect = dlg.querySelector('#tm-auto-max-candidates');
 
                             dlg.addEventListener('change', () => {
@@ -4902,7 +4913,8 @@
                                 if (checkedScope) selectedScope = checkedScope.value;
                                 const checkedLevel = dlg.querySelector('input[name="tm-auto-level"]:checked');
                                 if (checkedLevel) selectedLevel = checkedLevel.value;
-                                if (parentSelect) parentId = parentSelect.value;
+                                if (parentSelect && selectedLevel === 'l2') parentId = parentSelect.value;
+                                else if (selectedLevel === 'l1') parentId = null;
                                 if (minMatchInput) minMatch = parseInt(minMatchInput.value) || 2;
                                 if (maxCandidatesSelect) maxCandidates = parseInt(maxCandidatesSelect.value);
                                 const untaggedOnlyChk = dlg.querySelector('#tm-auto-untagged-only');
@@ -4921,6 +4933,13 @@
 
                     const untaggedOnlyChkEl = document.querySelector('#tm-auto-untagged-only');
                     if (untaggedOnlyChkEl) untaggedOnly = untaggedOnlyChkEl.checked;
+
+                    const parentSelectEl = document.querySelector('#tm-auto-parent-select');
+                    if (selectedLevel === 'l2' && parentSelectEl) {
+                        parentId = parentSelectEl.value;
+                    } else if (selectedLevel === 'l1') {
+                        parentId = null;
+                    }
 
                     showLoader();
                     setTimeout(() => {
@@ -4948,17 +4967,33 @@
                                 pool = allParsedThemes;
                             }
 
-                            // 5. 若勾选「仅分析未归类美化」，从池中过滤掉已被任何标签覆盖的美化
+                            // 5. 若勾选「仅分析未归类美化」，判定当前目标层级下是否有更深细分子标签
                             if (untaggedOnly) {
                                 const allExistingTags = loadThemeTags();
-                                const taggedThemeSet = new Set(allExistingTags.flatMap(t => t.themes || []));
-                                pool = pool.filter(t => !taggedThemeSet.has(t.value));
+                                if (selectedLevel === 'l2' && parentId) {
+                                    const childTagIds = getAllDescendantTagIds(parentId, allExistingTags).filter(id => id !== parentId);
+                                    if (childTagIds.length > 0) {
+                                        const childTagIdsSet = new Set(childTagIds);
+                                        pool = pool.filter(t => {
+                                            const themeTagIds = getTagsForTheme(t.value, allExistingTags);
+                                            return !themeTagIds.some(id => childTagIdsSet.has(id));
+                                        });
+                                    }
+                                } else {
+                                    const l1TagIds = new Set(allExistingTags.filter(t => !t.parentId).map(t => t.id));
+                                    pool = pool.filter(t => {
+                                        const themeTagIds = getTagsForTheme(t.value, allExistingTags);
+                                        return !themeTagIds.some(id => l1TagIds.has(id));
+                                    });
+                                }
+
                                 if (pool.length === 0) {
                                     hideLoader();
-                                    toastr.info('当前范围内所有美化均已被标签覆盖，无需再次分组！');
+                                    toastr.info('当前目标层级下所有美化均已有细分子标签归类，无需再次分组！');
                                     return;
                                 }
                             }
+
 
                             const candidates = extractCandidateThemeGroups(pool, minMatch, selectedLevel, parentId, maxCandidates);
                             hideLoader();
