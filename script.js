@@ -5810,7 +5810,7 @@
                                     <input type="checkbox" id="chk-enable-subtags" ${subtagsEnabled ? 'checked' : ''}>
                                     <span>开启二级目录模式</span> <small style="opacity:0.6; font-weight:normal;">(支持一级目录/二级标签)</small>
                                 </label>
-                                ${subtagsEnabled ? `<button id="tm-toggle-all-tree-fold" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;"><i class="fa-solid fa-compress"></i> 折叠/展开全部</button>` : ''}
+                                ${subtagsEnabled ? `<button id="tm-toggle-all-tree-fold" class="menu_button tm-btn-icon-only" style="margin:0;" title="一键折叠/展开全部父级标签"><i class="fa-solid fa-compress"></i></button>` : ''}
                             </div>
                             <button id="batch-delete-tags-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:4px 12px; white-space:nowrap; word-break:keep-all; flex-shrink:0; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; display:inline-flex !important; flex-direction:row !important; align-items:center !important; justify-content:center !important; writing-mode:horizontal-tb !important; width:auto !important; height:auto !important; min-height:28px !important; gap:4px;"><i class="fa-solid fa-trash-can" style="margin-right:4px;"></i> 批量删除标签</button>
                         </div>
@@ -5857,8 +5857,9 @@
                                     const parentTagIds = tags.filter(t => tags.some(c => c.parentId === t.id)).map(t => t.id);
                                     const allCollapsed = parentTagIds.length > 0 && parentTagIds.every(id => collapsedTagIds.has(id));
                                     toggleAllBtn.innerHTML = allCollapsed 
-                                        ? `<i class="fa-solid fa-expand"></i> <span>展开全部</span>` 
-                                        : `<i class="fa-solid fa-compress"></i> <span>折叠全部</span>`;
+                                        ? `<i class="fa-solid fa-expand"></i>` 
+                                        : `<i class="fa-solid fa-compress"></i>`;
+                                    toggleAllBtn.title = allCollapsed ? '一键展开全部标签' : '一键折叠全部标签';
                                 }
 
                                 const validThemeNames = getValidInstalledThemeNames();
@@ -5908,7 +5909,8 @@
                                         const iconClass = depth === 0 ? (hasChildren && isCollapsed ? 'fa-solid fa-folder' : 'fa-solid fa-folder-open') : 'fa-solid fa-tag';
 
                                         let nodeHtml = `
-                                            <div class="tm-tree-node-card" data-id="${nodeTag.id}" data-depth="${depth}" style="margin-left:${depth * 16}px; margin-bottom:4px;">
+                                            <div class="tm-tree-node-card" data-id="${nodeTag.id}" data-depth="${depth}" style="margin-left:${depth * 10}px; margin-bottom:4px;">
+
                                                 <div class="tm-tree-node-header" data-id="${nodeTag.id}" style="display:flex; justify-content:space-between; padding:5px 8px; background:${depth === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)'}; border-radius:4px; align-items:center; border:1px solid rgba(128,128,128,0.15);">
                                                     <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
                                                         ${isBatchDeleteMode ? `<input type="checkbox" class="tm-batch-tag-chk" data-id="${nodeTag.id}" ${isChecked ? 'checked' : ''} style="margin:0;">` : ''}
