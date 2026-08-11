@@ -4717,18 +4717,23 @@
                         if (!tag.themes) tag.themes = [];
                         const existingThemesSet = new Set(tag.themes);
 
-                        // 判别搜索作用域：未设置父级标签，或显式勾选了允许全局匹配的子标签，在全局范围搜索；
-                        // 否则仅在直属父级标签已包含的美化集合中搜索
+                        // 判别搜索作用域：
+                        // 1. 未设置父级标签，或显式勾选了全局匹配 (globalKeywords: true)，在全局范围搜索；
+                        // 2. 直属父级已包含美化集合时，限制在父级美化范围内匹配；若父级尚未归集任何美化，则允许子标签按关键词搜寻，并自动向上向上同步至父级
                         const isGlobalSearch = !tag.parentId || tag.globalKeywords === true;
                         let scopedThemesToCheck = themesToCheck;
 
                         if (!isGlobalSearch) {
                             const parentTag = tagsById.get(tag.parentId);
-                            const parentThemesSet = new Set(parentTag && Array.isArray(parentTag.themes) ? parentTag.themes : []);
-                            scopedThemesToCheck = themesToCheck.filter(n => parentThemesSet.has(n));
+                            const parentThemes = parentTag && Array.isArray(parentTag.themes) ? parentTag.themes : [];
+                            if (parentThemes.length > 0) {
+                                const parentThemesSet = new Set(parentThemes);
+                                scopedThemesToCheck = themesToCheck.filter(n => parentThemesSet.has(n));
+                            }
                         }
 
                         if (scopedThemesToCheck.length === 0) continue;
+
 
                         for (let i = 0; i < scopedThemesToCheck.length; i++) {
                             const themeName = scopedThemesToCheck[i];
