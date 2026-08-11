@@ -5864,12 +5864,15 @@
                                                     <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${filterValid(t.themes).length})</small>
                                                     ${kwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${kwCount}词]</small>` : ''}
                                                 </div>
-                                                <div style="display:flex; gap:3px; align-items:center; flex-shrink:0;">
-                                                    <button class="menu_button move-flat-up tm-btn-icon-only" data-id="${t.id}" title="向上移动" ${idx === 0 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-up"></i></button>
-                                                    <button class="menu_button move-flat-down tm-btn-icon-only" data-id="${t.id}" title="向下移动" ${idx === tags.length - 1 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-down"></i></button>
+                                                <div style="display:flex; gap:3px; align-items:center; flex-shrink:0; position:relative;">
                                                     <button class="menu_button keywords-tag-inline tm-btn-icon-only" data-id="${t.id}" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
                                                     <button class="menu_button rename-tag-inline tm-btn-icon-only" data-id="${t.id}" title="重命名"><i class="fa-solid fa-pen"></i></button>
-                                                    <button class="menu_button delete-tag-inline tm-btn-icon-only" data-id="${t.id}" title="删除"><i class="fa-solid fa-trash"></i></button>
+                                                    <button class="menu_button tm-tag-more-btn tm-btn-icon-only" data-id="${t.id}" title="更多操作"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                                                    <div class="tm-tag-more-menu" data-id="${t.id}" style="display:none; position:absolute; right:0; top:100%; margin-top:2px; z-index:99999; background:var(--color-bg-subtle, #1e1e24); border:1px solid rgba(255,255,255,0.18); border-radius:6px; padding:4px; box-shadow:0 6px 16px rgba(0,0,0,0.6); flex-direction:column; gap:4px; min-width:110px; writing-mode:horizontal-tb !important;">
+                                                        <button class="menu_button move-flat-up" data-id="${t.id}" style="justify-content:flex-start; font-size:11px; padding:4px 8px; gap:6px; margin:0;" ${idx === 0 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-up"></i> 向上移动</button>
+                                                        <button class="menu_button move-flat-down" data-id="${t.id}" style="justify-content:flex-start; font-size:11px; padding:4px 8px; gap:6px; margin:0;" ${idx === tags.length - 1 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-down"></i> 向下移动</button>
+                                                        <button class="menu_button delete-tag-inline" data-id="${t.id}" style="justify-content:flex-start; font-size:11px; padding:4px 8px; gap:6px; margin:0; color:#ff8888 !important; background:rgba(220,53,69,0.15) !important;"><i class="fa-solid fa-trash"></i> 删除标签</button>
+                                                    </div>
                                                 </div>
                                             </li>
                                         `;
@@ -5896,16 +5899,20 @@
                                                         <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${childTags.length > 0 ? `子级:${childTags.length}/` : ''}主题:${themeCount})</small>
                                                         ${kwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${kwCount}词]</small>` : ''}
                                                     </div>
-                                                    <div style="display:flex; gap:3px; align-items:center; flex-shrink:0;">
-                                                        <button class="menu_button move-node-up tm-btn-icon-only" data-id="${nodeTag.id}" title="向上移动" ${idx === 0 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-up"></i></button>
-                                                        <button class="menu_button move-node-down tm-btn-icon-only" data-id="${nodeTag.id}" title="向下移动" ${idx === siblings.length - 1 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-down"></i></button>
+                                                    <div style="display:flex; gap:3px; align-items:center; flex-shrink:0; position:relative;">
                                                         <button class="menu_button add-subtag-btn tm-btn-icon-only" data-id="${nodeTag.id}" title="添加子标签"><i class="fa-solid fa-plus"></i></button>
-                                                        ${depth > 0 ? `<button class="menu_button promote-tag-inline tm-btn-icon-only" data-id="${nodeTag.id}" title="升一级 (提升给父级的父级)"><i class="fa-solid fa-turn-up"></i></button>` : ''}
                                                         <button class="menu_button keywords-tag-inline tm-btn-icon-only" data-id="${nodeTag.id}" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
                                                         <button class="menu_button rename-tag-inline tm-btn-icon-only" data-id="${nodeTag.id}" title="重命名"><i class="fa-solid fa-pen"></i></button>
-                                                        <button class="menu_button delete-tag-inline tm-btn-icon-only" data-id="${nodeTag.id}" title="删除"><i class="fa-solid fa-trash"></i></button>
+                                                        <button class="menu_button tm-tag-more-btn tm-btn-icon-only" data-id="${nodeTag.id}" title="更多操作"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                                                        <div class="tm-tag-more-menu" data-id="${nodeTag.id}" style="display:none; position:absolute; right:0; top:100%; margin-top:2px; z-index:99999; background:var(--color-bg-subtle, #1e1e24); border:1px solid rgba(255,255,255,0.18); border-radius:6px; padding:4px; box-shadow:0 6px 16px rgba(0,0,0,0.6); flex-direction:column; gap:4px; min-width:110px; writing-mode:horizontal-tb !important;">
+                                                            <button class="menu_button move-node-up" data-id="${nodeTag.id}" style="justify-content:flex-start; font-size:11px; padding:4px 8px; gap:6px; margin:0;" ${idx === 0 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-up"></i> 向上移动</button>
+                                                            <button class="menu_button move-node-down" data-id="${nodeTag.id}" style="justify-content:flex-start; font-size:11px; padding:4px 8px; gap:6px; margin:0;" ${idx === siblings.length - 1 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-down"></i> 向下移动</button>
+                                                            ${depth > 0 ? `<button class="menu_button promote-tag-inline" data-id="${nodeTag.id}" style="justify-content:flex-start; font-size:11px; padding:4px 8px; gap:6px; margin:0;"><i class="fa-solid fa-turn-up"></i> 升一级</button>` : ''}
+                                                            <button class="menu_button delete-tag-inline" data-id="${nodeTag.id}" style="justify-content:flex-start; font-size:11px; padding:4px 8px; gap:6px; margin:0; color:#ff8888 !important; background:rgba(220,53,69,0.15) !important;"><i class="fa-solid fa-trash"></i> 删除标签</button>
+                                                        </div>
                                                     </div>
                                                 </div>
+
                                                 <div class="tm-tree-node-children" data-parent-id="${nodeTag.id}">
                                         `;
 
@@ -6012,8 +6019,39 @@
                             };
 
                             const BindEvents = () => {
+                                // 绑定【⋮】更多操作菜单的展开/隐藏
+                                dlg.querySelectorAll('.tm-tag-more-btn').forEach(btn => {
+                                    btn.addEventListener('click', (e) => {
+                                        e.stopPropagation();
+                                        const id = btn.dataset.id;
+                                        const parentEl = btn.parentElement;
+                                        const menu = parentEl ? parentEl.querySelector(`.tm-tag-more-menu[data-id="${id}"]`) : null;
+                                        if (!menu) return;
+
+                                        const isCurrentlyOpen = menu.style.display === 'flex';
+                                        dlg.querySelectorAll('.tm-tag-more-menu').forEach(m => m.style.display = 'none');
+
+                                        if (!isCurrentlyOpen) {
+                                            menu.style.display = 'flex';
+                                        }
+                                    });
+                                });
+
+                                dlg.querySelectorAll('.tm-tag-more-menu button').forEach(menuItemBtn => {
+                                    menuItemBtn.addEventListener('click', () => {
+                                        dlg.querySelectorAll('.tm-tag-more-menu').forEach(m => m.style.display = 'none');
+                                    });
+                                });
+
+                                dlg.addEventListener('click', (e) => {
+                                    if (!e.target.closest('.tm-tag-more-btn') && !e.target.closest('.tm-tag-more-menu')) {
+                                        dlg.querySelectorAll('.tm-tag-more-menu').forEach(m => m.style.display = 'none');
+                                    }
+                                });
+
                                 // 批量勾选与 Shift 连选逻辑
                                 const allChks = Array.from(dlg.querySelectorAll('.tm-batch-tag-chk'));
+
                                 allChks.forEach((chk, idx) => {
                                     chk.setAttribute('data-order-idx', idx);
 
