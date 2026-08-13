@@ -1490,9 +1490,22 @@
             src = charImg ? charImg.src : (file ? `/characters/${file}` : '');
             if (!file && src) file = getAvatarFilename(src);
         } else {
-            const userImg = document.querySelector('#user_avatar_block img, .user_avatar img');
-            src = userImg ? userImg.src : '';
-            file = getAvatarFilename(src);
+            let userAvatarFile = '';
+            if (typeof user_avatar !== 'undefined' && user_avatar) {
+                userAvatarFile = user_avatar;
+            } else if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                const ctx = SillyTavern.getContext();
+                if (ctx && ctx.user_avatar) userAvatarFile = ctx.user_avatar;
+            }
+
+            if (userAvatarFile) {
+                file = userAvatarFile;
+                src = `/User Avatars/${encodeURIComponent(userAvatarFile)}`;
+            } else {
+                const userImg = document.querySelector('#user_avatar_block img, .user_avatar img');
+                src = userImg ? userImg.src : '';
+                file = getAvatarFilename(src);
+            }
         }
         return { file, src };
     }
@@ -1516,7 +1529,7 @@
         let realNativeSrc = src;
         if (type === 'char' && file) {
             realNativeSrc = `/characters/${encodeURIComponent(file)}`;
-        } else if (type === 'user' && file && file.includes('.')) {
+        } else if (type === 'user' && file && (!file.startsWith('db://') && !file.startsWith('data:') && !file.startsWith('blob:'))) {
             realNativeSrc = `/User Avatars/${encodeURIComponent(file)}`;
         }
         originalAvatarUrl = realNativeSrc;
@@ -3054,13 +3067,13 @@
                     }
                 }
 
-                if (lastAddedUrl) {
-                    applyOverride(lastAddedUrl);
-                }
                 urlInput.value = '';
+                renderGalleryGrid();
 
                 if (urls.length > 1) {
-                    toastr.success(`成功批量导入 ${urls.length} 个图片外链！`);
+                    toastr.success(`成功批量导入 ${urls.length} 个图片外链到图库！`);
+                } else if (urls.length === 1) {
+                    toastr.success('成功导入图片外链到图库！');
                 }
             });
 
@@ -3117,8 +3130,6 @@
                             }
                         }
 
-                        const lastItem = newItems[newItems.length - 1];
-                        applyOverride(lastItem.url);
                         urlInput.value = '';
                         fileInput.value = '';
                         renderGalleryGrid();
