@@ -1465,10 +1465,26 @@
             if (charObj && charObj.avatar) {
                 file = charObj.avatar;
             }
+        } else {
+            if (typeof user_avatar !== 'undefined' && user_avatar) {
+                file = user_avatar;
+                src = `/User Avatars/${encodeURIComponent(user_avatar)}`;
+            } else if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                const ctx = SillyTavern.getContext();
+                if (ctx && ctx.user_avatar) {
+                    file = ctx.user_avatar;
+                    src = `/User Avatars/${encodeURIComponent(ctx.user_avatar)}`;
+                }
+            }
         }
 
-        if (!file) {
-            file = getAvatarFilename(src);
+        const isOverrideFile = (f) => !f || f.startsWith('db://') || f.startsWith('img_') || f.startsWith('crop_') || f.startsWith('data:') || f.startsWith('blob:');
+
+        if (isOverrideFile(file)) {
+            const parsed = getAvatarFilename(src);
+            if (!isOverrideFile(parsed)) {
+                file = parsed;
+            }
         }
 
         return { type, file, src };
@@ -1478,6 +1494,8 @@
     function getActiveAvatarInfo(type) {
         let file = '';
         let src = '';
+        const isOverrideFile = (f) => !f || f.startsWith('db://') || f.startsWith('img_') || f.startsWith('crop_') || f.startsWith('data:') || f.startsWith('blob:');
+
         if (type === 'char') {
             const context = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
             if (context && context.characters && context.characterId !== undefined) {
@@ -1486,9 +1504,14 @@
                     file = charObj.avatar;
                 }
             }
-            const charImg = document.querySelector('#avatar_div img, #right-nav-panel .character_select.selected img, .avatar img');
-            src = charImg ? charImg.src : (file ? `/characters/${file}` : '');
-            if (!file && src) file = getAvatarFilename(src);
+            if (file && !isOverrideFile(file)) {
+                src = `/characters/${encodeURIComponent(file)}`;
+            } else {
+                const charImg = document.querySelector('#avatar_div img, #right-nav-panel .character_select.selected img, .avatar img');
+                src = charImg ? charImg.src : '';
+                const parsed = getAvatarFilename(src);
+                if (!isOverrideFile(parsed)) file = parsed;
+            }
         } else {
             let userAvatarFile = '';
             if (typeof user_avatar !== 'undefined' && user_avatar) {
@@ -1498,13 +1521,14 @@
                 if (ctx && ctx.user_avatar) userAvatarFile = ctx.user_avatar;
             }
 
-            if (userAvatarFile) {
+            if (userAvatarFile && !isOverrideFile(userAvatarFile)) {
                 file = userAvatarFile;
                 src = `/User Avatars/${encodeURIComponent(userAvatarFile)}`;
             } else {
                 const userImg = document.querySelector('#user_avatar_block img, .user_avatar img');
                 src = userImg ? userImg.src : '';
-                file = getAvatarFilename(src);
+                const parsed = getAvatarFilename(src);
+                if (!isOverrideFile(parsed)) file = parsed;
             }
         }
         return { file, src };
@@ -1512,11 +1536,25 @@
 
     // 弹窗创建
     function openPanel(type, file, src) {
-        // 如果未传入 file/src，则动态获取
-        if (!file || !src) {
+        const isOverrideFile = (f) => !f || f.startsWith('db://') || f.startsWith('img_') || f.startsWith('crop_') || f.startsWith('data:') || f.startsWith('blob:');
+
+        // 如果未传入 file/src，或者传入的 file/src 被识别为动态 override 标识符，重新精确获取底层真实头像
+        if (isOverrideFile(file) || !src || isOverrideFile(getAvatarFilename(src))) {
             const info = getActiveAvatarInfo(type);
             file = info.file;
             src = info.src;
+        }
+
+        // 保底过滤：防止极罕见情况下 info.file 仍然是 override 字符串
+        if (isOverrideFile(file)) {
+            if (type === 'char') {
+                const charName = getActiveCharacterName();
+                file = charName ? `${charName}.png` : 'default.png';
+                src = `/characters/${encodeURIComponent(file)}`;
+            } else {
+                file = (typeof user_avatar !== 'undefined' && user_avatar) ? user_avatar : 'default.png';
+                src = `/User Avatars/${encodeURIComponent(file)}`;
+            }
         }
 
         // 在打开任何新弹窗前，绝对优先关闭并清除已有的弹窗资源，防止多个弹窗 DOM 并存导致冲突卡死
@@ -1529,7 +1567,7 @@
         let realNativeSrc = src;
         if (type === 'char' && file) {
             realNativeSrc = `/characters/${encodeURIComponent(file)}`;
-        } else if (type === 'user' && file && (!file.startsWith('db://') && !file.startsWith('data:') && !file.startsWith('blob:'))) {
+        } else if (type === 'user' && file && !isOverrideFile(file)) {
             realNativeSrc = `/User Avatars/${encodeURIComponent(file)}`;
         }
         originalAvatarUrl = realNativeSrc;
@@ -3870,11 +3908,9 @@
                     e.preventDefault();
                     $('#userExtensionsMenu').hide();
 
-                    const userImg = document.querySelector('#user_avatar_block img, .user_avatar img');
-                    const src = userImg ? userImg.src : '';
-                    const file = getAvatarFilename(src);
-                    if (file) {
-                        openPanel('user', file, src);
+                    const info = getActiveAvatarInfo('user');
+                    if (info.file) {
+                        openPanel('user', info.file, info.src);
                     } else {
                         toastr.warning('未找到用户头像，请先在用户面板上传头像。');
                     }
