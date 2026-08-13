@@ -215,8 +215,45 @@
             const resolved = resolveImageUrl(overrideUrl);
             if (resolved) {
                 preloadAndDecodeImage(resolved);
+                if (!img.dataset.tmOrigSrc && img.src && !img.src.startsWith('blob:') && !img.src.startsWith('data:')) {
+                    img.dataset.tmOrigSrc = img.src;
+                }
                 if (img.src !== resolved) {
                     img.src = resolved;
+                }
+            }
+        } else {
+            // 当 overrideUrl 为空（重置为原图）时，强制将 img.src 还原为真实的原生头像 URL
+            let defaultSrc = img.dataset.tmOrigSrc || '';
+            if (!defaultSrc || defaultSrc.startsWith('blob:') || defaultSrc.startsWith('data:')) {
+                if (isUser) {
+                    const uFile = (typeof user_avatar !== 'undefined' && user_avatar) ? user_avatar : '';
+                    if (uFile) defaultSrc = `/User Avatars/${encodeURIComponent(uFile)}`;
+                } else {
+                    const charName = name || messageEl.getAttribute('data-ch-name') || messageEl.getAttribute('ch_name') || getActiveCharacterName();
+                    const context = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
+                    let cObj = null;
+                    if (context && context.characters) {
+                        cObj = context.characters.find(c => c.name === charName);
+                    }
+                    if (cObj && cObj.avatar) {
+                        defaultSrc = `/characters/${encodeURIComponent(cObj.avatar)}`;
+                    } else if (charName) {
+                        const charImg = document.querySelector('#avatar_div img, #right-nav-panel .character_select.selected img');
+                        if (charImg && charImg.src && !charImg.src.startsWith('blob:') && !charImg.src.startsWith('data:')) {
+                            defaultSrc = charImg.src;
+                        }
+                    }
+                }
+            }
+            if (defaultSrc) {
+                const cleanDefaultPath = defaultSrc.split('?')[0];
+                const cleanCurrentPath = (img.src || '').split('?')[0];
+                if (cleanCurrentPath !== cleanDefaultPath || img.src.startsWith('blob:') || img.src.startsWith('data:')) {
+                    const s = new URL(defaultSrc, window.location.href);
+                    s.searchParams.set('v', String(Date.now()));
+                    img.src = s.toString();
+                    console.log('[Theme Manager Avatar] Reset message img.src back to native original:', defaultSrc);
                 }
             }
         }
