@@ -1487,6 +1487,7 @@
             }
         }
 
+        console.log('[Theme Manager Avatar] identifyAvatar:', { element, type, file, src });
         return { type, file, src };
     }
 
@@ -1531,7 +1532,8 @@
                 if (!isOverrideFile(parsed)) file = parsed;
             }
         }
-        return { file, src };
+        console.log('[Theme Manager Avatar] getActiveAvatarInfo:', { type, file, src });
+        return { type, file, src };
     }
 
     // 弹窗创建
@@ -1571,6 +1573,13 @@
             realNativeSrc = `/User Avatars/${encodeURIComponent(file)}`;
         }
         originalAvatarUrl = realNativeSrc;
+
+        console.log('[Theme Manager Avatar] openPanel initialized:', {
+            currentTargetType,
+            currentAvatarFile,
+            originalAvatarUrl,
+            adjustmentKey: getAdjustmentKey(type, currentAvatarFile)
+        });
 
         // 打标签保证新加载的弹窗下背景也是正确的
         tagAllMessages();
@@ -1901,6 +1910,7 @@
 
         // 统一应用图库视觉替换保存
         function applyOverride(url) {
+            console.log('[Theme Manager Avatar] applyOverride called:', { url, currentTargetType, currentAvatarFile });
             const current = getAdjustment(type, file);
             current.overrideUrl = url;
             saveAdjustment(type, file, current);
@@ -2179,6 +2189,13 @@
             galleryGrid.innerHTML = '';
 
             const current = getAdjustment(type, file);
+            console.log('[Theme Manager Avatar] renderGalleryGrid:', {
+                type,
+                file,
+                overrideUrl: current.overrideUrl,
+                originalAvatarUrl,
+                gallerySubtab
+            });
 
             // 1. 渲染系统【原始头像】重置卡片（虚线边框 + 明晰“原图”标识，防止混淆为用户自定义图库文件）
             const origItem = document.createElement('div');
@@ -3145,6 +3162,7 @@
                     const results = await Promise.all(processTasks);
                     const newItems = results.filter(item => item !== null);
                     hideLoader();
+                    console.log('[Theme Manager Avatar] Local gallery upload finish, newItems:', newItems);
 
                     if (newItems.length > 0) {
                         if (targetType === 'char') {
