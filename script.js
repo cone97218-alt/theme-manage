@@ -1175,15 +1175,18 @@
                     // 必定同步更新或清空 Custom CSS，彻底消除上一个美化遗留的样式污染
                     syncCustomCssToST(targetCss);
 
-                    // 防范 ST 原生 loadTheme 异步写回导致 custom_css 偏移的静默守护
+                    // 防范 ST 原生 loadTheme 异步写回导致 custom_css 偏移的阶梯式静默守护
                     const scheduleAsyncProtection = () => {
-                        setTimeout(() => {
-                            const curCss = (typeof power_user !== 'undefined' && power_user.custom_css) || '';
-                            if (curCss !== targetCss) {
-                                console.log(`[Theme Manager] 静默纠偏同步主题 "${themeName}" 的 Custom CSS`);
-                                syncCustomCssToST(targetCss);
-                            }
-                        }, 250);
+                        const checkOffsets = [100, 250, 600, 1200];
+                        checkOffsets.forEach(delay => {
+                            setTimeout(() => {
+                                const curCss = (typeof power_user !== 'undefined' && power_user.custom_css) || '';
+                                if (curCss !== targetCss) {
+                                    console.log(`[Theme Manager] 静默纠偏 (${delay}ms) 同步主题 "${themeName}" 的 Custom CSS`);
+                                    syncCustomCssToST(targetCss);
+                                }
+                            }, delay);
+                        });
                     };
 
                     // 核心优化: 更新选中值并同步触发表单变更
@@ -1541,9 +1544,20 @@
                             invalidateThemesCache();
                             const currentThemeName = originalSelect.value;
                             const themeObj = allThemeObjectsMap.get(currentThemeName);
-                            const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style') || document.querySelector('#style_custom');
-                            if (themeObj && editorEl) {
-                                themeObj.custom_css = editorEl.value;
+                            if (themeObj) {
+                                let liveCss = '';
+                                if (typeof power_user !== 'undefined' && power_user.custom_css !== undefined) {
+                                    liveCss = power_user.custom_css;
+                                }
+                                const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style') || document.querySelector('#style_custom');
+                                if (editorEl) {
+                                    if (editorEl.CodeMirror && typeof editorEl.CodeMirror.getValue === 'function') {
+                                        liveCss = editorEl.CodeMirror.getValue();
+                                    } else if (editorEl.value) {
+                                        liveCss = editorEl.value;
+                                    }
+                                }
+                                themeObj.custom_css = liveCss;
                             }
                         }, 300);
                     });
@@ -1861,8 +1875,10 @@
                             if (currentVal && existingNames.has(currentVal)) {
                                 selectEl.value = currentVal;
                             } else if (freshThemes.length > 0) {
-                                selectEl.value = freshThemes[0].name || freshThemes[0].value;
-                                triggerSelectChange(selectEl);
+                                const fallbackTheme = freshThemes[0].name || freshThemes[0].value;
+                                if (fallbackTheme) {
+                                    applyThemeDirect(fallbackTheme);
+                                }
                             }
                         }
 
@@ -3149,8 +3165,8 @@
                         summary += '。';
                         toastr.success(summary);
 
-                        if (activeThemeWasRenamed) {
-                            triggerSelectChange(originalSelect);
+                        if (activeThemeWasRenamed && originalSelect.value) {
+                            applyThemeDirect(originalSelect.value);
                         }
                         updateActiveState();
                     } catch (err) {
@@ -3262,8 +3278,10 @@
                     const isCurrentlyActiveDeleted = successSet.has(originalSelect.value);
                     if (isCurrentlyActiveDeleted) {
                         const azureOption = findOptionByValue(originalSelect, 'Azure');
-                        originalSelect.value = azureOption ? 'Azure' : (originalSelect.options[0]?.value || '');
-                        triggerSelectChange(originalSelect);
+                        const fallbackTheme = azureOption ? 'Azure' : (originalSelect.options[0]?.value || '');
+                        if (fallbackTheme) {
+                            applyThemeDirect(fallbackTheme);
+                        }
                     }
 
                     // 0ms 瞬间完成 UI 刷新与提示
@@ -4329,8 +4347,15 @@
                     // 复用已缓存的主题列表，避免额外的 API 请求
                     if (allParsedThemes.length > 0) {
                         const randomIndex = Math.floor(Math.random() * allParsedThemes.length);
-                        originalSelect.value = allParsedThemes[randomIndex].value;
-                        triggerSelectChange(originalSelect);
+                        const targetRandomTheme = allParsedThemes[randomIndex].value;
+                        if (targetRandomTheme) {
+                            applyThemeDirect(targetRandomTheme);
+                            updateActiveState();
+                            const boundBg = themeBackgroundBindings[targetRandomTheme];
+                            if (boundBg) {
+                                applyBackgroundDirectly(boundBg);
+                            }
+                        }
                     }
                 });
 
@@ -7692,8 +7717,10 @@
 
                                     if (isCurrentlyActive) {
                                         const azureOption = findOptionByValue(originalSelect, 'Azure');
-                                        originalSelect.value = azureOption ? 'Azure' : (originalSelect.options[0]?.value || '');
-                                        triggerSelectChange(originalSelect);
+                                        const fallbackTheme = azureOption ? 'Azure' : (originalSelect.options[0]?.value || '');
+                                        if (fallbackTheme) {
+                                            applyThemeDirect(fallbackTheme);
+                                        }
                                     }
                                     invalidateThemesCache();
                                     renderTagsUI();
@@ -8018,8 +8045,8 @@
                                 // 1. 如果解析出的具体主题与当前不同，则切换
                                 if (themeSelect.value !== themeToApply) {
                                     console.log(`[Theme Manager] 角色绑定触发切换: ${themeToApply} (来源: ${target})`);
-                                    themeSelect.value = themeToApply;
-                                    triggerSelectChange(themeSelect);
+                                    applyThemeDirect(themeToApply);
+                                    updateActiveState();
                                     toastr.info(`已应用角色绑定的美化：<b>${escapeHtml(themeToApply)}</b>`, '', { timeOut: 2000, escapeHtml: false });
                                 } else {
                                     console.log(`[Theme Manager Debug] Theme is already active:`, themeToApply);
