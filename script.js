@@ -3302,201 +3302,746 @@
 
                 // VVVVVVVVVVVV 新增代码 VVVVVVVVVVVV -->
 
-                // ---------- 导入/导出插件配置 ----------
+                // ===================== 自定义模块化备份系统 =====================
 
-                const settingsKeysToSync = [
-                    FAVORITES_KEY,
-                    COLLAPSE_KEY,
-                    THEME_TAGS_KEY,
-                    THEME_BACKGROUND_BINDINGS_KEY,
-                    CHARACTER_THEME_BINDINGS_KEY,
-                    THEME_DAY_NIGHT_PAIRS_KEY,
-                    'themeManager_autoTheme',
-                    TAG_FILTER_MODE_KEY,
-                    ENABLE_SUBTAGS_KEY,
-                    ACTIVE_TAG_PATH_KEY,
-                    USAGE_COUNT_KEY,
-                    SHOW_USAGE_COUNT_KEY,
-                    ENABLE_AVATAR_HELPER_KEY,
-                    ENABLE_COLOR_TRANSFER_KEY,
-                    ENABLE_DAYNIGHT_BINDING_KEY,
-                    ENABLE_REPLACE_AVATAR_BTN_KEY,
-                    TWO_LINE_LAYOUT_KEY,
-                    HIDE_TAG_PILLS_KEY,
-                    TAG_PILL_MODE_KEY
+                const BACKUP_MODULE_DEFS = [
+                    {
+                        id: 'themes',
+                        name: '美化主题文件',
+                        icon: 'fa-solid fa-palette',
+                        desc: '包含选定主题的完整样式、颜色与自定义 CSS 配置',
+                        isThemes: true
+                    },
+                    {
+                        id: 'tags',
+                        name: '标签分类体系',
+                        icon: 'fa-solid fa-tags',
+                        desc: '包含全部分级标签树、子标签、过滤偏好与关键词自动映射规则',
+                        keys: [
+                            THEME_TAGS_KEY,
+                            TAG_FILTER_MODE_KEY,
+                            ENABLE_SUBTAGS_KEY,
+                            ACTIVE_TAGS_KEY,
+                            ACTIVE_TAG_PATH_KEY,
+                            TAG_PILL_MODE_KEY,
+                            HIDE_TAG_PILLS_KEY
+                        ]
+                    },
+                    {
+                        id: 'daynight',
+                        name: '日夜模式与日夜组',
+                        icon: 'fa-solid fa-circle-half-stroke',
+                        desc: '包含日夜主题组配对绑定、自动主题切换策略与开关状态',
+                        keys: [
+                            THEME_DAY_NIGHT_PAIRS_KEY,
+                            'themeManager_autoTheme',
+                            ENABLE_DAYNIGHT_BINDING_KEY
+                        ]
+                    },
+                    {
+                        id: 'backgrounds',
+                        name: '背景图绑定',
+                        icon: 'fa-solid fa-image',
+                        desc: '包含各美化主题所关联绑定的专属背景图配置',
+                        keys: [
+                            THEME_BACKGROUND_BINDINGS_KEY
+                        ]
+                    },
+                    {
+                        id: 'avatars',
+                        name: '角色绑定与头像管理',
+                        icon: 'fa-solid fa-user-gear',
+                        desc: '包含角色卡绑定的专属美化配置、头像辅助器及替换按键设置',
+                        keys: [
+                            CHARACTER_THEME_BINDINGS_KEY,
+                            ENABLE_AVATAR_HELPER_KEY,
+                            ENABLE_REPLACE_AVATAR_BTN_KEY
+                        ]
+                    },
+                    {
+                        id: 'favorites_usage',
+                        name: '收藏夹与使用统计',
+                        icon: 'fa-solid fa-star',
+                        desc: '包含加星收藏主题列表以及主题使用点击次数统计',
+                        keys: [
+                            FAVORITES_KEY,
+                            USAGE_COUNT_KEY,
+                            SHOW_USAGE_COUNT_KEY
+                        ]
+                    },
+                    {
+                        id: 'ui_preferences',
+                        name: '界面显示偏好',
+                        icon: 'fa-solid fa-sliders',
+                        desc: '包含换行排版、分页大小、排序方式、配色提取器等界面习惯偏好',
+                        keys: [
+                            TWO_LINE_LAYOUT_KEY,
+                            PAGE_SIZE_KEY,
+                            SORT_SELECT_KEY,
+                            LIST_MODE_KEY,
+                            ENABLE_COLOR_TRANSFER_KEY,
+                            COLLAPSE_KEY,
+                            BATCH_EDIT_COLLAPSED_KEY
+                        ]
+                    }
                 ];
 
-
-                // ===================== 全量备份：导出（主题文件 + 插件配置） =====================
-                async function exportFullBackup() {
+                // 打开自定义备份导出弹窗
+                async function openCustomExportModal() {
                     showLoader();
+                    let allThemes = [];
                     try {
-                        // 1. 拉取所有主题文件数据
-                        const allThemes = await getAllThemesFromAPI();
-
-                        // 2. 读取所有 localStorage 配置
-                        const settingsSnapshot = {};
-                        settingsKeysToSync.forEach(key => {
-                            const val = localStorage.getItem(key);
-                            if (val !== null) settingsSnapshot[key] = val;
-                        });
-
-                        // 3. 组装完整备份包
-                        const backup = {
-                            _version: 1,
-                            _type: 'themeManager_fullBackup',
-                            _exportedAt: new Date().toISOString(),
-                            _themeCount: allThemes.length,
-                            themes: allThemes,
-                            settings: settingsSnapshot
-                        };
-
-                        // 4. 下载为 JSON 文件
-                        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-                        const filename = `theme_manager_full_backup_${ts}.json`;
-                        const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = filename;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        URL.revokeObjectURL(url);
-
-                        toastr.success(`全量备份导出成功！共 ${allThemes.length} 个主题文件 + 完整配置。`, '全量备份');
-                    } catch (err) {
-                        console.error('[Theme Manager] 全量备份导出失败:', err);
-                        toastr.error(`全量备份导出失败：${err.message || err}`);
+                        allThemes = await getAllThemesFromAPI();
+                    } catch (e) {
+                        console.error('[Theme Manager] 获取全量主题失败:', e);
+                        toastr.error('获取主题列表失败，请检查网络');
                     } finally {
                         hideLoader();
                     }
+
+                    const exportDlgHtml = `
+                        <div class="tm-custom-backup-modal" style="max-height: 78vh; overflow-y: auto; overflow-x: hidden; padding: 4px 6px; box-sizing: border-box; text-align: left;">
+                            <style>
+                                .tm-custom-backup-modal .menu_button {
+                                    white-space: nowrap !important;
+                                    word-break: keep-all !important;
+                                    flex-shrink: 0 !important;
+                                    display: inline-flex !important;
+                                    align-items: center !important;
+                                    justify-content: center !important;
+                                    text-align: center !important;
+                                    min-width: max-content !important;
+                                    writing-mode: horizontal-tb !important;
+                                }
+                            </style>
+                            <div style="margin-bottom: 12px; font-size: 12px; opacity: 0.8; line-height: 1.5;">
+                                请勾选需要导出的数据模块。您也可以在下方单独挑选需要备份的美化主题：
+                            </div>
+
+                            <!-- 模块全选/清空快捷栏 -->
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 4px 2px; flex-wrap: wrap; gap: 8px;">
+                                <span style="font-weight: bold; font-size: 13px; color: var(--SmartThemeQuoteColor, #4a90e2); white-space: nowrap; flex-shrink: 0;">
+                                    <i class="fa-solid fa-cubes" style="margin-right: 4px;"></i> 数据模块选择
+                                </span>
+                                <div style="display: flex; flex-direction: row; gap: 8px; flex-shrink: 0; align-items: center;">
+                                    <button id="tm-exp-select-all-mod" class="menu_button" style="padding: 3px 10px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;"><i class="fa-solid fa-check-double" style="margin-right: 4px;"></i>全选模块</button>
+                                    <button id="tm-exp-clear-all-mod" class="menu_button" style="padding: 3px 10px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;"><i class="fa-solid fa-xmark" style="margin-right: 4px;"></i>清空模块</button>
+                                </div>
+                            </div>
+
+                            <!-- 模块复选框列表 -->
+                            <div id="tm-exp-modules-container" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px;">
+                                ${BACKUP_MODULE_DEFS.map(mod => `
+                                    <label class="tm-mod-card" style="display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; cursor: pointer;">
+                                        <input type="checkbox" class="tm-exp-mod-cb" data-mod-id="${mod.id}" checked style="margin-top: 3px; flex-shrink: 0;">
+                                        <div style="flex: 1; min-width: 0;">
+                                            <div style="font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                                <i class="${mod.icon}" style="color: var(--SmartThemeQuoteColor, #4a90e2); flex-shrink: 0;"></i>
+                                                <span style="white-space: nowrap;">${escapeHtml(mod.name)}</span>
+                                                ${mod.isThemes ? `<span style="font-size: 11px; opacity: 0.7; font-weight: normal; white-space: nowrap;">(共 ${allThemes.length} 个主题)</span>` : ''}
+                                            </div>
+                                            <div style="font-size: 11.5px; opacity: 0.65; margin-top: 2px;">
+                                                ${escapeHtml(mod.desc)}
+                                            </div>
+                                        </div>
+                                    </label>
+                                `).join('')}
+                            </div>
+
+                            <!-- 主题精细选择容器 -->
+                            <div id="tm-exp-themes-subpanel" style="border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 10px; background: rgba(0,0,0,0.15); margin-bottom: 14px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+                                    <span style="font-weight: bold; font-size: 12.5px; display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+                                        <i class="fa-solid fa-list-check" style="color: var(--SmartThemeQuoteColor, #4a90e2);"></i> 选择需要导出的美化主题
+                                    </span>
+                                    <span id="tm-exp-theme-count-badge" style="font-size: 11.5px; opacity: 0.75; white-space: nowrap;">已选: ${allThemes.length} / ${allThemes.length}</span>
+                                </div>
+                                <div style="display: flex; gap: 6px; margin-bottom: 8px; align-items: center; flex-wrap: wrap;">
+                                    <input type="text" id="tm-exp-theme-search" class="text_pole" placeholder="搜索主题名称..." style="flex: 1 1 140px; min-width: 110px; height: 28px; font-size: 11.5px; padding: 2px 8px; margin: 0; box-sizing: border-box;">
+                                    <div style="display: flex; flex-direction: row; gap: 6px; flex-shrink: 0; align-items: center;">
+                                        <button id="tm-exp-theme-select-all" class="menu_button" style="padding: 3px 8px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;">全选</button>
+                                        <button id="tm-exp-theme-unselect-all" class="menu_button" style="padding: 3px 8px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;">全不选</button>
+                                        <button id="tm-exp-theme-range-select" class="menu_button" style="padding: 3px 8px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;" title="连选：选中首尾已勾选主题之间的全部美化">连选</button>
+                                        <button id="tm-exp-theme-invert" class="menu_button" style="padding: 3px 8px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;">反选</button>
+                                    </div>
+                                </div>
+                                <div id="tm-exp-theme-list" style="max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 6px; background: rgba(255,255,255,0.01);">
+                                    ${allThemes.map(t => {
+                                        const themeName = t.name || t.value || '';
+                                        return `
+                                            <label class="tm-exp-theme-row" data-theme-name="${escapeHtml(themeName.toLowerCase())}" style="display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 6px; border-radius: 4px; cursor: pointer; user-select: none;">
+                                                <input type="checkbox" class="tm-exp-theme-cb" value="${escapeHtml(themeName)}" checked style="flex-shrink: 0;">
+                                                <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(themeName)}</span>
+                                            </label>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+
+                    await callGenericPopup(exportDlgHtml, 'confirm', null, {
+                        title: '自定义备份导出',
+                        okButton: '确认导出',
+                        cancelButton: '取消',
+                        wide: true,
+                        onOpen: (popup) => {
+                            const dlg = popup.dlg;
+                            if (!dlg) return;
+
+                            const themeSubpanel = dlg.querySelector('#tm-exp-themes-subpanel');
+                            const themesModCb = dlg.querySelector('.tm-exp-mod-cb[data-mod-id="themes"]');
+                            const modCheckboxes = dlg.querySelectorAll('.tm-exp-mod-cb');
+                            const themeCheckboxes = dlg.querySelectorAll('.tm-exp-theme-cb');
+                            const themeCountBadge = dlg.querySelector('#tm-exp-theme-count-badge');
+                            const themeSearchInput = dlg.querySelector('#tm-exp-theme-search');
+                            const themeRows = dlg.querySelectorAll('.tm-exp-theme-row');
+
+                            const updateThemeCount = () => {
+                                const checkedCount = dlg.querySelectorAll('.tm-exp-theme-cb:checked').length;
+                                if (themeCountBadge) {
+                                    themeCountBadge.textContent = `已选: ${checkedCount} / ${allThemes.length}`;
+                                }
+                            };
+
+                            const updateThemesSubpanelVisibility = () => {
+                                if (themeSubpanel && themesModCb) {
+                                    themeSubpanel.style.display = themesModCb.checked ? 'block' : 'none';
+                                }
+                            };
+
+                            if (themesModCb) {
+                                themesModCb.addEventListener('change', updateThemesSubpanelVisibility);
+                            }
+
+                            // 模块全选/清空
+                            dlg.querySelector('#tm-exp-select-all-mod')?.addEventListener('click', () => {
+                                modCheckboxes.forEach(cb => { cb.checked = true; });
+                                updateThemesSubpanelVisibility();
+                            });
+                            dlg.querySelector('#tm-exp-clear-all-mod')?.addEventListener('click', () => {
+                                modCheckboxes.forEach(cb => { cb.checked = false; });
+                                updateThemesSubpanelVisibility();
+                            });
+
+                            // 主题搜索过滤
+                            if (themeSearchInput) {
+                                themeSearchInput.addEventListener('input', (e) => {
+                                    const kw = (e.target.value || '').trim().toLowerCase();
+                                    themeRows.forEach(row => {
+                                        const name = row.getAttribute('data-theme-name') || '';
+                                        row.style.display = (!kw || name.includes(kw)) ? 'flex' : 'none';
+                                    });
+                                });
+                            }
+
+                            // 主题全选/全不选/连选/反选
+                            dlg.querySelector('#tm-exp-theme-select-all')?.addEventListener('click', () => {
+                                themeCheckboxes.forEach(cb => {
+                                    const row = cb.closest('.tm-exp-theme-row');
+                                    if (row && row.style.display !== 'none') cb.checked = true;
+                                });
+                                updateThemeCount();
+                            });
+                            dlg.querySelector('#tm-exp-theme-unselect-all')?.addEventListener('click', () => {
+                                themeCheckboxes.forEach(cb => {
+                                    const row = cb.closest('.tm-exp-theme-row');
+                                    if (row && row.style.display !== 'none') cb.checked = false;
+                                });
+                                updateThemeCount();
+                            });
+                            dlg.querySelector('#tm-exp-theme-range-select')?.addEventListener('click', () => {
+                                const visibleRows = Array.from(themeRows).filter(row => row.style.display !== 'none');
+                                const selectedIndices = [];
+                                visibleRows.forEach((row, idx) => {
+                                    const cb = row.querySelector('.tm-exp-theme-cb');
+                                    if (cb && cb.checked) selectedIndices.push(idx);
+                                });
+
+                                if (selectedIndices.length < 2) {
+                                    toastr.info('请先至少勾选 2 个主题作为连选的【起点】和【终点】。');
+                                    return;
+                                }
+
+                                const start = selectedIndices[0];
+                                const end = selectedIndices[selectedIndices.length - 1];
+
+                                for (let i = start; i <= end; i++) {
+                                    const cb = visibleRows[i].querySelector('.tm-exp-theme-cb');
+                                    if (cb) cb.checked = true;
+                                }
+
+                                updateThemeCount();
+                                toastr.success(`连选成功！已覆盖区间内的 ${end - start + 1} 个主题。`);
+                            });
+                            dlg.querySelector('#tm-exp-theme-invert')?.addEventListener('click', () => {
+                                themeCheckboxes.forEach(cb => {
+                                    const row = cb.closest('.tm-exp-theme-row');
+                                    if (row && row.style.display !== 'none') cb.checked = !cb.checked;
+                                });
+                                updateThemeCount();
+                            });
+
+                            let lastExpCheckedIndex = -1;
+                            themeCheckboxes.forEach((cb, idx) => {
+                                cb.addEventListener('click', (e) => {
+                                    if (e.shiftKey && lastExpCheckedIndex !== -1 && lastExpCheckedIndex !== idx) {
+                                        const visibleRows = Array.from(themeRows).filter(row => row.style.display !== 'none');
+                                        const startIdx = Math.min(lastExpCheckedIndex, idx);
+                                        const endIdx = Math.max(lastExpCheckedIndex, idx);
+                                        const targetChecked = cb.checked;
+                                        for (let i = startIdx; i <= endIdx; i++) {
+                                            const targetCb = themeCheckboxes[i];
+                                            if (targetCb) targetCb.checked = targetChecked;
+                                        }
+                                    }
+                                    lastExpCheckedIndex = idx;
+                                    updateThemeCount();
+                                });
+                            });
+
+                            // 确认导出按钮事件
+                            const okBtn = dlg.querySelector('.popup-button-ok');
+                            if (okBtn) {
+                                okBtn.addEventListener('click', (e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+
+                                    const selectedModIds = Array.from(modCheckboxes).filter(cb => cb.checked).map(cb => cb.getAttribute('data-mod-id'));
+                                    const exportThemesMod = selectedModIds.includes('themes');
+                                    const selectedThemeNames = new Set(
+                                        exportThemesMod ? Array.from(themeCheckboxes).filter(cb => cb.checked).map(cb => cb.value) : []
+                                    );
+
+                                    if (selectedModIds.length === 0 || (exportThemesMod && selectedModIds.length === 1 && selectedThemeNames.size === 0)) {
+                                        toastr.warning('请至少选择一个模块或主题进行导出。');
+                                        return;
+                                    }
+
+                                    closePopup(popup);
+
+                                    // 执行导出打包
+                                    const themesToExport = exportThemesMod
+                                        ? allThemes.filter(t => selectedThemeNames.has(t.name || t.value))
+                                        : [];
+
+                                    const settingsSnapshot = {};
+                                    const keysToExport = new Set();
+                                    BACKUP_MODULE_DEFS.forEach(mod => {
+                                        if (selectedModIds.includes(mod.id) && mod.keys) {
+                                            mod.keys.forEach(k => keysToExport.add(k));
+                                        }
+                                    });
+
+                                    keysToExport.forEach(key => {
+                                        const val = localStorage.getItem(key);
+                                        if (val !== null) settingsSnapshot[key] = val;
+                                    });
+
+                                    const backup = {
+                                        _version: 2,
+                                        _type: 'themeManager_customBackup',
+                                        _exportedAt: new Date().toISOString(),
+                                        _modules: selectedModIds,
+                                        _themeCount: themesToExport.length,
+                                        themes: themesToExport,
+                                        settings: settingsSnapshot
+                                    };
+
+                                    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+                                    const filename = `theme_manager_backup_${ts}.json`;
+                                    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = filename;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    URL.revokeObjectURL(url);
+
+                                    toastr.success(`备份导出成功！共 ${themesToExport.length} 个主题 + ${Object.keys(settingsSnapshot).length} 条配置。`, '备份导出');
+                                });
+                            }
+                        }
+                    });
                 }
 
-                // ===================== 全量备份：导入（主题文件 + 插件配置） =====================
-                async function importFullBackup(event) {
+                // 打开自定义备份导入弹窗
+                async function openCustomImportModal(backup) {
+                    const themeList = Array.isArray(backup.themes) ? backup.themes : [];
+                    const settingsMap = (backup.settings && typeof backup.settings === 'object') ? backup.settings : (typeof backup === 'object' && !backup._type ? backup : {});
+
+                    // 判断备份包中实际包含哪些模块
+                    const availableModules = BACKUP_MODULE_DEFS.filter(mod => {
+                        if (mod.isThemes) return themeList.length > 0;
+                        if (mod.keys) {
+                            return mod.keys.some(k => settingsMap[k] !== undefined && settingsMap[k] !== null);
+                        }
+                        return false;
+                    });
+
+                    if (availableModules.length === 0 && themeList.length === 0 && Object.keys(settingsMap).length === 0) {
+                        toastr.error('该文件不包含任何可识别的美化主题或配置数据。');
+                        return;
+                    }
+
+                    const exportedDateStr = backup._exportedAt ? new Date(backup._exportedAt).toLocaleString('zh-CN') : '未知时间';
+
+                    const importDlgHtml = `
+                        <div class="tm-custom-backup-modal" style="max-height: 78vh; overflow-y: auto; overflow-x: hidden; padding: 4px 6px; box-sizing: border-box; text-align: left;">
+                            <style>
+                                .tm-custom-backup-modal .menu_button {
+                                    white-space: nowrap !important;
+                                    word-break: keep-all !important;
+                                    flex-shrink: 0 !important;
+                                    display: inline-flex !important;
+                                    align-items: center !important;
+                                    justify-content: center !important;
+                                    text-align: center !important;
+                                    min-width: max-content !important;
+                                    writing-mode: horizontal-tb !important;
+                                }
+                            </style>
+                            <div style="margin-bottom: 10px; font-size: 12px; opacity: 0.8; line-height: 1.5;">
+                                备份文件生成于：<b>${escapeHtml(exportedDateStr)}</b><br>
+                                请勾选本次需要恢复的数据模块（未勾选的模块将保持现状不变）：
+                            </div>
+
+                            <!-- 模块全选/清空快捷栏 -->
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 4px 2px; flex-wrap: wrap; gap: 8px;">
+                                <span style="font-weight: bold; font-size: 13px; color: var(--SmartThemeQuoteColor, #4a90e2); white-space: nowrap; flex-shrink: 0;">
+                                    <i class="fa-solid fa-cubes" style="margin-right: 4px;"></i> 待恢复模块
+                                </span>
+                                <div style="display: flex; flex-direction: row; gap: 8px; flex-shrink: 0; align-items: center;">
+                                    <button id="tm-imp-select-all-mod" class="menu_button" style="padding: 3px 10px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;"><i class="fa-solid fa-check-double" style="margin-right: 4px;"></i>全选模块</button>
+                                    <button id="tm-imp-clear-all-mod" class="menu_button" style="padding: 3px 10px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;"><i class="fa-solid fa-xmark" style="margin-right: 4px;"></i>清空模块</button>
+                                </div>
+                            </div>
+
+                            <!-- 可用模块复选框列表 -->
+                            <div id="tm-imp-modules-container" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px;">
+                                ${availableModules.map(mod => `
+                                    <label class="tm-mod-card" style="display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; cursor: pointer;">
+                                        <input type="checkbox" class="tm-imp-mod-cb" data-mod-id="${mod.id}" checked style="margin-top: 3px; flex-shrink: 0;">
+                                        <div style="flex: 1; min-width: 0;">
+                                            <div style="font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                                                <i class="${mod.icon}" style="color: var(--SmartThemeQuoteColor, #4a90e2); flex-shrink: 0;"></i>
+                                                <span style="white-space: nowrap;">${escapeHtml(mod.name)}</span>
+                                                ${mod.isThemes ? `<span style="font-size: 11px; opacity: 0.7; font-weight: normal; white-space: nowrap;">(备份包内含 ${themeList.length} 个主题)</span>` : ''}
+                                            </div>
+                                            <div style="font-size: 11.5px; opacity: 0.65; margin-top: 2px;">
+                                                ${escapeHtml(mod.desc)}
+                                            </div>
+                                        </div>
+                                    </label>
+                                `).join('')}
+                            </div>
+
+                            <!-- 主题精细选择容器（若包含主题） -->
+                            ${themeList.length > 0 ? `
+                                <div id="tm-imp-themes-subpanel" style="border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 10px; background: rgba(0,0,0,0.15); margin-bottom: 14px;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+                                        <span style="font-weight: bold; font-size: 12.5px; display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+                                            <i class="fa-solid fa-list-check" style="color: var(--SmartThemeQuoteColor, #4a90e2);"></i> 勾选需要恢复导入的美化主题
+                                        </span>
+                                        <span id="tm-imp-theme-count-badge" style="font-size: 11.5px; opacity: 0.75; white-space: nowrap;">已选: ${themeList.length} / ${themeList.length}</span>
+                                    </div>
+                                    <div style="display: flex; gap: 6px; margin-bottom: 8px; align-items: center; flex-wrap: wrap;">
+                                        <input type="text" id="tm-imp-theme-search" class="text_pole" placeholder="搜索主题名称..." style="flex: 1 1 140px; min-width: 110px; height: 28px; font-size: 11.5px; padding: 2px 8px; margin: 0; box-sizing: border-box;">
+                                        <div style="display: flex; flex-direction: row; gap: 6px; flex-shrink: 0; align-items: center;">
+                                            <button id="tm-imp-theme-select-all" class="menu_button" style="padding: 3px 8px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;">全选</button>
+                                            <button id="tm-imp-theme-unselect-all" class="menu_button" style="padding: 3px 8px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;">全不选</button>
+                                            <button id="tm-imp-theme-range-select" class="menu_button" style="padding: 3px 8px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;" title="连选：选中首尾已勾选主题之间的全部美化">连选</button>
+                                            <button id="tm-imp-theme-invert" class="menu_button" style="padding: 3px 8px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;">反选</button>
+                                        </div>
+                                    </div>
+                                    <div id="tm-imp-theme-list" style="max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 6px; background: rgba(255,255,255,0.01);">
+                                        ${themeList.map(t => {
+                                            const themeName = t.name || t.value || '';
+                                            return `
+                                                <label class="tm-imp-theme-row" data-theme-name="${escapeHtml(themeName.toLowerCase())}" style="display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 6px; border-radius: 4px; cursor: pointer; user-select: none;">
+                                                    <input type="checkbox" class="tm-imp-theme-cb" value="${escapeHtml(themeName)}" checked style="flex-shrink: 0;">
+                                                    <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(themeName)}</span>
+                                                </label>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+
+                    await callGenericPopup(importDlgHtml, 'confirm', null, {
+                        title: '选择性备份恢复导入',
+                        okButton: '确认导入',
+                        cancelButton: '取消',
+                        wide: true,
+                        onOpen: (popup) => {
+                            const dlg = popup.dlg;
+                            if (!dlg) return;
+
+                            const themeSubpanel = dlg.querySelector('#tm-imp-themes-subpanel');
+                            const themesModCb = dlg.querySelector('.tm-imp-mod-cb[data-mod-id="themes"]');
+                            const modCheckboxes = dlg.querySelectorAll('.tm-imp-mod-cb');
+                            const themeCheckboxes = dlg.querySelectorAll('.tm-imp-theme-cb');
+                            const themeCountBadge = dlg.querySelector('#tm-imp-theme-count-badge');
+                            const themeSearchInput = dlg.querySelector('#tm-imp-theme-search');
+                            const themeRows = dlg.querySelectorAll('.tm-imp-theme-row');
+
+                            const updateThemeCount = () => {
+                                const checkedCount = dlg.querySelectorAll('.tm-imp-theme-cb:checked').length;
+                                if (themeCountBadge) {
+                                    themeCountBadge.textContent = `已选: ${checkedCount} / ${themeList.length}`;
+                                }
+                            };
+
+                            const updateThemesSubpanelVisibility = () => {
+                                if (themeSubpanel && themesModCb) {
+                                    themeSubpanel.style.display = themesModCb.checked ? 'block' : 'none';
+                                }
+                            };
+
+                            if (themesModCb) {
+                                themesModCb.addEventListener('change', updateThemesSubpanelVisibility);
+                            }
+
+                            // 模块全选/清空
+                            dlg.querySelector('#tm-imp-select-all-mod')?.addEventListener('click', () => {
+                                modCheckboxes.forEach(cb => { cb.checked = true; });
+                                updateThemesSubpanelVisibility();
+                            });
+                            dlg.querySelector('#tm-imp-clear-all-mod')?.addEventListener('click', () => {
+                                modCheckboxes.forEach(cb => { cb.checked = false; });
+                                updateThemesSubpanelVisibility();
+                            });
+
+                            // 主题搜索过滤
+                            if (themeSearchInput) {
+                                themeSearchInput.addEventListener('input', (e) => {
+                                    const kw = (e.target.value || '').trim().toLowerCase();
+                                    themeRows.forEach(row => {
+                                        const name = row.getAttribute('data-theme-name') || '';
+                                        row.style.display = (!kw || name.includes(kw)) ? 'flex' : 'none';
+                                    });
+                                });
+                            }
+
+                            // 主题全选/全不选/连选/反选
+                            dlg.querySelector('#tm-imp-theme-select-all')?.addEventListener('click', () => {
+                                themeCheckboxes.forEach(cb => {
+                                    const row = cb.closest('.tm-imp-theme-row');
+                                    if (row && row.style.display !== 'none') cb.checked = true;
+                                });
+                                updateThemeCount();
+                            });
+                            dlg.querySelector('#tm-imp-theme-unselect-all')?.addEventListener('click', () => {
+                                themeCheckboxes.forEach(cb => {
+                                    const row = cb.closest('.tm-imp-theme-row');
+                                    if (row && row.style.display !== 'none') cb.checked = false;
+                                });
+                                updateThemeCount();
+                            });
+                            dlg.querySelector('#tm-imp-theme-range-select')?.addEventListener('click', () => {
+                                const visibleRows = Array.from(themeRows).filter(row => row.style.display !== 'none');
+                                const selectedIndices = [];
+                                visibleRows.forEach((row, idx) => {
+                                    const cb = row.querySelector('.tm-imp-theme-cb');
+                                    if (cb && cb.checked) selectedIndices.push(idx);
+                                });
+
+                                if (selectedIndices.length < 2) {
+                                    toastr.info('请先至少勾选 2 个主题作为连选的【起点】和【终点】。');
+                                    return;
+                                }
+
+                                const start = selectedIndices[0];
+                                const end = selectedIndices[selectedIndices.length - 1];
+
+                                for (let i = start; i <= end; i++) {
+                                    const cb = visibleRows[i].querySelector('.tm-imp-theme-cb');
+                                    if (cb) cb.checked = true;
+                                }
+
+                                updateThemeCount();
+                                toastr.success(`连选成功！已覆盖区间内的 ${end - start + 1} 个主题。`);
+                            });
+                            dlg.querySelector('#tm-imp-theme-invert')?.addEventListener('click', () => {
+                                themeCheckboxes.forEach(cb => {
+                                    const row = cb.closest('.tm-imp-theme-row');
+                                    if (row && row.style.display !== 'none') cb.checked = !cb.checked;
+                                });
+                                updateThemeCount();
+                            });
+
+                            let lastImpCheckedIndex = -1;
+                            themeCheckboxes.forEach((cb, idx) => {
+                                cb.addEventListener('click', (e) => {
+                                    if (e.shiftKey && lastImpCheckedIndex !== -1 && lastImpCheckedIndex !== idx) {
+                                        const visibleRows = Array.from(themeRows).filter(row => row.style.display !== 'none');
+                                        const startIdx = Math.min(lastImpCheckedIndex, idx);
+                                        const endIdx = Math.max(lastImpCheckedIndex, idx);
+                                        const targetChecked = cb.checked;
+                                        for (let i = startIdx; i <= endIdx; i++) {
+                                            const targetCb = themeCheckboxes[i];
+                                            if (targetCb) targetCb.checked = targetChecked;
+                                        }
+                                    }
+                                    lastImpCheckedIndex = idx;
+                                    updateThemeCount();
+                                });
+                            });
+
+                            // 确认导入按钮事件
+                            const okBtn = dlg.querySelector('.popup-button-ok');
+                            if (okBtn) {
+                                okBtn.addEventListener('click', async (e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+
+                                    const selectedModIds = Array.from(modCheckboxes).filter(cb => cb.checked).map(cb => cb.getAttribute('data-mod-id'));
+                                    const importThemesMod = selectedModIds.includes('themes');
+                                    const selectedThemeNames = new Set(
+                                        importThemesMod ? Array.from(themeCheckboxes).filter(cb => cb.checked).map(cb => cb.value) : []
+                                    );
+
+                                    if (selectedModIds.length === 0 || (importThemesMod && selectedModIds.length === 1 && selectedThemeNames.size === 0)) {
+                                        toastr.warning('请至少选择一个需要恢复的模块或主题。');
+                                        return;
+                                    }
+
+                                    closePopup(popup);
+                                    showLoader();
+
+                                    try {
+                                        let themeOk = 0, themeFail = 0;
+                                        const themesToImport = importThemesMod
+                                            ? themeList.filter(t => selectedThemeNames.has(t.name || t.value))
+                                            : [];
+
+                                        // 1. 写入选中的主题文件（带并发限制）
+                                        if (themesToImport.length > 0) {
+                                            await limitConcurrency(4, themesToImport, async (themeObj) => {
+                                                if (!themeObj || !themeObj.name) { themeFail++; return; }
+                                                try {
+                                                    const { mtime: _m, ...cleanObj } = themeObj;
+                                                    await apiRequest('themes/save', 'POST', cleanObj, true);
+                                                    allThemeObjectsMap.set(themeObj.name, themeObj);
+                                                    recordThemeMtime(themeObj.name, Date.now());
+                                                    themeOk++;
+                                                } catch (err) {
+                                                    console.error(`[Theme Manager] 恢复主题失败 "${themeObj.name}":`, err);
+                                                    themeFail++;
+                                                }
+                                            });
+                                        }
+
+                                        // 2. 写入选中的配置模块
+                                        const keysToRestore = new Set();
+                                        BACKUP_MODULE_DEFS.forEach(mod => {
+                                            if (selectedModIds.includes(mod.id) && mod.keys) {
+                                                mod.keys.forEach(k => keysToRestore.add(k));
+                                            }
+                                        });
+
+                                        let settingsCount = 0;
+                                        keysToRestore.forEach(key => {
+                                            if (settingsMap[key] !== undefined && settingsMap[key] !== null) {
+                                                localStorage.setItem(key, settingsMap[key]);
+                                                settingsCount++;
+                                            }
+                                        });
+
+                                        // 3. 热更新内存变量
+                                        invalidateTagsCache();
+                                        invalidateThemesCache();
+                                        isTwoLineLayout = localStorage.getItem(TWO_LINE_LAYOUT_KEY) === 'true';
+                                        hideTagPills = localStorage.getItem(HIDE_TAG_PILLS_KEY) === 'true';
+                                        tagPillDisplayMode = localStorage.getItem(TAG_PILL_MODE_KEY) || (hideTagPills ? 'none' : 'all');
+                                        showUsageCount = localStorage.getItem(SHOW_USAGE_COUNT_KEY) === 'true';
+                                        enableAvatarHelper = localStorage.getItem(ENABLE_AVATAR_HELPER_KEY) !== 'false';
+                                        enableColorTransfer = localStorage.getItem(ENABLE_COLOR_TRANSFER_KEY) === 'true';
+                                        enableDayNightBinding = localStorage.getItem(ENABLE_DAYNIGHT_BINDING_KEY) !== 'false';
+                                        enableReplaceAvatarBtn = localStorage.getItem(ENABLE_REPLACE_AVATAR_BTN_KEY) !== 'false';
+                                        tagFilterMode = localStorage.getItem(TAG_FILTER_MODE_KEY) || 'or';
+                                        try { usageCount = JSON.parse(localStorage.getItem(USAGE_COUNT_KEY)) || {}; } catch (e) {}
+                                        try { favorites = JSON.parse(localStorage.getItem(FAVORITES_KEY)) || []; favoritesSet = new Set(favorites); } catch (e) {}
+                                        themeDayNightPairs = loadThemeDayNightPairs();
+                                        try { autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || autoThemeSettings; } catch (e) {}
+                                        themeBackgroundBindings = JSON.parse(localStorage.getItem(THEME_BACKGROUND_BINDINGS_KEY)) || {};
+
+                                        // 4. 更新 ST 原生下拉框
+                                        if (themesToImport.length > 0) {
+                                            _suspendObserver = true;
+                                            try {
+                                                themesToImport.forEach(themeObj => {
+                                                    if (!themeObj || !themeObj.name) return;
+                                                    updateSTThemeMemory(themeObj, 'add');
+                                                    if (!findOptionByValue(originalSelect, themeObj.name)) {
+                                                        const opt = document.createElement('option');
+                                                        opt.value = themeObj.name;
+                                                        opt.textContent = themeObj.name;
+                                                        originalSelect.appendChild(opt);
+                                                    }
+                                                    stKnownThemes.add(themeObj.name);
+                                                });
+                                                syncStKnownThemes();
+                                            } finally {
+                                                setTimeout(() => { _suspendObserver = false; }, 0);
+                                            }
+                                        }
+
+                                        // 5. 重建标签索引与 UI
+                                        applyKeywordMappings();
+                                        const freshTags = loadThemeTags();
+                                        buildThemeTagIndex(freshTags);
+                                        if (contentWrapper) {
+                                            contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
+                                            contentWrapper.classList.toggle('hide-tag-pills', hideTagPills);
+                                        }
+                                        document.dispatchEvent(new CustomEvent('themeManager:enableAvatarHelperChanged', { detail: enableAvatarHelper }));
+                                        updateManualToggleBtnVisibility();
+                                        if (enableReplaceAvatarBtn) { registerReplaceImageButtons(); } else { removeReplaceImageButtons(); }
+
+                                        // 6. 重建全量 UI
+                                        await buildThemeUI();
+                                        updateActiveState();
+                                        if (typeof checkAutoTheme === 'function') checkAutoTheme();
+
+                                        let summary = `备份恢复完成！`;
+                                        if (importThemesMod) summary += ` 主题：成功 ${themeOk} 个${themeFail > 0 ? ` (失败 ${themeFail})` : ''}；`;
+                                        summary += ` 配置恢复：${settingsCount} 条。`;
+
+                                        if (themeFail > 0) {
+                                            toastr.warning(summary, '恢复完成');
+                                        } else {
+                                            toastr.success(summary, '恢复完成');
+                                        }
+                                    } catch (err) {
+                                        console.error('[Theme Manager] 恢复备份发生异常:', err);
+                                        toastr.error('导入恢复发生异常: ' + (err.message || err));
+                                    } finally {
+                                        hideLoader();
+                                    }
+                                });
+                            }
+                        }
+                    });
+                }
+
+                // 文件选择处理器
+                async function handleBackupFileInputChange(event) {
                     const file = event.target.files[0];
                     if (!file) return;
 
                     try {
                         const content = await file.text();
                         const backup = JSON.parse(content);
-
-                        // 校验包结构
-                        if (!backup || backup._type !== 'themeManager_fullBackup') {
-                            toastr.error('文件格式不正确，请选择由「全量备份导出」生成的备份文件。');
-                            return;
-                        }
-
-                        const themeList = Array.isArray(backup.themes) ? backup.themes : [];
-                        const settingsMap = (backup.settings && typeof backup.settings === 'object') ? backup.settings : {};
-
-                        const confirmed = await confirmAction(
-                            `即将导入全量备份（${new Date(backup._exportedAt || 0).toLocaleString('zh-CN')} 导出），` +
-                            `包含 ${themeList.length} 个主题文件 + 插件配置。\n\n` +
-                            `⚠️ 同名主题文件将被覆盖，插件配置将完全替换。确认继续？`,
-                            '确认导入'
-                        );
-                        if (!confirmed) return;
-
-                        showLoader();
-                        let themeOk = 0, themeFail = 0;
-
-                        // 1. 逐个写入主题文件（带并发限制）
-                        if (themeList.length > 0) {
-                            await limitConcurrency(4, themeList, async (themeObj) => {
-                                if (!themeObj || !themeObj.name) { themeFail++; return; }
-                                try {
-                                    const { mtime: _m, ...cleanObj } = themeObj;
-                                    await apiRequest('themes/save', 'POST', cleanObj, true);
-                                    // 更新内存缓存
-                                    allThemeObjectsMap.set(themeObj.name, themeObj);
-                                    recordThemeMtime(themeObj.name, Date.now());
-                                    themeOk++;
-                                } catch (e) {
-                                    console.error(`[Theme Manager] 全量导入写入主题失败 "${themeObj.name}":`, e);
-                                    themeFail++;
-                                }
-                            });
-                        }
-
-                        // 2. 写入 localStorage 配置
-                        let settingsCount = 0;
-                        for (const key in settingsMap) {
-                            if (settingsKeysToSync.includes(key)) {
-                                localStorage.setItem(key, settingsMap[key]);
-                                settingsCount++;
-                            }
-                        }
-
-                        // 3. 热更新内存变量（复用 importSettings 中的逻辑）
-                        invalidateTagsCache();
-                        invalidateThemesCache();
-                        isTwoLineLayout = localStorage.getItem(TWO_LINE_LAYOUT_KEY) === 'true';
-                        hideTagPills = localStorage.getItem(HIDE_TAG_PILLS_KEY) === 'true';
-                        tagPillDisplayMode = localStorage.getItem(TAG_PILL_MODE_KEY) || (hideTagPills ? 'none' : 'all');
-                        showUsageCount = localStorage.getItem(SHOW_USAGE_COUNT_KEY) === 'true';
-                        enableAvatarHelper = localStorage.getItem(ENABLE_AVATAR_HELPER_KEY) !== 'false';
-                        enableColorTransfer = localStorage.getItem(ENABLE_COLOR_TRANSFER_KEY) === 'true';
-                        enableDayNightBinding = localStorage.getItem(ENABLE_DAYNIGHT_BINDING_KEY) !== 'false';
-                        enableReplaceAvatarBtn = localStorage.getItem(ENABLE_REPLACE_AVATAR_BTN_KEY) !== 'false';
-                        tagFilterMode = localStorage.getItem(TAG_FILTER_MODE_KEY) || 'or';
-                        try { usageCount = JSON.parse(localStorage.getItem(USAGE_COUNT_KEY)) || {}; } catch (e) {}
-                        try { favorites = JSON.parse(localStorage.getItem(FAVORITES_KEY)) || []; favoritesSet = new Set(favorites); } catch (e) {}
-                        themeDayNightPairs = loadThemeDayNightPairs();
-                        try { autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || autoThemeSettings; } catch (e) {}
-                        themeBackgroundBindings = JSON.parse(localStorage.getItem(THEME_BACKGROUND_BINDINGS_KEY)) || {};
-
-                        // 4. 更新 ST 原生下拉框：将新导入的主题加入 option
-                        _suspendObserver = true;
-                        try {
-                            themeList.forEach(themeObj => {
-                                if (!themeObj || !themeObj.name) return;
-                                updateSTThemeMemory(themeObj, 'add');
-                                if (!findOptionByValue(originalSelect, themeObj.name)) {
-                                    const opt = document.createElement('option');
-                                    opt.value = themeObj.name;
-                                    opt.textContent = themeObj.name;
-                                    originalSelect.appendChild(opt);
-                                }
-                                stKnownThemes.add(themeObj.name);
-                            });
-                            syncStKnownThemes();
-                        } finally {
-                            setTimeout(() => { _suspendObserver = false; }, 0);
-                        }
-
-                        // 5. 重建标签索引与 UI
-                        applyKeywordMappings();
-                        const freshTags = loadThemeTags();
-                        buildThemeTagIndex(freshTags);
-                        if (contentWrapper) {
-                            contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
-                            contentWrapper.classList.toggle('hide-tag-pills', hideTagPills);
-                        }
-                        document.dispatchEvent(new CustomEvent('themeManager:enableAvatarHelperChanged', { detail: enableAvatarHelper }));
-                        updateManualToggleBtnVisibility();
-                        if (enableReplaceAvatarBtn) { registerReplaceImageButtons(); } else { removeReplaceImageButtons(); }
-
-                        // 6. 重建全量 UI
-                        await buildThemeUI();
-                        updateActiveState();
-                        if (typeof checkAutoTheme === 'function') checkAutoTheme();
-
-                        let summary = `全量备份导入完成！主题：成功 ${themeOk} 个`;
-                        if (themeFail > 0) summary += `，失败 ${themeFail} 个`;
-                        summary += `；配置条目：${settingsCount} 条。`;
-                        if (themeFail > 0) {
-                            toastr.warning(summary, '全量备份导入');
-                        } else {
-                            toastr.success(summary, '全量备份导入');
-                        }
-
+                        await openCustomImportModal(backup);
                     } catch (err) {
-                        console.error('[Theme Manager] 全量备份导入失败:', err);
-                        toastr.error(`全量备份导入失败：${err.message || err}`);
+                        console.error('[Theme Manager] 解析备份文件失败:', err);
+                        toastr.error(`解析备份文件失败，文件可能已损坏或格式不正确。错误: ${err.message}`);
                     } finally {
-                        hideLoader();
                         event.target.value = '';
                     }
                 }
@@ -3507,7 +4052,7 @@
                 fullBackupFileInput.accept = '.json';
                 fullBackupFileInput.style.display = 'none';
                 document.body.appendChild(fullBackupFileInput);
-                fullBackupFileInput.addEventListener('change', importFullBackup);
+                fullBackupFileInput.addEventListener('change', handleBackupFileInputChange);
 
                 function exportSettings() {
                     const settingsToExport = {};
@@ -4680,7 +5225,7 @@
                                 </h4>
                                 <div style="font-size: 11.5px; opacity: 0.65; margin-bottom: 6px; padding: 0 2px;">
                                     <i class="fa-solid fa-circle-info" style="margin-right: 4px;"></i>
-                                    <b>配置导出/导入</b>：仅备份标签、收藏、绑定、显示设置等插件配置（不含主题文件）。
+                                    <b>轻量配置导出/导入</b>：仅备份标签、收藏、绑定、显示设置等纯配置数据（不含美化文件）。
                                 </div>
                                 <div class="tm-settings-buttons-flex" style="margin-bottom: 8px;">
                                     <button id="tm-pop-export-data" class="menu_button"><i class="fa-solid fa-file-export"></i> 导出配置</button>
@@ -4688,11 +5233,11 @@
                                 </div>
                                 <div style="font-size: 11.5px; opacity: 0.65; margin-bottom: 6px; padding: 0 2px;">
                                     <i class="fa-solid fa-box-archive" style="margin-right: 4px;"></i>
-                                    <b>全量备份导出/导入</b>：同时备份所有主题文件 + 完整插件配置，可用于跨设备迁移或完整恢复。
+                                    <b>自定义备份/恢复</b>：可按需自由勾选备份/恢复具体模块（主题文件、标签、日夜、头像、背景等），并支持挑选具体美化。
                                 </div>
                                 <div class="tm-settings-buttons-flex">
-                                    <button id="tm-pop-full-export" class="menu_button" style="color: var(--SmartThemeQuoteColor, #4a90e2);"><i class="fa-solid fa-box-archive"></i> 全量备份导出</button>
-                                    <button id="tm-pop-full-import" class="menu_button" style="color: var(--SmartThemeQuoteColor, #4a90e2);"><i class="fa-solid fa-cloud-arrow-up"></i> 全量备份导入</button>
+                                    <button id="tm-pop-full-export" class="menu_button" style="color: var(--SmartThemeQuoteColor, #4a90e2);"><i class="fa-solid fa-box-archive"></i> 自定义备份导出</button>
+                                    <button id="tm-pop-full-import" class="menu_button" style="color: var(--SmartThemeQuoteColor, #4a90e2);"><i class="fa-solid fa-cloud-arrow-up"></i> 备份恢复导入</button>
                                 </div>
                             </div>
 
@@ -4858,7 +5403,7 @@
 
                             const btnFullExport = dlg.querySelector('#tm-pop-full-export');
                             if (btnFullExport) {
-                                btnFullExport.addEventListener('click', () => exportFullBackup());
+                                btnFullExport.addEventListener('click', () => openCustomExportModal());
                             }
 
                             const btnFullImport = dlg.querySelector('#tm-pop-full-import');
