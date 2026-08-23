@@ -3322,6 +3322,189 @@
                     TAG_PILL_MODE_KEY
                 ];
 
+
+                // ===================== 全量备份：导出（主题文件 + 插件配置） =====================
+                async function exportFullBackup() {
+                    showLoader();
+                    try {
+                        // 1. 拉取所有主题文件数据
+                        const allThemes = await getAllThemesFromAPI();
+
+                        // 2. 读取所有 localStorage 配置
+                        const settingsSnapshot = {};
+                        settingsKeysToSync.forEach(key => {
+                            const val = localStorage.getItem(key);
+                            if (val !== null) settingsSnapshot[key] = val;
+                        });
+
+                        // 3. 组装完整备份包
+                        const backup = {
+                            _version: 1,
+                            _type: 'themeManager_fullBackup',
+                            _exportedAt: new Date().toISOString(),
+                            _themeCount: allThemes.length,
+                            themes: allThemes,
+                            settings: settingsSnapshot
+                        };
+
+                        // 4. 下载为 JSON 文件
+                        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+                        const filename = `theme_manager_full_backup_${ts}.json`;
+                        const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+
+                        toastr.success(`全量备份导出成功！共 ${allThemes.length} 个主题文件 + 完整配置。`, '全量备份');
+                    } catch (err) {
+                        console.error('[Theme Manager] 全量备份导出失败:', err);
+                        toastr.error(`全量备份导出失败：${err.message || err}`);
+                    } finally {
+                        hideLoader();
+                    }
+                }
+
+                // ===================== 全量备份：导入（主题文件 + 插件配置） =====================
+                async function importFullBackup(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    try {
+                        const content = await file.text();
+                        const backup = JSON.parse(content);
+
+                        // 校验包结构
+                        if (!backup || backup._type !== 'themeManager_fullBackup') {
+                            toastr.error('文件格式不正确，请选择由「全量备份导出」生成的备份文件。');
+                            return;
+                        }
+
+                        const themeList = Array.isArray(backup.themes) ? backup.themes : [];
+                        const settingsMap = (backup.settings && typeof backup.settings === 'object') ? backup.settings : {};
+
+                        const confirmed = await confirmAction(
+                            `即将导入全量备份（${new Date(backup._exportedAt || 0).toLocaleString('zh-CN')} 导出），` +
+                            `包含 ${themeList.length} 个主题文件 + 插件配置。\n\n` +
+                            `⚠️ 同名主题文件将被覆盖，插件配置将完全替换。确认继续？`,
+                            '确认导入'
+                        );
+                        if (!confirmed) return;
+
+                        showLoader();
+                        let themeOk = 0, themeFail = 0;
+
+                        // 1. 逐个写入主题文件（带并发限制）
+                        if (themeList.length > 0) {
+                            await limitConcurrency(4, themeList, async (themeObj) => {
+                                if (!themeObj || !themeObj.name) { themeFail++; return; }
+                                try {
+                                    const { mtime: _m, ...cleanObj } = themeObj;
+                                    await apiRequest('themes/save', 'POST', cleanObj, true);
+                                    // 更新内存缓存
+                                    allThemeObjectsMap.set(themeObj.name, themeObj);
+                                    recordThemeMtime(themeObj.name, Date.now());
+                                    themeOk++;
+                                } catch (e) {
+                                    console.error(`[Theme Manager] 全量导入写入主题失败 "${themeObj.name}":`, e);
+                                    themeFail++;
+                                }
+                            });
+                        }
+
+                        // 2. 写入 localStorage 配置
+                        let settingsCount = 0;
+                        for (const key in settingsMap) {
+                            if (settingsKeysToSync.includes(key)) {
+                                localStorage.setItem(key, settingsMap[key]);
+                                settingsCount++;
+                            }
+                        }
+
+                        // 3. 热更新内存变量（复用 importSettings 中的逻辑）
+                        invalidateTagsCache();
+                        invalidateThemesCache();
+                        isTwoLineLayout = localStorage.getItem(TWO_LINE_LAYOUT_KEY) === 'true';
+                        hideTagPills = localStorage.getItem(HIDE_TAG_PILLS_KEY) === 'true';
+                        tagPillDisplayMode = localStorage.getItem(TAG_PILL_MODE_KEY) || (hideTagPills ? 'none' : 'all');
+                        showUsageCount = localStorage.getItem(SHOW_USAGE_COUNT_KEY) === 'true';
+                        enableAvatarHelper = localStorage.getItem(ENABLE_AVATAR_HELPER_KEY) !== 'false';
+                        enableColorTransfer = localStorage.getItem(ENABLE_COLOR_TRANSFER_KEY) === 'true';
+                        enableDayNightBinding = localStorage.getItem(ENABLE_DAYNIGHT_BINDING_KEY) !== 'false';
+                        enableReplaceAvatarBtn = localStorage.getItem(ENABLE_REPLACE_AVATAR_BTN_KEY) !== 'false';
+                        tagFilterMode = localStorage.getItem(TAG_FILTER_MODE_KEY) || 'or';
+                        try { usageCount = JSON.parse(localStorage.getItem(USAGE_COUNT_KEY)) || {}; } catch (e) {}
+                        try { favorites = JSON.parse(localStorage.getItem(FAVORITES_KEY)) || []; favoritesSet = new Set(favorites); } catch (e) {}
+                        themeDayNightPairs = loadThemeDayNightPairs();
+                        try { autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || autoThemeSettings; } catch (e) {}
+                        themeBackgroundBindings = JSON.parse(localStorage.getItem(THEME_BACKGROUND_BINDINGS_KEY)) || {};
+
+                        // 4. 更新 ST 原生下拉框：将新导入的主题加入 option
+                        _suspendObserver = true;
+                        try {
+                            themeList.forEach(themeObj => {
+                                if (!themeObj || !themeObj.name) return;
+                                updateSTThemeMemory(themeObj, 'add');
+                                if (!findOptionByValue(originalSelect, themeObj.name)) {
+                                    const opt = document.createElement('option');
+                                    opt.value = themeObj.name;
+                                    opt.textContent = themeObj.name;
+                                    originalSelect.appendChild(opt);
+                                }
+                                stKnownThemes.add(themeObj.name);
+                            });
+                            syncStKnownThemes();
+                        } finally {
+                            setTimeout(() => { _suspendObserver = false; }, 0);
+                        }
+
+                        // 5. 重建标签索引与 UI
+                        applyKeywordMappings();
+                        const freshTags = loadThemeTags();
+                        buildThemeTagIndex(freshTags);
+                        if (contentWrapper) {
+                            contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
+                            contentWrapper.classList.toggle('hide-tag-pills', hideTagPills);
+                        }
+                        document.dispatchEvent(new CustomEvent('themeManager:enableAvatarHelperChanged', { detail: enableAvatarHelper }));
+                        updateManualToggleBtnVisibility();
+                        if (enableReplaceAvatarBtn) { registerReplaceImageButtons(); } else { removeReplaceImageButtons(); }
+
+                        // 6. 重建全量 UI
+                        await buildThemeUI();
+                        updateActiveState();
+                        if (typeof checkAutoTheme === 'function') checkAutoTheme();
+
+                        let summary = `全量备份导入完成！主题：成功 ${themeOk} 个`;
+                        if (themeFail > 0) summary += `，失败 ${themeFail} 个`;
+                        summary += `；配置条目：${settingsCount} 条。`;
+                        if (themeFail > 0) {
+                            toastr.warning(summary, '全量备份导入');
+                        } else {
+                            toastr.success(summary, '全量备份导入');
+                        }
+
+                    } catch (err) {
+                        console.error('[Theme Manager] 全量备份导入失败:', err);
+                        toastr.error(`全量备份导入失败：${err.message || err}`);
+                    } finally {
+                        hideLoader();
+                        event.target.value = '';
+                    }
+                }
+
+                // ===================== 全量备份文件输入控件 =====================
+                const fullBackupFileInput = document.createElement('input');
+                fullBackupFileInput.type = 'file';
+                fullBackupFileInput.accept = '.json';
+                fullBackupFileInput.style.display = 'none';
+                document.body.appendChild(fullBackupFileInput);
+                fullBackupFileInput.addEventListener('change', importFullBackup);
+
                 function exportSettings() {
                     const settingsToExport = {};
                     settingsKeysToSync.forEach(key => {
@@ -4488,9 +4671,21 @@
                                 <h4 class="tm-settings-section-title">
                                     <i class="fa-solid fa-database" style="margin-right: 6px;"></i> 拓展数据管理
                                 </h4>
+                                <div style="font-size: 11.5px; opacity: 0.65; margin-bottom: 6px; padding: 0 2px;">
+                                    <i class="fa-solid fa-circle-info" style="margin-right: 4px;"></i>
+                                    <b>配置导出/导入</b>：仅备份标签、收藏、绑定、显示设置等插件配置（不含主题文件）。
+                                </div>
+                                <div class="tm-settings-buttons-flex" style="margin-bottom: 8px;">
+                                    <button id="tm-pop-export-data" class="menu_button"><i class="fa-solid fa-file-export"></i> 导出配置</button>
+                                    <button id="tm-pop-import-data" class="menu_button"><i class="fa-solid fa-file-import"></i> 导入配置</button>
+                                </div>
+                                <div style="font-size: 11.5px; opacity: 0.65; margin-bottom: 6px; padding: 0 2px;">
+                                    <i class="fa-solid fa-box-archive" style="margin-right: 4px;"></i>
+                                    <b>全量备份导出/导入</b>：同时备份所有主题文件 + 完整插件配置，可用于跨设备迁移或完整恢复。
+                                </div>
                                 <div class="tm-settings-buttons-flex">
-                                    <button id="tm-pop-export-data" class="menu_button"><i class="fa-solid fa-file-export"></i> 导出数据</button>
-                                    <button id="tm-pop-import-data" class="menu_button"><i class="fa-solid fa-file-import"></i> 导入数据</button>
+                                    <button id="tm-pop-full-export" class="menu_button" style="color: var(--SmartThemeQuoteColor, #4a90e2);"><i class="fa-solid fa-box-archive"></i> 全量备份导出</button>
+                                    <button id="tm-pop-full-import" class="menu_button" style="color: var(--SmartThemeQuoteColor, #4a90e2);"><i class="fa-solid fa-cloud-arrow-up"></i> 全量备份导入</button>
                                 </div>
                             </div>
 
@@ -4652,6 +4847,16 @@
                             const btnImport = dlg.querySelector('#tm-pop-import-data');
                             if (btnImport) {
                                 btnImport.addEventListener('click', () => settingsFileInput.click());
+                            }
+
+                            const btnFullExport = dlg.querySelector('#tm-pop-full-export');
+                            if (btnFullExport) {
+                                btnFullExport.addEventListener('click', () => exportFullBackup());
+                            }
+
+                            const btnFullImport = dlg.querySelector('#tm-pop-full-import');
+                            if (btnFullImport) {
+                                btnFullImport.addEventListener('click', () => fullBackupFileInput.click());
                             }
 
                             const btnSync = dlg.querySelector('#tm-pop-sync-disk');
@@ -7914,8 +8119,9 @@
                     }
 
                     if (originalSelect.value !== themeToApply) {
-                        originalSelect.value = themeToApply;
-                        triggerSelectChange(originalSelect);
+                        // [BUG FIX] 使用 applyThemeDirect 代替裸 triggerSelectChange，
+                        // 确保 custom_css 守护逻辑生效，防止 ST 原生 loadTheme 将 CSS 覆盖为空
+                        applyThemeDirect(themeToApply);
                         toastr.success(`手动切换至 ${nextState === 'day' ? '日间' : '夜间'} 主题: <b>${escapeHtml(themeToApply)}</b>`, '快捷切换', { escapeHtml: false });
                     } else {
                         toastr.info(`当前已是 ${nextState === 'day' ? '日间' : '夜间'} 主题: <b>${escapeHtml(themeToApply)}</b>`, '快捷切换', { escapeHtml: false });
@@ -7967,8 +8173,9 @@
                     if (themeToApply) {
                         const themeChanged = originalSelect.value !== themeToApply;
                         if (themeChanged) {
-                            originalSelect.value = themeToApply;
-                            triggerSelectChange(originalSelect);
+                            // [BUG FIX] 使用 applyThemeDirect 代替裸 triggerSelectChange，
+                            // 确保 custom_css 守护逻辑生效，防止 ST 原生 loadTheme 将 CSS 覆盖为空
+                            applyThemeDirect(themeToApply);
                             toastr.info(`自动切换至 ${newState === 'day' ? '日间' : '夜间'} 主题: <b>${escapeHtml(themeToApply)}</b>`, '主题随动', { escapeHtml: false });
                         }
                         // 无论主题是否变化，都主动应用绑定的背景图
