@@ -1861,8 +1861,10 @@
                             if (currentVal && existingNames.has(currentVal)) {
                                 selectEl.value = currentVal;
                             } else if (freshThemes.length > 0) {
-                                selectEl.value = freshThemes[0].name || freshThemes[0].value;
-                                triggerSelectChange(selectEl);
+                                const fallbackName = freshThemes[0].name || freshThemes[0].value;
+                                if (fallbackName) {
+                                    applyThemeDirect(fallbackName);
+                                }
                             }
                         }
 
@@ -3262,8 +3264,10 @@
                     const isCurrentlyActiveDeleted = successSet.has(originalSelect.value);
                     if (isCurrentlyActiveDeleted) {
                         const azureOption = findOptionByValue(originalSelect, 'Azure');
-                        originalSelect.value = azureOption ? 'Azure' : (originalSelect.options[0]?.value || '');
-                        triggerSelectChange(originalSelect);
+                        const fallbackName = azureOption ? 'Azure' : (originalSelect.options[0]?.value || '');
+                        if (fallbackName) {
+                            applyThemeDirect(fallbackName);
+                        }
                     }
 
                     // 0ms 瞬间完成 UI 刷新与提示
@@ -4329,8 +4333,11 @@
                     // 复用已缓存的主题列表，避免额外的 API 请求
                     if (allParsedThemes.length > 0) {
                         const randomIndex = Math.floor(Math.random() * allParsedThemes.length);
-                        originalSelect.value = allParsedThemes[randomIndex].value;
-                        triggerSelectChange(originalSelect);
+                        const randomThemeName = allParsedThemes[randomIndex].value;
+                        if (randomThemeName) {
+                            applyThemeDirect(randomThemeName);
+                            updateActiveState();
+                        }
                     }
                 });
 
@@ -7692,8 +7699,10 @@
 
                                     if (isCurrentlyActive) {
                                         const azureOption = findOptionByValue(originalSelect, 'Azure');
-                                        originalSelect.value = azureOption ? 'Azure' : (originalSelect.options[0]?.value || '');
-                                        triggerSelectChange(originalSelect);
+                                        const fallbackName = azureOption ? 'Azure' : (originalSelect.options[0]?.value || '');
+                                        if (fallbackName) {
+                                            applyThemeDirect(fallbackName);
+                                        }
                                     }
                                     invalidateThemesCache();
                                     renderTagsUI();
@@ -8018,8 +8027,8 @@
                                 // 1. 如果解析出的具体主题与当前不同，则切换
                                 if (themeSelect.value !== themeToApply) {
                                     console.log(`[Theme Manager] 角色绑定触发切换: ${themeToApply} (来源: ${target})`);
-                                    themeSelect.value = themeToApply;
-                                    triggerSelectChange(themeSelect);
+                                    applyThemeDirect(themeToApply);
+                                    updateActiveState();
                                     toastr.info(`已应用角色绑定的美化：<b>${escapeHtml(themeToApply)}</b>`, '', { timeOut: 2000, escapeHtml: false });
                                 } else {
                                     console.log(`[Theme Manager Debug] Theme is already active:`, themeToApply);
