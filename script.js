@@ -98,14 +98,14 @@
                 console.error('[Theme Manager] 早期检测解析标签数据失败:', e);
             }
         } else {
-            let hasOption = false;
+            const cleanTarget = String(target).replace(/\s*\(\d+\)$/, '').trim();
             for (let i = 0; i < originalSelect.options.length; i++) {
-                if (originalSelect.options[i].value === target) {
-                    hasOption = true;
+                const optVal = originalSelect.options[i].value;
+                if (optVal === target || optVal === cleanTarget || optVal.toLowerCase() === target.toLowerCase() || optVal.replace(/\s*\(\d+\)$/, '').trim() === cleanTarget) {
+                    themeToApply = optVal;
                     break;
                 }
             }
-            if (hasOption) themeToApply = target;
         }
 
         if (themeToApply) {
@@ -549,28 +549,44 @@
                     console.log(`[Theme Manager Delete] ══════════════════════════════════════`);
                     return isDeletedOnDisk;
                 }
-                // 从 ST 内存里找到某主题的完整数据对象（包含颜色、CSS 等所有字段）
+                // 从 ST 内存里找到某主题的完整数据对象（包含颜色、CSS 等所有字段，支持名称变体如 (1)、前后空格与别名匹配）
                 function findThemeObject(themeName) {
                     if (!themeName) return null;
                     const raw = String(themeName).trim();
+                    const clean = raw.replace(/\s*\(\d+\)$/, '').trim(); // 去掉类似 (1) 的副本后缀
 
                     // 1. 先从本扩展的内存缓存里直接命中
-                    const fromMap = allThemeObjectsMap.get(raw);
-                    if (fromMap) return fromMap;
+                    if (allThemeObjectsMap.has(raw)) return allThemeObjectsMap.get(raw);
+                    if (clean && allThemeObjectsMap.has(clean)) return allThemeObjectsMap.get(clean);
 
-                    // 2. 从 ST 全局 themes 数组里查找（这里存的是包含完整字段的对象）
+                    // 2. 遍历 allThemeObjectsMap 进行模糊/不区分大小写匹配
+                    for (const [k, v] of allThemeObjectsMap.entries()) {
+                        if (!v) continue;
+                        const vName = String(v.name || v.value || '').trim();
+                        if (vName === raw || vName === clean || k.toLowerCase() === raw.toLowerCase() || vName.toLowerCase() === raw.toLowerCase()) {
+                            return v;
+                        }
+                    }
+
+                    // 3. 从 ST 全局 themes 数组里查找（这里存的是包含完整字段的对象）
                     if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
                         const ctx = SillyTavern.getContext();
                         const stThemes = ctx?.themes || ctx?.power_user?.themes;
                         if (Array.isArray(stThemes)) {
-                            const found = stThemes.find(t => t && t.name === raw);
+                            const found = stThemes.find(t => t && (t.name === raw || t.name === clean || t.value === raw || (t.name && t.name.toLowerCase() === raw.toLowerCase())));
                             if (found) return found;
                         }
                     }
 
-                    // 3. 全局 power_user 对象
+                    // 4. 全局 power_user 对象
                     if (typeof power_user !== 'undefined' && Array.isArray(power_user.themes)) {
-                        const found = power_user.themes.find(t => t && t.name === raw);
+                        const found = power_user.themes.find(t => t && (t.name === raw || t.name === clean || t.value === raw || (t.name && t.name.toLowerCase() === raw.toLowerCase())));
+                        if (found) return found;
+                    }
+
+                    // 5. 查找 window.themes 兜底
+                    if (typeof window !== 'undefined' && Array.isArray(window.themes)) {
+                        const found = window.themes.find(t => t && (t.name === raw || t.name === clean || t.value === raw));
                         if (found) return found;
                     }
 
@@ -1094,7 +1110,14 @@
                     ];
 
                     colorMap.forEach(item => {
-                        const val = themeObj[item.prop] !== undefined ? themeObj[item.prop] : item.default;
+                        let val = themeObj[item.prop];
+                        if (val === undefined || val === null || val === '') {
+                            if (typeof power_user !== 'undefined' && power_user[item.prop]) {
+                                val = power_user[item.prop];
+                            } else {
+                                val = item.default;
+                            }
+                        }
                         
                         // 1. 设置 CSS 变量 (高效直接写入行内 style)
                         root.style.setProperty(item.var, val);
@@ -1136,7 +1159,14 @@
                         { prop: 'font_scale', var: '--fontScale', picker: '#font_scale', counter: '#font_scale_counter', default: 1 },
                     ];
                     numMap.forEach(item => {
-                        const val = themeObj[item.prop] !== undefined ? themeObj[item.prop] : item.default;
+                        let val = themeObj[item.prop];
+                        if (val === undefined || val === null || val === '') {
+                            if (typeof power_user !== 'undefined' && power_user[item.prop] !== undefined) {
+                                val = power_user[item.prop];
+                            } else {
+                                val = item.default;
+                            }
+                        }
                         root.style.setProperty(item.var, String(val));
                         const pEl = document.querySelector(item.picker);
                         const cEl = document.querySelector(item.counter);
@@ -1164,22 +1194,43 @@
                     deduplicateSelectOptions(originalSelect);
                     syncStKnownThemes();
 
-                    const themeObj = allThemeObjectsMap.get(themeName);
+                    let themeObj = findThemeObject(themeName);
+                    if (!themeObj && originalSelect) {
+                        const opt = findOptionByValue(originalSelect, themeName);
+                        if (opt && opt.value !== themeName) {
+                            themeObj = findThemeObject(opt.value);
+                        }
+                    }
+
                     const targetCss = (themeObj && themeObj.custom_css) ? themeObj.custom_css : '';
 
                     if (themeObj) {
                         updateSTThemeMemory(themeObj, 'add');
                         applyThemeColors(themeObj);
+                        syncCustomCssToST(targetCss);
+                    } else {
+                        console.warn(`[Theme Manager] ⚠️ 内存未命中主题 "${themeName}"，尝试全量 API 补齐`);
+                        getAllThemesFromAPI().then(freshThemes => {
+                            if (Array.isArray(freshThemes)) {
+                                const cleanName = String(themeName).replace(/\s*\(\d+\)$/, '').trim();
+                                const fetched = freshThemes.find(t => t && (t.name === themeName || t.name === cleanName || (t.name && t.name.toLowerCase() === themeName.toLowerCase())));
+                                if (fetched) {
+                                    allThemeObjectsMap.set(themeName, fetched);
+                                    updateSTThemeMemory(fetched, 'add');
+                                    applyThemeColors(fetched);
+                                    if (fetched.custom_css) {
+                                        syncCustomCssToST(fetched.custom_css);
+                                    }
+                                }
+                            }
+                        }).catch(() => {});
                     }
-
-                    // 必定同步更新或清空 Custom CSS，彻底消除上一个美化遗留的样式污染
-                    syncCustomCssToST(targetCss);
 
                     // 防范 ST 原生 loadTheme 异步写回导致 custom_css 偏移的静默守护
                     const scheduleAsyncProtection = () => {
                         setTimeout(() => {
                             const curCss = (typeof power_user !== 'undefined' && power_user.custom_css) || '';
-                            if (curCss !== targetCss) {
+                            if (targetCss && curCss !== targetCss) {
                                 console.log(`[Theme Manager] 静默纠偏同步主题 "${themeName}" 的 Custom CSS`);
                                 syncCustomCssToST(targetCss);
                             }
@@ -8528,8 +8579,19 @@
                             return pool[Math.floor(Math.random() * pool.length)].value;
                         }
                     } else {
-                        // 检查主题是否仍然存在 (O(1) Set 快速检索，避免 DOM 扫描)
-                        if (stKnownThemes.has(target)) return target;
+                        const raw = String(target).trim();
+                        const clean = raw.replace(/\s*\(\d+\)$/, '').trim();
+                        // 检查主题是否仍然存在 (支持精确匹配、去除 (1) 副本后缀、或大小写匹配)
+                        if (stKnownThemes.has(raw)) return raw;
+                        if (clean && stKnownThemes.has(clean)) return clean;
+                        for (const name of stKnownThemes) {
+                            if (name && (name.toLowerCase() === raw.toLowerCase() || name.toLowerCase() === clean.toLowerCase())) {
+                                return name;
+                            }
+                        }
+                        if (allParsedThemes.some(t => t.value === raw || t.value === clean)) {
+                            return raw;
+                        }
                     }
                     return null;
                 }
