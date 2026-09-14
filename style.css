@@ -1222,5 +1222,70 @@
     flex-wrap: wrap !important;
 }
 
+/* 标签分配/移除弹窗自适应高度样式 (跟随标签数量自适应，最多占据屏幕80%) */
+.tm-tag-assign-dialog {
+    max-height: 80vh !important;
+    max-height: 80dvh !important;
+    height: auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    width: 92vw !important;
+    max-width: 500px !important;
+}
 
+.tm-tag-assign-dialog .popup-body {
+    max-height: calc(80vh - 16px) !important;
+    max-height: calc(80dvh - 16px) !important;
+    height: auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    min-height: 0 !important;
+    flex: 0 1 auto !important;
+}
 
+.tm-tag-assign-dialog .popup-content {
+    max-height: calc(80vh - 80px) !important;
+    max-height: calc(80dvh - 80px) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    min-height: 0 !important;
+    flex: 0 1 auto !important;
+    margin-top: 6px !important;
+    padding: 0 4px !important;
+}
+
+.tm-tag-assign-container {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    min-height: 0 !important;
+    flex: 0 1 auto !important;
+}
+
+.tm-tag-assign-header {
+    margin: 0 0 10px 0 !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    text-align: left !important;
+    opacity: 0.9 !important;
+    flex-shrink: 0 !important;
+}
+
+.tm-tag-assign-list {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 6px !important;
+    max-height: calc(80vh - 125px) !important;
+    max-height: calc(80dvh - 125px) !important;
+    overflow-y: auto !important;
+    padding-right: 6px !important;
+    min-height: 0 !important;
+    flex: 0 1 auto !important;
+}
+
+.tm-tag-assign-dialog .popup-controls {
+    margin-top: 10px !important;
+    flex-shrink: 0 !important;
+}
