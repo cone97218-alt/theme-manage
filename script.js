@@ -1260,6 +1260,12 @@
                     if (typeof allParsedThemes !== 'undefined' && allParsedThemes && allParsedThemes.length > 0) {
                         allParsedThemes.forEach(t => { if (t && t.value) names.add(t.value); });
                     }
+                    if (typeof allThemeObjectsMap !== 'undefined' && allThemeObjectsMap && allThemeObjectsMap.size > 0) {
+                        allThemeObjectsMap.forEach((_, name) => { if (name) names.add(name); });
+                    }
+                    if (typeof allThemeObjects !== 'undefined' && Array.isArray(allThemeObjects) && allThemeObjects.length > 0) {
+                        allThemeObjects.forEach(t => { if (t && t.name) names.add(t.name); });
+                    }
                     const select = document.querySelector('#themes');
                     if (select && select.options) {
                         for (let i = 0; i < select.options.length; i++) {
@@ -5384,28 +5390,11 @@
                             }
                         });
 
-                        // 如果成功导入了主题，且指定了目标标签，批量将美化关联到标签
-                        if (importedThemes.length > 0 && targetTagIds.length > 0) {
-                            allTags = loadThemeTags();
-                            targetTagIds.forEach(tId => {
-                                const tag = allTags.find(t => t.id === tId);
-                                if (tag) {
-                                    if (!tag.themes) tag.themes = [];
-                                    importedThemes.forEach(th => {
-                                        if (!tag.themes.includes(th.name)) {
-                                            tag.themes.push(th.name);
-                                        }
-                                    });
-                                }
-                            });
-                            saveThemeTags(allTags);
-                        }
-
                         // 3. 批量更新下拉框、内存及 UI DOM
                         if (importedThemes.length > 0) {
                             needsUIUpdate = true;
 
-                            // 批量更新 ST 原生下拉框 & 同步内部内存
+                            // 第一步：批量更新 ST 原生下拉框 & 同步内部内存与已知合法美化名称集
                             _suspendObserver = true;
                             try {
                                 importedThemes.forEach(themeObject => {
@@ -5418,15 +5407,35 @@
                                         originalSelect.appendChild(option);
                                     }
                                     stKnownThemes.add(themeObject.name);
+                                    allThemeObjectsMap.set(themeObject.name, themeObject);
                                 });
                                 syncStKnownThemes();
                             } finally {
                                 setTimeout(() => { _suspendObserver = false; }, 0);
                             }
 
+                            // 立即失效主题缓存与合法美化名称缓存，确保后续标签校验认可新导入的主题
                             invalidateThemesCache();
+                            invalidateValidThemeNamesCache();
 
-                            // 预先读取一次标签并缓存
+                            // 第二步：如果指定了目标标签，批量将美化关联到标签并保存（此时系统已识别新主题为合法美化，不会被过滤剔除）
+                            if (targetTagIds.length > 0) {
+                                allTags = loadThemeTags();
+                                targetTagIds.forEach(tId => {
+                                    const tag = allTags.find(t => String(t.id) === String(tId));
+                                    if (tag) {
+                                        if (!Array.isArray(tag.themes)) tag.themes = [];
+                                        importedThemes.forEach(th => {
+                                            if (!tag.themes.includes(th.name)) {
+                                                tag.themes.push(th.name);
+                                            }
+                                        });
+                                    }
+                                });
+                                saveThemeTags(allTags);
+                            }
+
+                            // 第三步：预先读取已包含目标标签的最新标签数据并构建挂载卡片 DOM
                             const cachedTags = loadThemeTags();
                             const listFragment = document.createDocumentFragment();
                             const list = contentWrapper.querySelector('.theme-list');
@@ -5456,15 +5465,15 @@
                                 list.appendChild(listFragment);
                             }
 
-                            // 关键词自动映射：导入时自动为新主题打标签
+                            // 第四步：关键词自动映射（若启用）
                             if (importConfig.applyKeywords && importedThemes.length > 0) {
                                 applyKeywordMappings(importedThemes.map(t => t.name));
                             }
 
-                            // 精准刷新被导入主题的标签展示与顶部标签栏
+                            // 第五步：精准刷新被导入主题的标签展示与顶部标签栏
                             softRefreshUI(importedThemes.map(t => t.name));
 
-                            // 依照当前排序规则 (sortBy) 重新对全量美化卡片排序并定位到顶部
+                            // 第六步：依照当前排序规则 (sortBy) 重新对全量美化卡片排序并定位到顶部
                             filterThemeList(0);
 
                             if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
@@ -5475,7 +5484,8 @@
 
                         let summary = `批量导入完成！成功 ${successCount} 个`;
                         if (importedThemes.length > 0 && targetTagIds.length > 0) {
-                            const assignedTagNames = allTags.filter(t => targetTagIds.includes(t.id)).map(t => t.name).join(', ');
+                            const finalTags = loadThemeTags();
+                            const assignedTagNames = finalTags.filter(t => targetTagIds.includes(String(t.id))).map(t => t.name).join(', ');
                             if (assignedTagNames) {
                                 summary += `，已分配至标签「${assignedTagNames}」`;
                             }
