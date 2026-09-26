@@ -6,6 +6,20 @@
 
 (function () {
     const ADJUSTMENTS_KEY = 'themeManager_avatarAdjustments';
+    let _cachedAdjustments = null;
+    function getAdjustments() {
+        if (_cachedAdjustments) return _cachedAdjustments;
+        try {
+            _cachedAdjustments = JSON.parse(localStorage.getItem(ADJUSTMENTS_KEY)) || {};
+        } catch (e) {
+            _cachedAdjustments = {};
+        }
+        return _cachedAdjustments;
+    }
+    function setAdjustments(adj) {
+        _cachedAdjustments = adj;
+        localStorage.setItem(ADJUSTMENTS_KEY, JSON.stringify(adj));
+    }
     const FRAMES_KEY = 'themeManager_customFrames';
     const BINDINGS_KEY = 'themeManager_characterThemeBindings';
     const TAGS_KEY = 'themeManager_themeTags';
@@ -181,10 +195,7 @@
         const img = findAvatarImgInMessage(messageEl);
         if (!img) return;
 
-        let adjustments = {};
-        try {
-            adjustments = JSON.parse(localStorage.getItem(ADJUSTMENTS_KEY)) || {};
-        } catch (e) {}
+        const adjustments = getAdjustments();
 
         let overrideUrl = '';
         if (isUser) {
@@ -3988,6 +3999,10 @@
             return;
         }
 
+        const charBtn = document.getElementById('theme-manager-char-replace-image-btn');
+        const userBtn = document.getElementById('theme-manager-user-replace-image-btn');
+        if (charBtn && userBtn) return;
+
         // 1. 角色卡详情页替换卡图按钮
         const charControlsList = document.querySelectorAll('.form_create_bottom_buttons_block');
         charControlsList.forEach((charControls) => {
@@ -4213,48 +4228,72 @@
     updateActiveCharacterAttr();
     tagAllMessages();
 
-    // 观察 DOM 动态生成变动，自动补全角色卡与用户详情页的替换卡图按键
+    // 观察 DOM 动态生成变动，自动补全角色卡与用户详情页的替换卡图按键（防抖与短路优化）
     try {
+        let _replaceBtnTimer = null;
         const replaceBtnObserver = new MutationObserver(() => {
-            registerReplaceImageButtons();
+            const charBtn = document.getElementById('theme-manager-char-replace-image-btn');
+            const userBtn = document.getElementById('theme-manager-user-replace-image-btn');
+            if (charBtn && userBtn) return; // 极速短路
+
+            if (_replaceBtnTimer) clearTimeout(_replaceBtnTimer);
+            _replaceBtnTimer = setTimeout(() => {
+                registerReplaceImageButtons();
+            }, 300);
         });
         replaceBtnObserver.observe(document.body, { childList: true, subtree: true });
     } catch (e) {}
 
-    // 监听聊天容器变化，实现绝对零延迟的头像视觉替换打标签
+    // 监听聊天容器变化，实现高效的头像视觉替换（微任务批处理，杜绝打字机流式输出每字触发重算）
     try {
         const chatEl = document.getElementById('chat');
         if (chatEl) {
-            const chatObserver = new MutationObserver((mutations) => {
-                const processedMesSet = new Set();
-                mutations.forEach(mutation => {
-                    // 1. 处理新增 DOM 节点（包括思维链/流式生成的子元素和文本节点）
-                    if (mutation.addedNodes) {
-                        mutation.addedNodes.forEach(node => {
-                            if (node.nodeType === Node.ELEMENT_NODE) {
-                                const mesEl = node.closest('.mes');
-                                if (mesEl) {
-                                    processedMesSet.add(mesEl);
-                                } else {
-                                    node.querySelectorAll('.mes').forEach(m => processedMesSet.add(m));
-                                }
-                            } else if (node.nodeType === Node.TEXT_NODE && node.parentElement) {
-                                const mesEl = node.parentElement.closest('.mes');
-                                if (mesEl) processedMesSet.add(mesEl);
-                            }
-                        });
-                    }
-                    // 2. 实时追踪包含思维链（.mes_reasoning_details / details open 展开与折叠）或流式替换 innerHTML 的变动
-                    if (mutation.target && mutation.target.nodeType === Node.ELEMENT_NODE) {
-                        const mesEl = mutation.target.closest('.mes');
-                        if (mesEl) processedMesSet.add(mesEl);
-                    }
+            let _tagTaskScheduled = false;
+            const _pendingMesSet = new Set();
+            const flushPendingMessages = () => {
+                if (_tagTaskScheduled) return;
+                _tagTaskScheduled = true;
+                queueMicrotask(() => {
+                    _tagTaskScheduled = false;
+                    _pendingMesSet.forEach(tagMessageElementsWithCharName);
+                    _pendingMesSet.clear();
                 });
+            };
 
-                // 对产生变动的所有消息块进行 0 延迟头像判定与补全替换
-                processedMesSet.forEach(tagMessageElementsWithCharName);
+            const chatObserver = new MutationObserver((mutations) => {
+                let hasRelevantChange = false;
+                for (let i = 0; i < mutations.length; i++) {
+                    const m = mutations[i];
+                    if (m.type === 'childList' && m.addedNodes.length > 0) {
+                        for (let j = 0; j < m.addedNodes.length; j++) {
+                            const node = m.addedNodes[j];
+                            if (node.nodeType === Node.ELEMENT_NODE) {
+                                if (node.classList && node.classList.contains('mes')) {
+                                    _pendingMesSet.add(node);
+                                    hasRelevantChange = true;
+                                } else {
+                                    const mesEl = node.closest ? node.closest('.mes') : null;
+                                    if (mesEl) {
+                                        _pendingMesSet.add(mesEl);
+                                        hasRelevantChange = true;
+                                    }
+                                }
+                            }
+                        }
+                    } else if (m.type === 'attributes' && m.target) {
+                        const mesEl = m.target.closest ? m.target.closest('.mes') : null;
+                        if (mesEl) {
+                            _pendingMesSet.add(mesEl);
+                            hasRelevantChange = true;
+                        }
+                    }
+                }
+
+                if (hasRelevantChange) {
+                    flushPendingMessages();
+                }
             });
-            chatObserver.observe(chatEl, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'open', 'ch_name'] });
+            chatObserver.observe(chatEl, { childList: true, subtree: true, attributes: true, attributeFilter: ['ch_name'] });
         }
     } catch (e) {
         console.warn('[Theme Manager Avatar] Failed to setup chat MutationObserver:', e);

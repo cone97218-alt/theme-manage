@@ -704,43 +704,44 @@
                     return getScrollParent(node.parentNode);
                 }
 
+                const _themeCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
                 function sortThemes(themes, sortBy) {
                     const sorted = [...themes];
                     if (sortBy === 'name-asc') {
-                        sorted.sort((a, b) => a.display.localeCompare(b.display, undefined, { numeric: true, sensitivity: 'base' }));
+                        sorted.sort((a, b) => _themeCollator.compare(a.display, b.display));
                     } else if (sortBy === 'name-desc') {
-                        sorted.sort((a, b) => b.display.localeCompare(a.display, undefined, { numeric: true, sensitivity: 'base' }));
+                        sorted.sort((a, b) => _themeCollator.compare(b.display, a.display));
                     } else if (sortBy === 'favorite-first') {
                         sorted.sort((a, b) => {
                             const aFav = favoritesSet.has(a.value);
                             const bFav = favoritesSet.has(b.value);
                             if (aFav && !bFav) return -1;
                             if (!aFav && bFav) return 1;
-                            return a.display.localeCompare(b.display, undefined, { numeric: true, sensitivity: 'base' });
+                            return _themeCollator.compare(a.display, b.display);
                         });
                     } else if (sortBy === 'time-desc') {
                         sorted.sort((a, b) => {
                             const diff = (b.mtime || 0) - (a.mtime || 0);
                             if (diff !== 0) return diff;
-                            return a.display.localeCompare(b.display, undefined, { numeric: true, sensitivity: 'base' });
+                            return _themeCollator.compare(a.display, b.display);
                         });
                     } else if (sortBy === 'time-asc') {
                         sorted.sort((a, b) => {
                             const diff = (a.mtime || 0) - (b.mtime || 0);
                             if (diff !== 0) return diff;
-                            return a.display.localeCompare(b.display, undefined, { numeric: true, sensitivity: 'base' });
+                            return _themeCollator.compare(a.display, b.display);
                         });
                     } else if (sortBy === 'usage-desc') {
                         sorted.sort((a, b) => {
                             const diff = (usageCount[b.value] || 0) - (usageCount[a.value] || 0);
                             if (diff !== 0) return diff;
-                            return a.display.localeCompare(b.display, undefined, { numeric: true, sensitivity: 'base' });
+                            return _themeCollator.compare(a.display, b.display);
                         });
                     } else if (sortBy === 'usage-asc') {
                         sorted.sort((a, b) => {
                             const diff = (usageCount[a.value] || 0) - (usageCount[b.value] || 0);
                             if (diff !== 0) return diff;
-                            return a.display.localeCompare(b.display, undefined, { numeric: true, sensitivity: 'base' });
+                            return _themeCollator.compare(a.display, b.display);
                         });
                     }
                     return sorted;
@@ -1230,18 +1231,50 @@
                     const scheduleAsyncProtection = () => {
                         setTimeout(() => {
                             const curCss = (typeof power_user !== 'undefined' && power_user.custom_css) || '';
-                            if (targetCss && curCss !== targetCss) {
+                            if (curCss !== targetCss) {
                                 console.log(`[Theme Manager] 静默纠偏同步主题 "${themeName}" 的 Custom CSS`);
                                 syncCustomCssToST(targetCss);
                             }
                         }, 250);
                     };
 
-                    // 核心优化: 更新选中值并同步触发表单变更
+                    // 核心优化: 严谨更新选中值并同步触发表单变更（加入容错与兜底补齐，杜绝 select.value 赋值失败停留在上一个主题）
                     if (originalSelect) {
-                        originalSelect.value = themeName;
+                        let opt = findOptionByValue(originalSelect, themeName);
+                        if (!opt && originalSelect.options) {
+                            const raw = String(themeName).trim();
+                            const clean = raw.replace(/\s*\(\d+\)$/, '').trim();
+                            const rawLower = raw.toLowerCase();
+                            for (let i = 0; i < originalSelect.options.length; i++) {
+                                const o = originalSelect.options[i];
+                                const ov = o.value || '';
+                                if (ov === raw || ov === clean || ov.toLowerCase() === rawLower) {
+                                    opt = o;
+                                    break;
+                                }
+                            }
+                        }
+                        if (opt) {
+                            originalSelect.value = opt.value;
+                        } else {
+                            // 动态补齐 option，避免浏览器拒绝赋值导致停留在旧主题
+                            const newOpt = document.createElement('option');
+                            newOpt.value = themeName;
+                            newOpt.textContent = themeName;
+                            originalSelect.appendChild(newOpt);
+                            originalSelect.value = themeName;
+                        }
                         triggerSelectChange(originalSelect);
                     }
+                    if (typeof power_user !== 'undefined') {
+                        power_user.theme = originalSelect?.value || themeName;
+                    }
+                    updateActiveState();
+                    try {
+                        document.dispatchEvent(new CustomEvent('themeManager:themeChanged', { 
+                            detail: { themeName, themeObj } 
+                        }));
+                    } catch (e) {}
                     scheduleAsyncProtection();
                 }
 
@@ -1417,7 +1450,18 @@
                             callback(event.detail);
                         });
                     },
-                    applyBoundThemeForCharacter: (avatarName) => applyBoundThemeForCharacter(avatarName)
+                    applyBoundThemeForCharacter: (avatarName) => applyBoundThemeForCharacter(avatarName),
+                    getCurrentTheme: () => originalSelect?.value || _activeThemeItem?.dataset?.value || (typeof power_user !== 'undefined' ? power_user.theme : '') || '',
+                    getCurrentThemeObject: () => {
+                        const cur = originalSelect?.value || _activeThemeItem?.dataset?.value || (typeof power_user !== 'undefined' ? power_user.theme : '');
+                        return cur ? allThemeObjectsMap.get(cur) : null;
+                    },
+                    getAllThemes: () => Array.from(allThemeObjectsMap.values()),
+                    onThemeChanged: (callback) => {
+                        document.addEventListener('themeManager:themeChanged', (event) => {
+                            callback(event.detail);
+                        });
+                    }
                 };
 
                 const originalContainer = originalSelect.parentElement;
@@ -1591,17 +1635,57 @@
                 nativeButtonsContainer.appendChild(saveAsButton);
 
                 // 原生保存/另存为按钮点击后的内存与已知主题防爆同步
+                // 原生保存/另存为按钮点击后的内存与已知主题防爆同步
                 if (updateButton) {
                     updateButton.addEventListener('click', () => {
                         setTimeout(() => {
                             syncStKnownThemes();
                             invalidateThemesCache();
-                            const currentThemeName = originalSelect.value;
-                            const themeObj = allThemeObjectsMap.get(currentThemeName);
-                            const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style') || document.querySelector('#style_custom');
-                            if (themeObj && editorEl) {
-                                themeObj.custom_css = editorEl.value;
+                            const currentThemeName = originalSelect?.value || (typeof power_user !== 'undefined' ? power_user.theme : '');
+                            if (!currentThemeName) return;
+
+                            let themeObj = allThemeObjectsMap.get(currentThemeName);
+                            if (!themeObj) {
+                                themeObj = { name: currentThemeName };
+                                allThemeObjectsMap.set(currentThemeName, themeObj);
                             }
+
+                            // 1. 同步 custom_css
+                            const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style') || document.querySelector('#style_custom');
+                            if (editorEl) {
+                                themeObj.custom_css = editorEl.value;
+                            } else if (typeof power_user !== 'undefined' && power_user.custom_css !== undefined) {
+                                themeObj.custom_css = power_user.custom_css;
+                            }
+
+                            // 2. 极速纯内存同步所有颜色与数值控件属性（0 DOM 重排，微秒级极速）
+                            const themeSyncKeys = [
+                                'main_text_color', 'italics_text_color', 'underline_text_color', 'quote_text_color',
+                                'blur_tint_color', 'chat_tint_color', 'user_mes_blur_tint_color', 'bot_mes_blur_tint_color',
+                                'shadow_color', 'border_color', 'blur_strength', 'shadow_width', 'font_scale', 'chat_width',
+                                'fast_ui_mode', 'waifuMode', 'avatar_style', 'chat_display', 'toastr_position', 'noShadows'
+                            ];
+                            if (typeof power_user !== 'undefined') {
+                                themeSyncKeys.forEach(k => {
+                                    if (power_user[k] !== undefined) {
+                                        themeObj[k] = power_user[k];
+                                    }
+                                });
+                            }
+
+                            // 3. 尝试与 ST 原生 themes 数组对齐最新数据
+                            if (typeof themes !== 'undefined' && Array.isArray(themes)) {
+                                const stTheme = themes.find(t => t && (t.name === currentThemeName || t.name === themeObj.name));
+                                if (stTheme) {
+                                    Object.assign(themeObj, stTheme);
+                                }
+                            }
+
+                            const now = Date.now();
+                            recordThemeMtime(currentThemeName, now);
+                            const parsed = allParsedThemesMap.get(currentThemeName);
+                            if (parsed) parsed.mtime = now;
+                            updateSTThemeMemory(themeObj, 'add');
                         }, 300);
                     });
                 }
@@ -1751,7 +1835,9 @@
                     deduplicateSelectOptions(originalSelect);
                     const scrollTop = contentWrapper.scrollTop;
 
-                    contentWrapper.innerHTML = '正在加载主题...';
+                    if (!contentWrapper.querySelector('.theme-list')) {
+                        contentWrapper.innerHTML = '正在加载主题...';
+                    }
                     try {
                         allThemeObjects = await getCachedThemes();
                         allThemeObjectsMap.clear();
@@ -1771,9 +1857,8 @@
                             });
                         }
 
-                        // 如果主题列表未发生变化，直接更新 active 状态即可，避免重建 DOM
-                        if (allParsedThemes.length > 0 && isThemeListIdentical() && themeItemMap.size > 0) {
-                            contentWrapper.innerHTML = '';
+                        // 如果主题列表未发生变化且现有 DOM 完好，直接更新 active 状态即可，避免昂贵的重建 DOM
+                        if (allParsedThemes.length > 0 && isThemeListIdentical() && themeItemMap.size > 0 && contentWrapper.querySelector('.theme-list')) {
                             updateActiveState();
                             return;
                         }
@@ -2176,71 +2261,103 @@
                     return item;
                 }
 
-                // === 通用复合搜索匹配逻辑 (支持 OR: 空格/逗号/|; 与: +/AND/&&; 排除: -/!/NOT) ===
-                function isTextMatchingCompositeSearch(targetTextLC, rawSearch) {
-                    if (!rawSearch || typeof rawSearch !== 'string') return true;
+                // === 高性能预编译复合搜索条件（单次解析，循环内千次免正则极速比对） ===
+                function compileSearchFilter(rawSearch) {
+                    if (!rawSearch || typeof rawSearch !== 'string') return null;
                     const raw = rawSearch.trim();
-                    if (!raw) return true;
+                    if (!raw) return null;
 
-                    // 1. 若包含 + 或 AND 或 &&，作为最高优先级与逻辑处理 (AND 组)
-                    if (raw.includes('+') || /\bAND\b/i.test(raw) || raw.includes('&&')) {
-                        const andParts = raw.split(/\+|\bAND\b|&&/i).map(s => s.trim()).filter(Boolean);
-                        return andParts.every(part => checkSearchSubExpression(targetTextLC, part));
-                    }
+                    const andParts = (raw.includes('+') || /\bAND\b/i.test(raw) || raw.includes('&&'))
+                        ? raw.split(/\+|\bAND\b|&&/i).map(s => s.trim()).filter(Boolean)
+                        : [raw];
 
-                    // 2. 单表达组 (支持空格 / 逗号 / 竖线 | 作为 OR，支持 - / ! 作排除)
-                    return checkSearchSubExpression(targetTextLC, raw);
-                }
-
-                function checkSearchSubExpression(targetTextLC, expr) {
-                    if (!expr) return true;
-
-                    const tokens = expr.split(/[\s,，\|/／\\;；·]|\bOR\b/i).map(s => s.trim()).filter(Boolean);
-                    if (tokens.length === 0) return true;
-
-                    const positiveTerms = [];
-                    const negativeTerms = [];
-
-                    for (let i = 0; i < tokens.length; i++) {
-                        const token = tokens[i];
-                        if (token.startsWith('-') && token.length > 1) {
-                            negativeTerms.push(token.slice(1).toLowerCase());
-                        } else if (token.startsWith('!') && token.length > 1) {
-                            negativeTerms.push(token.slice(1).toLowerCase());
-                        } else if (token.toLowerCase().startsWith('not ') && token.length > 4) {
-                            negativeTerms.push(token.slice(4).trim().toLowerCase());
-                        } else {
-                            positiveTerms.push(token.toLowerCase());
-                        }
-                    }
-
-                    // 排除项检查 (NOT 逻辑)：若包含任意排除关键词，则判定不匹配
-                    for (let i = 0; i < negativeTerms.length; i++) {
-                        if (targetTextLC.includes(negativeTerms[i])) {
-                            return false;
-                        }
-                    }
-
-                    // 正向项检查 (OR 复合匹配)：满足任意一个正向关键词即匹配
-                    if (positiveTerms.length > 0) {
-                        return positiveTerms.some(term => targetTextLC.includes(term));
-                    }
-
-                    return true;
-                }
-
-                function isThemeMatchingSearch(theme, rawSearch, tagsById) {
-                    if (!rawSearch || !rawSearch.trim()) return true;
-                    let targetText = (theme.display || '') + ' ' + (theme.value || '');
-                    if (theme.tags && theme.tags.length > 0 && tagsById) {
-                        for (let i = 0; i < theme.tags.length; i++) {
-                            const tagObj = tagsById.get(theme.tags[i]);
-                            if (tagObj && tagObj.name) {
-                                targetText += ' ' + tagObj.name;
+                    const compiledGroups = andParts.map(part => {
+                        const tokens = part.split(/[\s,，\|/／\\;；·]|\bOR\b/i).map(s => s.trim()).filter(Boolean);
+                        const positiveTerms = [];
+                        const negativeTerms = [];
+                        for (let i = 0; i < tokens.length; i++) {
+                            const token = tokens[i];
+                            if (token.startsWith('-') && token.length > 1) {
+                                negativeTerms.push(token.slice(1).toLowerCase());
+                            } else if (token.startsWith('!') && token.length > 1) {
+                                negativeTerms.push(token.slice(1).toLowerCase());
+                            } else if (token.toLowerCase().startsWith('not ') && token.length > 4) {
+                                negativeTerms.push(token.slice(4).trim().toLowerCase());
+                            } else {
+                                positiveTerms.push(token.toLowerCase());
                             }
                         }
+                        return { positiveTerms, negativeTerms };
+                    });
+
+                    return function testTargetText(targetTextLC) {
+                        for (let g = 0; g < compiledGroups.length; g++) {
+                            const { positiveTerms, negativeTerms } = compiledGroups[g];
+                            for (let i = 0; i < negativeTerms.length; i++) {
+                                if (targetTextLC.includes(negativeTerms[i])) return false;
+                            }
+                            if (positiveTerms.length > 0) {
+                                let anyMatched = false;
+                                for (let i = 0; i < positiveTerms.length; i++) {
+                                    if (targetTextLC.includes(positiveTerms[i])) {
+                                        anyMatched = true;
+                                        break;
+                                    }
+                                }
+                                if (!anyMatched) return false;
+                            }
+                        }
+                        return true;
+                    };
+                }
+
+                // === 高性能预编译标签筛选器（将树遍历与 tags 扫描移出 filter 循环，O(N) 极速匹配） ===
+                function compileTagFilterContext(tags) {
+                    if (!activeTagFilters || activeTagFilters.size === 0) return null;
+                    const tagMap = new Map(tags.map(t => [t.id, t]));
+                    const isAnd = tagFilterMode === 'and';
+
+                    const checkers = [];
+                    for (const tagId of activeTagFilters) {
+                        if (tagId === '__FAVORITES__') {
+                            checkers.push(theme => favoritesSet.has(theme.value));
+                        } else if (tagId === '__UNCATEGORIZED__') {
+                            checkers.push((theme, themeTags) => !themeTags || themeTags.length === 0);
+                        } else if (typeof tagId === 'string' && tagId.startsWith('__SUB_UNCATEGORIZED__:')) {
+                            const l1Id = tagId.split(':')[1];
+                            const l1Tag = tagMap.get(l1Id);
+                            const l1ThemesSet = new Set(l1Tag && l1Tag.themes ? l1Tag.themes : []);
+                            const childTagIdsSet = new Set(tags.filter(t => t.parentId === l1Id).map(t => t.id));
+                            checkers.push((theme, themeTags) => {
+                                const belongsToL1 = (themeTags && themeTags.includes(l1Id)) || l1ThemesSet.has(theme.value);
+                                const hasChildTag = themeTags && themeTags.some(tId => childTagIdsSet.has(tId));
+                                return belongsToL1 && !hasChildTag;
+                            });
+                        } else {
+                            const allIdsSet = new Set(getAllDescendantTagIds(tagId, tags));
+                            checkers.push((theme, themeTags) => {
+                                if (!themeTags || themeTags.length === 0) return false;
+                                for (let i = 0; i < themeTags.length; i++) {
+                                    if (allIdsSet.has(themeTags[i])) return true;
+                                }
+                                return false;
+                            });
+                        }
                     }
-                    return isTextMatchingCompositeSearch(targetText.toLowerCase(), rawSearch);
+
+                    return function testTheme(theme, themeTags) {
+                        if (isAnd) {
+                            for (let i = 0; i < checkers.length; i++) {
+                                if (!checkers[i](theme, themeTags)) return false;
+                            }
+                            return true;
+                        } else {
+                            for (let i = 0; i < checkers.length; i++) {
+                                if (checkers[i](theme, themeTags)) return true;
+                            }
+                            return false;
+                        }
+                    };
                 }
 
                 // 首次构建：创建所有主题 DOM 节点并缓存
@@ -2257,15 +2374,29 @@
                     list.className = 'theme-list';
                     contentWrapper.appendChild(list);
 
-                    // 预计算筛选集合用于首次显示 (复合搜索支持)
+                    // 预计算筛选集合用于首次显示 (复合搜索支持与极速预编译)
                     const rawSearch = searchBox ? searchBox.value : '';
                     const cachedTags = loadThemeTags();
                     const tagsMap = new Map(cachedTags.map(t => [t.id, t]));
+                    const tagFilterFn = compileTagFilterContext(cachedTags);
+                    const searchFilterFn = compileSearchFilter(rawSearch);
 
                     const matched = allParsedThemes.filter(theme => {
-                        const matchesTag = isThemeMatchingFilters(theme);
-                        const matchesSearch = isThemeMatchingSearch(theme, rawSearch, tagsMap);
-                        return matchesTag && matchesSearch;
+                        const themeTags = (theme && theme.tags && theme.tags.length > 0)
+                            ? theme.tags
+                            : getTagsForTheme(theme.value, cachedTags);
+                        if (tagFilterFn && !tagFilterFn(theme, themeTags)) return false;
+                        if (searchFilterFn) {
+                            let targetText = (theme.display || '') + ' ' + (theme.value || '');
+                            if (themeTags && themeTags.length > 0) {
+                                for (let i = 0; i < themeTags.length; i++) {
+                                    const tagObj = tagsMap.get(themeTags[i]);
+                                    if (tagObj && tagObj.name) targetText += ' ' + tagObj.name;
+                                }
+                            }
+                            if (!searchFilterFn(targetText.toLowerCase())) return false;
+                        }
+                        return true;
                     });
 
                     // 2. 排序
@@ -3055,11 +3186,39 @@
                     }
                 }
                 function updateActiveState() {
-                    const currentValue = originalSelect.value;
-                    // O(1)：只操作两个节点，而非 querySelectorAll 全量遍历（主题列表很长时收益明显）
-                    if (_activeThemeItem) _activeThemeItem.classList.remove('active');
-                    _activeThemeItem = themeItemMap.get(currentValue) || null;
-                    if (_activeThemeItem) _activeThemeItem.classList.add('active');
+                    const currentValue = originalSelect?.value || (typeof power_user !== 'undefined' ? power_user.theme : '');
+                    if (!currentValue) return;
+
+                    let currentItem = themeItemMap.get(currentValue) || null;
+                    if (!currentItem) {
+                        const rawClean = String(currentValue).trim();
+                        currentItem = themeItemMap.get(rawClean) || null;
+                    }
+
+                    // 极致性能：如果当前项已经正确保持高亮，直接返回，0 毫秒开销
+                    if (_activeThemeItem === currentItem && currentItem && currentItem.classList.contains('active')) {
+                        return;
+                    }
+
+                    // 正常路径：O(1) 移除旧节点，添加新节点
+                    if (_activeThemeItem) {
+                        _activeThemeItem.classList.remove('active');
+                    }
+
+                    // 异常/切页兜底：若 _activeThemeItem 为空，或新项与旧项脱节，清理当前视口中可能遗留的旧 active 节点
+                    if (!currentItem || !_activeThemeItem) {
+                        const legacyActives = contentWrapper ? contentWrapper.querySelectorAll('.theme-item.active') : [];
+                        for (let i = 0; i < legacyActives.length; i++) {
+                            if (legacyActives[i] !== currentItem) {
+                                legacyActives[i].classList.remove('active');
+                            }
+                        }
+                    }
+
+                    _activeThemeItem = currentItem;
+                    if (_activeThemeItem) {
+                        _activeThemeItem.classList.add('active');
+                    }
                 }
 
                 async function performBatchRename(renameLogic) {
@@ -4477,6 +4636,11 @@
                         removeReplaceImageButtons();
                         return;
                     }
+
+                    // 极速短路：若角色卡与用户两处替换按钮均已挂载，微秒级直接返回，消除每秒定时器无谓的 DOM 深度扫描
+                    const charBtnExists = document.getElementById('theme-manager-char-replace-image-btn');
+                    const userBtnExists = document.getElementById('theme-manager-user-replace-image-btn');
+                    if (charBtnExists && userBtnExists) return;
 
                     // 1. 角色卡详情页替换卡图按钮
                     $('.form_create_bottom_buttons_block').each(function() {
