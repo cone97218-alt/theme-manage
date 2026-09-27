@@ -798,19 +798,47 @@
                 // 剔除 #themes select 中的重复 option，从根源杜绝 DOM 节点与全量 UI 渲染产生同名重复卡片
                 function deduplicateSelectOptions(selectEl) {
                     if (!selectEl || !selectEl.options) return;
-                    const seen = new Set();
+                    const activeVal = (typeof power_user !== 'undefined' && power_user.theme) || selectEl.value || '';
+                    const seen = new Map(); // value -> opt
                     const options = Array.from(selectEl.options);
                     let removedCount = 0;
-                    options.forEach(opt => {
-                        if (!opt.value || seen.has(opt.value)) {
-                            opt.remove();
-                            removedCount++;
-                        } else {
-                            seen.add(opt.value);
+                    const prevSuspend = _suspendObserver;
+                    _suspendObserver = true;
+                    try {
+                        options.forEach(opt => {
+                            if (!opt.value) {
+                                opt.remove();
+                                removedCount++;
+                                return;
+                            }
+                            if (seen.has(opt.value)) {
+                                const prevOpt = seen.get(opt.value);
+                                // 如果当前重复项处于选中状态或匹配 activeVal，保留它并移除旧项
+                                if (opt.selected || opt.value === activeVal) {
+                                    prevOpt.remove();
+                                    seen.set(opt.value, opt);
+                                } else {
+                                    opt.remove();
+                                }
+                                removedCount++;
+                            } else {
+                                seen.set(opt.value, opt);
+                            }
+                        });
+                        // 无论如何强制锁定 activeVal 选中，杜绝 selectedIndex 归零导致回退到首个默认主题
+                        if (activeVal && seen.has(activeVal)) {
+                            const targetOpt = seen.get(activeVal);
+                            targetOpt.selected = true;
+                            selectEl.value = activeVal;
+                            if (typeof power_user !== 'undefined') {
+                                power_user.theme = activeVal;
+                            }
                         }
-                    });
+                    } finally {
+                        _suspendObserver = prevSuspend;
+                    }
                     if (removedCount > 0) {
-                        console.log(`[Theme Manager] deduplicateSelectOptions 清理了 ${removedCount} 个重复 option 节点`);
+                        console.log(`[Theme Manager] deduplicateSelectOptions 智能清理了 ${removedCount} 个重复 option 节点，保持当前主题: "${activeVal}"`);
                     }
                 }
 
@@ -1638,54 +1666,72 @@
                 // 原生保存/另存为按钮点击后的内存与已知主题防爆同步
                 if (updateButton) {
                     updateButton.addEventListener('click', () => {
+                        // 1. 同步立即抓取当前点击保存的主题名，杜绝任何延迟与下拉框扰动
+                        const savedThemeName = (typeof power_user !== 'undefined' && power_user.theme) || originalSelect?.value || '';
+                        if (!savedThemeName) return;
+
+                        let themeObj = allThemeObjectsMap.get(savedThemeName);
+                        if (!themeObj) {
+                            themeObj = { name: savedThemeName };
+                            allThemeObjectsMap.set(savedThemeName, themeObj);
+                        }
+
+                        // 同步 custom_css
+                        const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style') || document.querySelector('#style_custom');
+                        if (editorEl) {
+                            themeObj.custom_css = editorEl.value;
+                        } else if (typeof power_user !== 'undefined' && power_user.custom_css !== undefined) {
+                            themeObj.custom_css = power_user.custom_css;
+                        }
+
+                        // 极速纯内存同步所有颜色与数值控件属性（0 DOM 重排，微秒级极速）
+                        const themeSyncKeys = [
+                            'main_text_color', 'italics_text_color', 'underline_text_color', 'quote_text_color',
+                            'blur_tint_color', 'chat_tint_color', 'user_mes_blur_tint_color', 'bot_mes_blur_tint_color',
+                            'shadow_color', 'border_color', 'blur_strength', 'shadow_width', 'font_scale', 'chat_width',
+                            'fast_ui_mode', 'waifuMode', 'avatar_style', 'chat_display', 'toastr_position', 'noShadows'
+                        ];
+                        if (typeof power_user !== 'undefined') {
+                            themeSyncKeys.forEach(k => {
+                                if (power_user[k] !== undefined) {
+                                    themeObj[k] = power_user[k];
+                                }
+                            });
+                        }
+
+                        // 严密同步 ST 原生内存与上下文，注意绝不可用旧的 stTheme 反向覆盖 themeObj
+                        updateSTThemeMemory(themeObj, 'add');
+
+                        // 内存热更新 _themesCache，防止后续 getCachedThemes 读到陈旧数据或引发多余请求
+                        if (Array.isArray(_themesCache)) {
+                            const idx = _themesCache.findIndex(t => (t.name || t.value) === savedThemeName);
+                            if (idx !== -1) {
+                                _themesCache[idx] = Object.assign({}, _themesCache[idx], themeObj);
+                            } else {
+                                _themesCache.push(Object.assign({}, themeObj));
+                            }
+                        }
+
+                        const now = Date.now();
+                        recordThemeMtime(savedThemeName, now);
+                        const parsed = allParsedThemesMap.get(savedThemeName);
+                        if (parsed) parsed.mtime = now;
+
+                        // 延迟 300ms 等待 ST 原生 fetch('/api/themes/save') 完成后，严密维护原生下拉框与激活态
                         setTimeout(() => {
                             syncStKnownThemes();
-                            invalidateThemesCache();
-                            const currentThemeName = originalSelect?.value || (typeof power_user !== 'undefined' ? power_user.theme : '');
-                            if (!currentThemeName) return;
-
-                            let themeObj = allThemeObjectsMap.get(currentThemeName);
-                            if (!themeObj) {
-                                themeObj = { name: currentThemeName };
-                                allThemeObjectsMap.set(currentThemeName, themeObj);
-                            }
-
-                            // 1. 同步 custom_css
-                            const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style') || document.querySelector('#style_custom');
-                            if (editorEl) {
-                                themeObj.custom_css = editorEl.value;
-                            } else if (typeof power_user !== 'undefined' && power_user.custom_css !== undefined) {
-                                themeObj.custom_css = power_user.custom_css;
-                            }
-
-                            // 2. 极速纯内存同步所有颜色与数值控件属性（0 DOM 重排，微秒级极速）
-                            const themeSyncKeys = [
-                                'main_text_color', 'italics_text_color', 'underline_text_color', 'quote_text_color',
-                                'blur_tint_color', 'chat_tint_color', 'user_mes_blur_tint_color', 'bot_mes_blur_tint_color',
-                                'shadow_color', 'border_color', 'blur_strength', 'shadow_width', 'font_scale', 'chat_width',
-                                'fast_ui_mode', 'waifuMode', 'avatar_style', 'chat_display', 'toastr_position', 'noShadows'
-                            ];
-                            if (typeof power_user !== 'undefined') {
-                                themeSyncKeys.forEach(k => {
-                                    if (power_user[k] !== undefined) {
-                                        themeObj[k] = power_user[k];
-                                    }
-                                });
-                            }
-
-                            // 3. 尝试与 ST 原生 themes 数组对齐最新数据
-                            if (typeof themes !== 'undefined' && Array.isArray(themes)) {
-                                const stTheme = themes.find(t => t && (t.name === currentThemeName || t.name === themeObj.name));
-                                if (stTheme) {
-                                    Object.assign(themeObj, stTheme);
+                            deduplicateSelectOptions(originalSelect);
+                            if (originalSelect && originalSelect.value !== savedThemeName) {
+                                const opt = findOptionByValue(originalSelect, savedThemeName);
+                                if (opt) {
+                                    opt.selected = true;
+                                    originalSelect.value = savedThemeName;
                                 }
                             }
-
-                            const now = Date.now();
-                            recordThemeMtime(currentThemeName, now);
-                            const parsed = allParsedThemesMap.get(currentThemeName);
-                            if (parsed) parsed.mtime = now;
-                            updateSTThemeMemory(themeObj, 'add');
+                            if (typeof power_user !== 'undefined') {
+                                power_user.theme = savedThemeName;
+                            }
+                            updateActiveState();
                         }, 300);
                     });
                 }
@@ -1849,12 +1895,22 @@
                         // 🧹 严格以服务端 API 返回的真实磁盘文件列表为准，清理原生下拉框中已从磁盘删除的死选项节点
                         const serverThemeNames = new Set(Array.from(allThemeObjectsMap.keys()));
                         if (originalSelect && originalSelect.options) {
-                            Array.from(originalSelect.options).forEach(opt => {
-                                if (opt.value && !serverThemeNames.has(opt.value)) {
-                                    console.log(`[Theme Manager] 🧹 清理原生下拉框中的死选项: "${opt.value}"`);
-                                    opt.remove();
+                            const activeVal = (typeof power_user !== 'undefined' && power_user.theme) || originalSelect.value || '';
+                            const prevSuspend = _suspendObserver;
+                            _suspendObserver = true;
+                            try {
+                                Array.from(originalSelect.options).forEach(opt => {
+                                    if (opt.value && !serverThemeNames.has(opt.value)) {
+                                        console.log(`[Theme Manager] 🧹 清理原生下拉框中的死选项: "${opt.value}"`);
+                                        opt.remove();
+                                    }
+                                });
+                                if (activeVal && serverThemeNames.has(activeVal) && originalSelect.value !== activeVal) {
+                                    originalSelect.value = activeVal;
                                 }
-                            });
+                            } finally {
+                                _suspendObserver = prevSuspend;
+                            }
                         }
 
                         // 如果主题列表未发生变化且现有 DOM 完好，直接更新 active 状态即可，避免昂贵的重建 DOM
@@ -1984,29 +2040,38 @@
                         // 5. 重构原生 #themes 下拉框 (<select id="themes">)
                         const selectEl = originalSelect || document.querySelector('#themes');
                         if (selectEl) {
-                            const currentVal = selectEl.value;
-                            selectEl.innerHTML = '';
-                            const existingNames = new Set();
+                            const currentVal = selectEl.value || (typeof power_user !== 'undefined' ? power_user.theme : '');
+                            const prevSuspend = _suspendObserver;
+                            _suspendObserver = true;
+                            try {
+                                selectEl.innerHTML = '';
+                                const existingNames = new Set();
 
-                            freshThemes.forEach(t => {
-                                const name = t.name || t.value;
-                                if (!name || existingNames.has(name)) return;
-                                existingNames.add(name);
+                                freshThemes.forEach(t => {
+                                    const name = t.name || t.value;
+                                    if (!name || existingNames.has(name)) return;
+                                    existingNames.add(name);
 
-                                const option = document.createElement('option');
-                                option.value = name;
-                                option.innerText = name;
-                                selectEl.appendChild(option);
-                            });
+                                    const option = document.createElement('option');
+                                    option.value = name;
+                                    option.innerText = name;
+                                    selectEl.appendChild(option);
+                                });
 
-                            // 还原之前的选中项，如果原选中项已被从磁盘删除，则落到第一项
-                            if (currentVal && existingNames.has(currentVal)) {
-                                selectEl.value = currentVal;
-                            } else if (freshThemes.length > 0) {
-                                const fallbackName = freshThemes[0].name || freshThemes[0].value;
-                                if (fallbackName) {
-                                    applyThemeDirect(fallbackName);
+                                // 还原之前的选中项，如果原选中项已被从磁盘删除，则落到第一项
+                                if (currentVal && existingNames.has(currentVal)) {
+                                    selectEl.value = currentVal;
+                                    if (typeof power_user !== 'undefined') power_user.theme = currentVal;
+                                } else if (typeof power_user !== 'undefined' && power_user.theme && existingNames.has(power_user.theme)) {
+                                    selectEl.value = power_user.theme;
+                                } else if (freshThemes.length > 0) {
+                                    const fallbackName = freshThemes[0].name || freshThemes[0].value;
+                                    if (fallbackName) {
+                                        applyThemeDirect(fallbackName);
+                                    }
                                 }
+                            } finally {
+                                _suspendObserver = prevSuspend;
                             }
                         }
 
