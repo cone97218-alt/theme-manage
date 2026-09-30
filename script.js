@@ -68,6 +68,15 @@
         try {
             const bgMod = await getBgModule();
             if (bgMod) {
+                if (typeof bgMod.applyGlobalBackground === 'function') {
+                    try {
+                        await bgMod.applyGlobalBackground(bgFile);
+                        console.log(`[Theme Manager] 面板冻结模式下，成功通过 backgrounds.js applyGlobalBackground 应用背景: ${bgFile}`);
+                        return;
+                    } catch (e) {
+                        console.warn('[Theme Manager] applyGlobalBackground 调用失败，降级到手动状态写入:', e);
+                    }
+                }
                 const isCustom = bgMod.isCustomBackgroundUrl ? bgMod.isCustomBackgroundUrl(bgFile) : false;
                 const targetUrl = isCustom
                     ? `url("${encodeURI(bgFile)}")`
@@ -469,6 +478,13 @@
                 let isBindingMode = false;
                 let themeNameToBind = null;
                 let _bindingTimeout = null;
+                let _bindingStartTime = 0;
+                let themeBackgroundBindings = {};
+                try {
+                    themeBackgroundBindings = JSON.parse(localStorage.getItem(THEME_BACKGROUND_BINDINGS_KEY)) || {};
+                } catch (e) {
+                    console.error('[Theme Manager] Failed to parse themeBackgroundBindings:', e);
+                }
 
                 let activeTagsData = [];
                 try {
@@ -1919,7 +1935,7 @@
                 let preventNextClick = false;
                 let touchStartX = 0;
                 let touchStartY = 0;
-                let themeBackgroundBindings = JSON.parse(localStorage.getItem(THEME_BACKGROUND_BINDINGS_KEY)) || {};
+                themeBackgroundBindings = JSON.parse(localStorage.getItem(THEME_BACKGROUND_BINDINGS_KEY)) || {};
 
 
 
@@ -8818,10 +8834,14 @@
                                 button.classList.remove('linked');
                                 button.querySelector('i').className = 'fa-solid fa-link';
                                 button.title = '关联背景图';
+                                if (typeof toastr !== 'undefined') {
+                                    toastr.info(`已取消主题 "${themeName}" 与背景图的关联`);
+                                }
                             } else {
                                 // 未绑定，进入绑定模式
                                 isBindingMode = true;
                                 themeNameToBind = themeName;
+                                _bindingStartTime = Date.now();
                                 if (_bindingTimeout) clearTimeout(_bindingTimeout);
                                 _bindingTimeout = setTimeout(() => {
                                     if (isBindingMode) {
@@ -9222,11 +9242,17 @@
                 const bgObserverCallback = async (e) => {
                     if (!isBindingMode) return;
 
-                    // 核心关键修复：检查是否点击了背景卡片。如果不是背景卡片，绝对不要拦截事件冒泡！
-                    const bgElement = e.target.closest('.bg_example');
-                    if (!bgElement) {
-                        // 如果用户在绑定模式下点击了关闭抽屉、切换设置、或其它导航按键，自动退出绑定模式
-                        if (e.target.closest('#backgrounds-drawer-toggle, #theme-manager-panel, #user-settings-button, .drawer-toggle')) {
+                    // 1. 保护期判定：在刚触发绑定模式的短时间内（如 800ms 内），因程序自动调用 toggleButton.click() 打开背景抽屉，
+                    // 产生的 drawer-toggle 点击事件绝对不能取消绑定模式！
+                    const isRecentActivation = Date.now() - _bindingStartTime < 800;
+
+                    // 2. 检查点击是否发生在背景抽屉相关区域（抽屉本体、抽屉切换按钮、文件夹瓦片、返回按钮、Tab选项卡等）
+                    const isWithinBackgroundArea = Boolean(e.target.closest('#Backgrounds, #backgrounds-drawer-toggle, #logo_block, .bg_folder_tile, #bg_back_to_folders, #bg_tabs, .ui-tabs-nav, .bg_example, [bgfile]'));
+
+                    if (!isWithinBackgroundArea) {
+                        // 如果点击在背景抽屉外部的其它主要交互区域，且已过初始保护期，退出关联模式
+                        if (!isRecentActivation && e.target.closest('#rm_print_characters_block, #send_textarea, #right-nav-panel, #sheld')) {
+                            console.log('[Theme Manager] 用户点击了外部区域，安全退出背景图关联模式');
                             isBindingMode = false;
                             themeNameToBind = null;
                             if (_bindingTimeout) clearTimeout(_bindingTimeout);
@@ -9234,59 +9260,96 @@
                         return;
                     }
 
-                    // 确认点击的是背景卡片后，才拦截原生选择行为并执行关联
+                    // 3. 如果点击了文件夹钻取、返回文件夹、Tab标签切换或卡片上的辅助小按钮，放行其原生操作，不中断绑定模式
+                    if (e.target.closest('.bg_folder_tile, #bg_back_to_folders, .ui-tabs-anchor, .jg-button, .mobile-only-menu-toggle')) {
+                        return;
+                    }
+
+                    // 4. 检查是否点击了具体的背景图卡片
+                    const bgElement = e.target.closest('.bg_example, [bgfile], [data-bgfile]');
+                    if (!bgElement) {
+                        // 点击的是背景抽屉内的空白处、滚动条或工具栏，不拦截、不退出
+                        return;
+                    }
+
+                    // 5. 命中背景卡片，拦截原生选择行为并执行关联
                     e.preventDefault();
                     e.stopPropagation();
-                    if (_bindingTimeout) clearTimeout(_bindingTimeout);
+                    if (_bindingTimeout) {
+                        clearTimeout(_bindingTimeout);
+                        _bindingTimeout = null;
+                    }
 
-                    const bgFileName = bgElement.getAttribute('bgfile');
-                    themeBackgroundBindings[themeNameToBind] = bgFileName;
+                    const bgFileName = bgElement.getAttribute('bgfile')
+                        || bgElement.dataset?.bgfile
+                        || bgElement.getAttribute('data-bgfile')
+                        || (typeof $ !== 'undefined' ? $(bgElement).attr('bgfile') : null)
+                        || bgElement.querySelector('[bgfile]')?.getAttribute('bgfile');
+
+                    if (!bgFileName) {
+                        console.warn('[Theme Manager] 未能从所点击的卡片中获取背景文件名:', bgElement);
+                        return;
+                    }
+
+                    const currentThemeToBind = themeNameToBind;
+                    if (!currentThemeToBind) {
+                        console.warn('[Theme Manager] 关联失败：themeNameToBind 为空');
+                        isBindingMode = false;
+                        return;
+                    }
+
+                    // 写入持久化存储
+                    themeBackgroundBindings[currentThemeToBind] = bgFileName;
                     localStorage.setItem(THEME_BACKGROUND_BINDINGS_KEY, JSON.stringify(themeBackgroundBindings));
 
-                    // 先解除绑定模式，否则 applyBackgroundDirectly 内部的模拟点击会被我们自己的拦截器再次拦截
+                    // 解除绑定模式
                     isBindingMode = false;
-                    const savedThemeNameToBind = themeNameToBind; // 备份一下
                     themeNameToBind = null;
 
-                    // 如果当前关联的主题正是正在使用的主题，则立即应用背景
-                    if (savedThemeNameToBind === originalSelect.value) {
+                    // 友好 Toastr 提示，让用户清晰看到绑定结果
+                    if (typeof toastr !== 'undefined') {
+                        toastr.success(`已成功将背景图 <b>${escapeHtml(bgFileName)}</b> 关联至主题: <b>${escapeHtml(currentThemeToBind)}</b>`, '背景关联成功', { escapeHtml: false });
+                    }
+
+                    // 如果当前关联的主题正是正在使用的主题，立即调用双模引擎应用背景
+                    if (currentThemeToBind === originalSelect?.value) {
                         applyBackgroundDirectly(bgFileName);
                     }
 
-                    // 移除 toastr 提示，实现静默关联
-
-                    // 优化跳转流程：优先尝试打开设置面板
-                    const settingsToggleButton = document.querySelector('#user-settings-button .drawer-toggle');
-                    if (settingsToggleButton) {
-                        const userSettingsPanel = document.querySelector('#user-settings-block');
-                        // 只有当设置面板关着时才点它
-                        if (userSettingsPanel && userSettingsPanel.classList.contains('closedDrawer')) {
-                            settingsToggleButton.click();
+                    // 轻量级更新主题项 UI 状态
+                    const themeItem = themeItemMap.get(currentThemeToBind);
+                    if (themeItem) {
+                        const linkBtn = themeItem.querySelector('.link-bg-btn');
+                        if (linkBtn) {
+                            linkBtn.classList.add('linked');
+                            const icon = linkBtn.querySelector('i');
+                            if (icon) {
+                                icon.className = 'fa-solid fa-link-slash';
+                            }
+                            linkBtn.title = '取消背景图关联';
                         }
                     }
 
-                    // 延迟检查背景抽屉状态。有些酒馆版本会自动因为设置面板打开而关闭背景面板。
+                    // 平滑返回：先关闭背景抽屉，再切回设置面板
                     setTimeout(() => {
                         const bgDrawer = document.querySelector('#Backgrounds');
-                        // 关键修复：只有当背景抽屉仍然是开着的状态（不含 closedDrawer 类）时，才去手动点它关闭
                         if (bgDrawer && !bgDrawer.classList.contains('closedDrawer')) {
                             const bgToggleButton = document.querySelector('#backgrounds-drawer-toggle') || document.querySelector('#logo_block .drawer-toggle');
                             if (bgToggleButton) {
                                 bgToggleButton.click();
                             }
                         }
-                    }, 150);
 
-                    // 轻量级更新 UI，不重建整个 DOM
-                    const themeItem = themeItemMap.get(savedThemeNameToBind);
-                    if (themeItem) {
-                        const linkBtn = themeItem.querySelector('.link-bg-btn');
-                        if (linkBtn) {
-                            linkBtn.classList.add('linked');
-                            linkBtn.querySelector('i').className = 'fa-solid fa-link-slash';
-                            linkBtn.title = '取消背景图关联';
-                        }
-                    }
+                        setTimeout(() => {
+                            const userSettingsPanel = document.querySelector('#user-settings-block');
+                            if (userSettingsPanel && userSettingsPanel.classList.contains('closedDrawer')) {
+                                const settingsToggleButton = document.querySelector('#user-settings-button .drawer-toggle') || document.querySelector('#user-settings-button');
+                                if (settingsToggleButton) {
+                                    settingsToggleButton.click();
+                                }
+                            }
+                        }, 120);
+                    }, 150);
                 };
                 // 使用全局 document 捕获阶段事件委托，无论背景抽屉何时挂载/卸载/冻结/解冻，均能稳定捕获卡片点击
                 document.addEventListener('click', bgObserverCallback, true);
