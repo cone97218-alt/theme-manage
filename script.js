@@ -25,6 +25,91 @@
         return Promise.allSettled(results);
     }
 
+    // === 背景图底层模块动态加载器（免疫后台面板冻结与脱卸） ===
+    let _bgModulePromise = null;
+    function getBgModule() {
+        if (!_bgModulePromise) {
+            _bgModulePromise = import('/scripts/backgrounds.js').catch(() => {
+                return import('../../../scripts/backgrounds.js');
+            }).catch(err => {
+                console.warn('[Theme Manager] 无法加载 backgrounds.js 模块:', err);
+                return null;
+            });
+        }
+        return _bgModulePromise;
+    }
+
+    // === 全局安全应用背景图函数（双模引擎：DOM模拟点击 + 模块状态直写，免疫面板冻结） ===
+    async function applyBackgroundDirectly(bgFile) {
+        if (!bgFile) return;
+
+        // 1. 检查当前视觉背景是否已经是此背景，避免重复应用与重排
+        const bg1 = document.querySelector('#bg1');
+        if (bg1) {
+            const currentBg = bg1.style.backgroundImage || '';
+            const targetUrlPart = `backgrounds/${encodeURIComponent(bgFile)}`;
+            if (currentBg && (currentBg.includes(targetUrlPart) || currentBg.includes(bgFile))) {
+                console.log(`[Theme Manager] 背景图已经是 ${bgFile}，跳过应用`);
+                return;
+            }
+        }
+
+        // 2. 尝试通过活跃 DOM 元素点击（如果背景抽屉当前正好处于打开挂载状态）
+        const escapedBg = CSS.escape(bgFile);
+        const bgElement = document.querySelector(`#bg_menu_content .bg_example[bgfile="${escapedBg}"], #bg_custom_content .bg_example[bgfile="${escapedBg}"], #Backgrounds .bg_example[bgfile="${escapedBg}"]`);
+        if (bgElement) {
+            try {
+                bgElement.click();
+                return;
+            } catch (e) {}
+        }
+
+        // 3. 核心适配：当背景抽屉被后台面板冻结（或在子文件夹内未展开）时，直接通过 backgrounds.js 模块状态应用
+        try {
+            const bgMod = await getBgModule();
+            if (bgMod) {
+                const isCustom = bgMod.isCustomBackgroundUrl ? bgMod.isCustomBackgroundUrl(bgFile) : false;
+                const targetUrl = isCustom
+                    ? `url("${encodeURI(bgFile)}")`
+                    : `url("${bgMod.getBackgroundPath ? bgMod.getBackgroundPath(bgFile) : ('backgrounds/' + encodeURIComponent(bgFile))}")`;
+
+                if (bg1) {
+                    bg1.style.backgroundImage = targetUrl;
+                }
+
+                if (bgMod.background_settings) {
+                    bgMod.background_settings.name = bgFile;
+                    bgMod.background_settings.url = targetUrl;
+                }
+
+                const ctx = (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) ? SillyTavern.getContext() : null;
+                if (ctx && ctx.chatMetadata && ctx.chatMetadata['custom_background']) {
+                    ctx.chatMetadata['custom_background'] = targetUrl;
+                    if (ctx.saveMetadataDebounced) ctx.saveMetadataDebounced();
+                }
+
+                if (ctx && ctx.saveSettingsDebounced) {
+                    ctx.saveSettingsDebounced();
+                }
+                console.log(`[Theme Manager] 面板冻结模式下，成功通过 backgrounds.js 模块直写应用背景: ${bgFile}`);
+                return;
+            }
+        } catch (err) {
+            console.warn('[Theme Manager] 模块直调背景失败，执行降级逻辑:', err);
+        }
+
+        // 4. 终极兜底降级方案
+        try {
+            const bgUrl = `url("backgrounds/${encodeURIComponent(bgFile)}")`;
+            if (bg1) bg1.style.backgroundImage = bgUrl;
+            const ctx = (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) ? SillyTavern.getContext() : null;
+            if (ctx && ctx.saveSettingsDebounced) ctx.saveSettingsDebounced();
+            console.log(`[Theme Manager] 降级直接应用背景图: ${bgFile}`);
+        } catch (err) {
+            console.error('[Theme Manager] 直接应用背景图失败:', err);
+        }
+    }
+
     // 早期极速主题切换，避免双重排版与视觉闪烁
     function applyEarlyAutoTheme(originalSelect, settings) {
         if (!settings || !settings.enabled) return;
@@ -125,22 +210,7 @@
                 const boundBg = bindings[themeToApply];
                 if (boundBg) {
                     setTimeout(() => {
-                        const bg1 = document.querySelector('#bg1');
-                        if (bg1) {
-                            const currentBg = bg1.style.backgroundImage;
-                            const targetUrl = `backgrounds/${encodeURIComponent(boundBg)}`;
-                            if (currentBg && (currentBg.includes(targetUrl) || currentBg.includes(boundBg))) {
-                                return; // 背景已正确设置，直接跳过，避免重复点击与重排
-                            }
-                        }
-
-                        const escapedBg = CSS.escape(boundBg);
-                        const bgElement = document.querySelector(`#bg_menu_content .bg_example[bgfile="${escapedBg}"], #bg_custom_content .bg_example[bgfile="${escapedBg}"]`);
-                        if (bgElement) {
-                            bgElement.click();
-                        } else if (bg1) {
-                            bg1.style.backgroundImage = `url("backgrounds/${encodeURIComponent(boundBg)}")`;
-                        }
+                        applyBackgroundDirectly(boundBg);
                     }, 500);
                 }
             } catch (e) {
@@ -1297,6 +1367,33 @@
                     if (typeof power_user !== 'undefined') {
                         power_user.theme = originalSelect?.value || themeName;
                     }
+
+                    // 兼容性核心：如果原生存在 baibaokuApplyNativeTheme，直接调用以免疫面板冻结导致事件断流
+                    if (typeof window !== 'undefined' && typeof window.baibaokuApplyNativeTheme === 'function') {
+                        try {
+                            window.baibaokuApplyNativeTheme(themeName);
+                        } catch (e) {
+                            console.warn('[Theme Manager] baibaokuApplyNativeTheme 调用失败:', e);
+                        }
+                    }
+
+                    // 核心修复：直接应用当前主题绑定的背景图，彻底解除对 select change 事件冒泡的单一依赖
+                    try {
+                        const boundBg = typeof themeBackgroundBindings !== 'undefined' ? themeBackgroundBindings[themeName] : null;
+                        if (boundBg) {
+                            applyBackgroundDirectly(boundBg);
+                        }
+                    } catch (e) {
+                        console.error('[Theme Manager] 切换主题应用绑定背景失败:', e);
+                    }
+
+                    // 持久化当前选择到酒馆设置
+                    if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                        try {
+                            SillyTavern.getContext().saveSettingsDebounced();
+                        } catch (e) {}
+                    }
+
                     updateActiveState();
                     try {
                         document.dispatchEvent(new CustomEvent('themeManager:themeChanged', { 
@@ -8724,9 +8821,10 @@
                                 // 未绑定，进入绑定模式
                                 isBindingMode = true;
                                 themeNameToBind = themeName;
-                                // 尝试点击新版按钮，如果不存在，则点击旧版按钮
+                                // 尝试点击新版按钮，如果不存在，则点击旧版按钮（仅在抽屉关闭时打开）
+                                const bgDrawer = document.querySelector('#Backgrounds');
                                 const toggleButton = document.querySelector('#backgrounds-drawer-toggle') || document.querySelector('#logo_block .drawer-toggle');
-                                if (toggleButton) {
+                                if (toggleButton && (!bgDrawer || bgDrawer.classList.contains('closedDrawer'))) {
                                     toggleButton.click();
                                 }
                             }
@@ -9071,56 +9169,6 @@
                     }
                 }, { passive: true });
 
-                function applyBackgroundDirectly(bgFile) {
-                    if (!bgFile) return;
-
-                    // 检查当前背景是否已经是此背景，避免重复应用与重排
-                    const bg1 = document.querySelector('#bg1');
-                    if (bg1) {
-                        const currentBg = bg1.style.backgroundImage;
-                        const targetUrl = `backgrounds/${encodeURIComponent(bgFile)}`;
-                        if (currentBg && (currentBg.includes(targetUrl) || currentBg.includes(bgFile))) {
-                            console.log(`[Theme Manager] 背景图已经是 ${bgFile}，跳过应用`);
-                            return;
-                        }
-                    }
-
-                    // 尝试通过 DOM 元素点击（桌面端通常可用）
-                    const escapedBg = CSS.escape(bgFile);
-                    const bgElement = document.querySelector(`#bg_menu_content .bg_example[bgfile="${escapedBg}"], #bg_custom_content .bg_example[bgfile="${escapedBg}"]`);
-                    if (bgElement) {
-                        bgElement.click();
-                        return;
-                    }
-
-                    // 移动端降级方案：直接设置 CSS 背景图 + 持久化设置
-                    // 这复刻了 SillyTavern backgrounds.js 中 setBackground() 的核心逻辑
-                    try {
-                        const bgUrl = `url("backgrounds/${encodeURIComponent(bgFile)}")`;
-                        const bg1 = document.querySelector('#bg1');
-                        if (bg1) {
-                            bg1.style.backgroundImage = bgUrl;
-                        }
-
-                        // 通过 SillyTavern 的 power_user 设置持久化背景选择
-                        if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
-                            const ctx = SillyTavern.getContext();
-                            // 更新 SillyTavern 的内部背景设置状态
-                            if (ctx.saveSettingsDebounced) {
-                                // 读取并修改 power_user 中的背景设置
-                                const settingsBlock = document.querySelector('#background_fitting');
-                                if (settingsBlock) {
-                                    // 触发 ST 的设置保存流程
-                                    ctx.saveSettingsDebounced();
-                                }
-                            }
-                        }
-                        console.log(`[Theme Manager] 直接应用背景图: ${bgFile}`);
-                    } catch (err) {
-                        console.error('[Theme Manager] 直接应用背景图失败:', err);
-                    }
-                }
-
                 originalSelect.addEventListener('change', (event) => {
                     updateActiveState();
                     const newThemeName = event.target.value;
@@ -9213,9 +9261,8 @@
                         }
                     }
                 };
-
-                if (bgMenuContent) bgMenuContent.addEventListener('click', bgObserverCallback, true);
-                if (bgCustomContent) bgCustomContent.addEventListener('click', bgObserverCallback, true);
+                // 使用全局 document 捕获阶段事件委托，无论背景抽屉何时挂载/卸载/冻结/解冻，均能稳定捕获卡片点击
+                document.addEventListener('click', bgObserverCallback, true);
 
                 // ==========================================================
                 // ========= 新增功能：角色卡绑定美化 (Character Theme Binding) =========
