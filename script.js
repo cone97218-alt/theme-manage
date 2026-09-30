@@ -468,6 +468,7 @@
 
                 let isBindingMode = false;
                 let themeNameToBind = null;
+                let _bindingTimeout = null;
 
                 let activeTagsData = [];
                 try {
@@ -8821,12 +8822,27 @@
                                 // 未绑定，进入绑定模式
                                 isBindingMode = true;
                                 themeNameToBind = themeName;
-                                // 尝试点击新版按钮，如果不存在，则点击旧版按钮（仅在抽屉关闭时打开）
-                                const bgDrawer = document.querySelector('#Backgrounds');
-                                const toggleButton = document.querySelector('#backgrounds-drawer-toggle') || document.querySelector('#logo_block .drawer-toggle');
-                                if (toggleButton && (!bgDrawer || bgDrawer.classList.contains('closedDrawer'))) {
-                                    toggleButton.click();
+                                if (_bindingTimeout) clearTimeout(_bindingTimeout);
+                                _bindingTimeout = setTimeout(() => {
+                                    if (isBindingMode) {
+                                        isBindingMode = false;
+                                        themeNameToBind = null;
+                                        console.log('[Theme Manager] 背景关联模式超时自动退出');
+                                    }
+                                }, 60000);
+
+                                if (typeof toastr !== 'undefined') {
+                                    toastr.info(`请在背景菜单中点击一张图片以关联至主题: <b>${escapeHtml(themeName)}</b>`, '背景关联', { escapeHtml: false, timeOut: 4000 });
                                 }
+
+                                // 异步延时打开背景抽屉，避免被当前按钮点击冒泡干扰
+                                setTimeout(() => {
+                                    const bgDrawer = document.querySelector('#Backgrounds');
+                                    const toggleButton = document.querySelector('#backgrounds-drawer-toggle') || document.querySelector('#logo_block .drawer-toggle');
+                                    if (toggleButton && (!bgDrawer || bgDrawer.classList.contains('closedDrawer'))) {
+                                        toggleButton.click();
+                                    }
+                                }, 50);
                             }
                             return;
                         }
@@ -9206,11 +9222,22 @@
                 const bgObserverCallback = async (e) => {
                     if (!isBindingMode) return;
 
+                    // 核心关键修复：检查是否点击了背景卡片。如果不是背景卡片，绝对不要拦截事件冒泡！
+                    const bgElement = e.target.closest('.bg_example');
+                    if (!bgElement) {
+                        // 如果用户在绑定模式下点击了关闭抽屉、切换设置、或其它导航按键，自动退出绑定模式
+                        if (e.target.closest('#backgrounds-drawer-toggle, #theme-manager-panel, #user-settings-button, .drawer-toggle')) {
+                            isBindingMode = false;
+                            themeNameToBind = null;
+                            if (_bindingTimeout) clearTimeout(_bindingTimeout);
+                        }
+                        return;
+                    }
+
+                    // 确认点击的是背景卡片后，才拦截原生选择行为并执行关联
                     e.preventDefault();
                     e.stopPropagation();
-
-                    const bgElement = e.target.closest('.bg_example');
-                    if (!bgElement) return;
+                    if (_bindingTimeout) clearTimeout(_bindingTimeout);
 
                     const bgFileName = bgElement.getAttribute('bgfile');
                     themeBackgroundBindings[themeNameToBind] = bgFileName;
@@ -9263,6 +9290,16 @@
                 };
                 // 使用全局 document 捕获阶段事件委托，无论背景抽屉何时挂载/卸载/冻结/解冻，均能稳定捕获卡片点击
                 document.addEventListener('click', bgObserverCallback, true);
+
+                // 按 ESC 键随时安全退出背景绑定模式，防止状态卡死
+                window.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape' && isBindingMode) {
+                        isBindingMode = false;
+                        themeNameToBind = null;
+                        if (_bindingTimeout) clearTimeout(_bindingTimeout);
+                        if (typeof toastr !== 'undefined') toastr.info('已取消背景图关联模式');
+                    }
+                }, true);
 
                 // ==========================================================
                 // ========= 新增功能：角色卡绑定美化 (Character Theme Binding) =========
