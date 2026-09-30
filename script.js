@@ -8834,9 +8834,6 @@
                                 button.classList.remove('linked');
                                 button.querySelector('i').className = 'fa-solid fa-link';
                                 button.title = '关联背景图';
-                                if (typeof toastr !== 'undefined') {
-                                    toastr.info(`已取消主题 "${themeName}" 与背景图的关联`);
-                                }
                             } else {
                                 // 未绑定，进入绑定模式
                                 isBindingMode = true;
@@ -8850,10 +8847,6 @@
                                         console.log('[Theme Manager] 背景关联模式超时自动退出');
                                     }
                                 }, 60000);
-
-                                if (typeof toastr !== 'undefined') {
-                                    toastr.info(`请在背景菜单中点击一张图片以关联至主题: <b>${escapeHtml(themeName)}</b>`, '背景关联', { escapeHtml: false, timeOut: 4000 });
-                                }
 
                                 // 异步延时打开背景抽屉，避免被当前按钮点击冒泡干扰
                                 setTimeout(() => {
@@ -9306,11 +9299,6 @@
                     isBindingMode = false;
                     themeNameToBind = null;
 
-                    // 友好 Toastr 提示，让用户清晰看到绑定结果
-                    if (typeof toastr !== 'undefined') {
-                        toastr.success(`已成功将背景图 <b>${escapeHtml(bgFileName)}</b> 关联至主题: <b>${escapeHtml(currentThemeToBind)}</b>`, '背景关联成功', { escapeHtml: false });
-                    }
-
                     // 如果当前关联的主题正是正在使用的主题，立即调用双模引擎应用背景
                     if (currentThemeToBind === originalSelect?.value) {
                         applyBackgroundDirectly(bgFileName);
@@ -9360,7 +9348,6 @@
                         isBindingMode = false;
                         themeNameToBind = null;
                         if (_bindingTimeout) clearTimeout(_bindingTimeout);
-                        if (typeof toastr !== 'undefined') toastr.info('已取消背景图关联模式');
                     }
                 }, true);
 
