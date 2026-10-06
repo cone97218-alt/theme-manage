@@ -791,6 +791,33 @@ export function initThemeCore(options) {
                 }
             }
 
+            // 【核心修复】显式双重保障：自定义 CSS (custom_css) 100% 同步生效至 DOM (<style id="custom-style">)、编辑器与内存
+            // 解决新导入美化后未经全页面刷新直接切换时，原生闭包/宿主环境未能即时执行 applyCustomCSS 的问题
+            const customCss = (typeof cleanTheme.custom_css === 'string') ? cleanTheme.custom_css : '';
+            if (pu) {
+                pu.custom_css = customCss;
+            }
+            const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style');
+            if (editorEl) {
+                editorEl.value = customCss;
+                if (editorEl.CodeMirror && typeof editorEl.CodeMirror.setValue === 'function') {
+                    try { editorEl.CodeMirror.setValue(customCss); } catch (e) {}
+                } else if (window.jQuery && $(editorEl).data('codemirror')) {
+                    try { $(editorEl).data('codemirror').setValue(customCss); } catch (e) {}
+                }
+                if (typeof $ !== 'undefined') {
+                    try { $(editorEl).trigger('input').trigger('change'); } catch (e) {}
+                }
+            }
+            let customStyleTag = document.getElementById('custom-style');
+            if (!customStyleTag) {
+                customStyleTag = document.createElement('style');
+                customStyleTag.setAttribute('type', 'text/css');
+                customStyleTag.setAttribute('id', 'custom-style');
+                document.head.appendChild(customStyleTag);
+            }
+            customStyleTag.innerHTML = customCss;
+
             // 4. 轻量兼容补丁：若环境存在历史残留的 --sheld* 变量别名，同步其值
             if (cleanTheme.chat_width !== undefined) {
                 document.documentElement.style.setProperty('--sheldWidth', `${Number(cleanTheme.chat_width) || 50}vw`);
