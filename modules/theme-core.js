@@ -91,9 +91,34 @@ export function getAdaptivePopoverBg() {
     return '#24262e';
 }
 
+let _powerUserModule = null;
+async function loadNativePowerUserModule() {
+    if (_powerUserModule) return _powerUserModule;
+    try {
+        _powerUserModule = await import('/scripts/power-user.js');
+    } catch (e) {
+        try {
+            _powerUserModule = await import('../../../power-user.js');
+        } catch (err) {
+            console.warn('[Theme Manager] 无法加载 power-user.js 模块:', err);
+        }
+    }
+    if (_powerUserModule && _powerUserModule.power_user && typeof window !== 'undefined') {
+        window.power_user = _powerUserModule.power_user;
+    }
+    return _powerUserModule;
+}
+
+// 提前异步触发加载
+loadNativePowerUserModule();
+
 export function getPowerUser() {
     if (typeof power_user !== 'undefined' && power_user) return power_user;
     if (typeof window !== 'undefined' && window.power_user) return window.power_user;
+    if (_powerUserModule && _powerUserModule.power_user) {
+        if (typeof window !== 'undefined') window.power_user = _powerUserModule.power_user;
+        return _powerUserModule.power_user;
+    }
     if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
         try {
             const ctx = SillyTavern.getContext();
@@ -459,6 +484,16 @@ export function initThemeCore(options) {
                 }
             }
 
+            // 深度同步至酒馆原生 power-user 模块闭包的 themes 数组
+            loadNativePowerUserModule().then(mod => {
+                if (mod && typeof mod.loadPowerUserSettings === 'function') {
+                    const currentAllThemes = Array.from(allThemeObjectsMap.values());
+                    if (currentAllThemes.length > 0) {
+                        mod.loadPowerUserSettings({}, { themes: currentAllThemes }).catch(() => {});
+                    }
+                }
+            }).catch(() => {});
+
             if (action === 'delete') {
                 allThemeObjectsMap.delete(targetName);
                 if (cleanName) allThemeObjectsMap.delete(cleanName);
@@ -762,6 +797,12 @@ export function initThemeCore(options) {
             const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style');
             if (editorEl) {
                 editorEl.value = customCss;
+                if (editorEl.CodeMirror && typeof editorEl.CodeMirror.setValue === 'function') {
+                    editorEl.CodeMirror.setValue(customCss);
+                } else if (typeof $ !== 'undefined' && $(editorEl).data('codemirror')) {
+                    const cm = $(editorEl).data('codemirror');
+                    if (cm && typeof cm.setValue === 'function') cm.setValue(customCss);
+                }
             }
             let customStyleTag = document.getElementById('custom-style');
             if (!customStyleTag) {
