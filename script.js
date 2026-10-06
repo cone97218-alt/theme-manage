@@ -317,6 +317,7 @@
                 let loadThemeDayNightPairs = () => [];
                 let saveThemeDayNightPairs = () => {};
                 let getPairForTheme = () => null;
+                let themeDayNightPairs = [];
                 let removeReplaceImageButtons = () => {};
                 let registerReplaceImageButtons = () => {};
 
@@ -2587,9 +2588,11 @@
                         tagFilterMode = localStorage.getItem(TAG_FILTER_MODE_KEY) || 'or';
                         try { usageCount = JSON.parse(localStorage.getItem(USAGE_COUNT_KEY)) || {}; } catch (e) {}
                         try { favorites = JSON.parse(localStorage.getItem(FAVORITES_KEY)) || []; favoritesSet = new Set(favorites); } catch (e) {}
-                        themeDayNightPairs = loadThemeDayNightPairs();
+                        if (typeof loadThemeDayNightPairs === 'function') {
+                            themeDayNightPairs = loadThemeDayNightPairs();
+                        }
                         try { autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || autoThemeSettings; } catch (e) {}
-                        themeBackgroundBindings = JSON.parse(localStorage.getItem(THEME_BACKGROUND_BINDINGS_KEY)) || {};
+                        try { themeBackgroundBindings = JSON.parse(localStorage.getItem(THEME_BACKGROUND_BINDINGS_KEY)) || {}; } catch (e) {}
 
                         // 4. 更新 ST 原生下拉框
                         if (themesToImport.length > 0) {
@@ -2627,7 +2630,7 @@
                         // 6. 重建全量 UI
                         await buildThemeUI();
                         updateActiveState();
-                        if (typeof checkAutoTheme === 'function') checkAutoTheme();
+                        if (typeof applyAutoThemeLoop === 'function') applyAutoThemeLoop();
                     }
                 });
                 openCustomExportModal = backupModule.openCustomExportModal;
@@ -2683,7 +2686,7 @@
                         updateThemeItemDayNightState: (name) => updateThemeItemDayNightState(name),
                         softRefreshUI: () => softRefreshUI(),
                         updateActiveState: () => updateActiveState(),
-                        checkAutoTheme: () => { if (typeof checkAutoTheme === 'function') checkAutoTheme(); },
+                        checkAutoTheme: () => { if (typeof applyAutoThemeLoop === 'function') applyAutoThemeLoop(); },
                         updateManualToggleBtnVisibility: () => updateManualToggleBtnVisibility(),
                         registerReplaceImageButtons: () => registerReplaceImageButtons(),
                         removeReplaceImageButtons: () => removeReplaceImageButtons(),
