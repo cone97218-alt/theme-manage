@@ -767,6 +767,84 @@ export function initThemeCore(options) {
                 }
             }
 
+            // 【核心修复】显式双重保障：自定义 CSS (custom_css) 100% 同步生效至 DOM (<style id="custom-style">)、编辑器与内存
+            const customCss = (typeof cleanTheme.custom_css === 'string') ? cleanTheme.custom_css : '';
+            if (pu) {
+                pu.custom_css = customCss;
+            }
+            const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style');
+            if (editorEl) {
+                editorEl.value = customCss;
+                if (typeof $ !== 'undefined') {
+                    try { $(editorEl).trigger('input').trigger('change'); } catch (e) {}
+                }
+            }
+            let customStyleTag = document.getElementById('custom-style');
+            if (!customStyleTag) {
+                customStyleTag = document.createElement('style');
+                customStyleTag.setAttribute('type', 'text/css');
+                customStyleTag.setAttribute('id', 'custom-style');
+                document.head.appendChild(customStyleTag);
+            }
+            customStyleTag.innerHTML = customCss;
+
+            // 【核心修复】显式同步高级布尔开关与样式类
+            if (cleanTheme.fast_ui_mode !== undefined) {
+                const fastUi = Boolean(cleanTheme.fast_ui_mode);
+                if (pu) pu.fast_ui_mode = fastUi;
+                const fastUiEl = document.querySelector('#fast_ui_mode');
+                if (fastUiEl) fastUiEl.checked = fastUi;
+                if (fastUi) document.body.classList.add('fast-ui');
+                else document.body.classList.remove('fast-ui');
+            }
+            if (cleanTheme.waifuMode !== undefined) {
+                const waifu = Boolean(cleanTheme.waifuMode);
+                if (pu) pu.waifuMode = waifu;
+                const waifuEl = document.querySelector('#waifuMode');
+                if (waifuEl) waifuEl.checked = waifu;
+                if (waifu) document.body.classList.add('waifuMode');
+                else document.body.classList.remove('waifuMode');
+            }
+            if (cleanTheme.noShadows !== undefined) {
+                const noShadows = Boolean(cleanTheme.noShadows);
+                if (pu) pu.noShadows = noShadows;
+                const noShadowsEl = document.querySelector('#noShadows');
+                if (noShadowsEl) noShadowsEl.checked = noShadows;
+                if (noShadows) document.body.classList.add('noShadows');
+                else document.body.classList.remove('noShadows');
+            }
+            if (cleanTheme.reduced_motion !== undefined) {
+                const redMotion = Boolean(cleanTheme.reduced_motion);
+                if (pu) pu.reduced_motion = redMotion;
+                const redMotionEl = document.querySelector('#reduced_motion');
+                if (redMotionEl) redMotionEl.checked = redMotion;
+                if (redMotion) document.body.classList.add('reduced-motion');
+                else document.body.classList.remove('reduced-motion');
+            }
+            if (cleanTheme.compact_input_area !== undefined) {
+                const compactInput = Boolean(cleanTheme.compact_input_area);
+                if (pu) pu.compact_input_area = compactInput;
+                const compactInputEl = document.querySelector('#compact_input_area');
+                if (compactInputEl) compactInputEl.checked = compactInput;
+                if (compactInput) document.body.classList.add('compact-input');
+                else document.body.classList.remove('compact-input');
+            }
+            const extraKeys = [
+                'avatar_style', 'chat_display', 'toastr_position',
+                'timer_enabled', 'timestamps_enabled', 'timestamp_model_icon',
+                'mesIDDisplay_enabled', 'hideChatAvatars_enabled', 'message_token_count_enabled',
+                'expand_message_actions', 'enableZenSliders', 'enableLabMode', 'hotswap_enabled',
+                'bogus_folders', 'zoomed_avatar_magnification', 'show_swipe_num_all_messages',
+                'click_to_edit', 'media_display'
+            ];
+            if (pu) {
+                extraKeys.forEach(k => {
+                    if (cleanTheme[k] !== undefined) {
+                        pu[k] = cleanTheme[k];
+                    }
+                });
+            }
+
             // 【关键强化】显式双重保障：10 项主题色 100% 同步还原并生效至 DOM、CSS 变量、取色器与内存
             THEME_COLOR_KEYS.forEach(({ key, pickerId, cssVar }) => {
                 const col = cleanTheme[key] || DEFAULT_THEME_PROPS[key];

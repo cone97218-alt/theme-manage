@@ -33,7 +33,8 @@ export function initThemeImport(config) {
         applyKeywordMappings,
         softRefreshUI,
         filterThemeList,
-        updateActiveState
+        updateActiveState,
+        normalizeThemeObject = (t) => t
     } = config;
 
     // 弹窗让用户设置导入美化时所分配的目标分类标签
@@ -455,16 +456,17 @@ export function initThemeImport(config) {
                 // 第一步：批量更新 ST 原生下拉框 & 同步内部内存与已知合法美化名称集
                 suspendObserver(() => {
                     importedThemes.forEach(themeObject => {
-                        updateSTThemeMemory(themeObject, 'add');
-                        const existingOption = findOptionByValue(originalSelect, themeObject.name);
+                        const cleanTheme = normalizeThemeObject(themeObject, themeObject.name);
+                        updateSTThemeMemory(cleanTheme, 'add');
+                        const existingOption = findOptionByValue(originalSelect, cleanTheme.name);
                         if (!existingOption) {
                             const option = document.createElement('option');
-                            option.value = themeObject.name;
-                            option.textContent = themeObject.name;
+                            option.value = cleanTheme.name;
+                            option.textContent = cleanTheme.name;
                             originalSelect.appendChild(option);
                         }
-                        stKnownThemes.add(themeObject.name);
-                        allThemeObjectsMap.set(themeObject.name, themeObject);
+                        stKnownThemes.add(cleanTheme.name);
+                        allThemeObjectsMap.set(cleanTheme.name, cleanTheme);
                     });
                     syncStKnownThemes();
                 });
@@ -496,21 +498,22 @@ export function initThemeImport(config) {
                 const list = contentWrapper.querySelector('.theme-list');
 
                 importedThemes.forEach(themeObject => {
-                    const themeName = themeObject.name;
+                    const cleanTheme = normalizeThemeObject(themeObject, themeObject.name);
+                    const themeName = cleanTheme.name;
                     const existingParsed = allParsedThemesMap.get(themeName);
                     const isNewTheme = !existingParsed;
 
                     if (isNewTheme) {
                         // 批量构建并追加到 DocumentFragment
-                        softAddThemeUI(themeObject, cachedTags, listFragment);
+                        softAddThemeUI(cleanTheme, cachedTags, listFragment);
                     } else {
                         // 覆盖现有主题：使用 Object.assign 原地更新数据，免去 findIndex 的 O(N) 搜索开销
                         const existingObj = allThemeObjectsMap.get(themeName);
                         if (existingObj) {
-                            Object.assign(existingObj, themeObject);
+                            Object.assign(existingObj, cleanTheme);
                         } else {
-                            allThemeObjects.push(themeObject);
-                            allThemeObjectsMap.set(themeName, themeObject);
+                            allThemeObjects.push(cleanTheme);
+                            allThemeObjectsMap.set(themeName, cleanTheme);
                         }
                     }
                 });

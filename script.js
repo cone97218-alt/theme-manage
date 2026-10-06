@@ -3120,7 +3120,8 @@
                         applyKeywordMappings: (names) => applyKeywordMappings(names),
                         softRefreshUI: (names) => softRefreshUI(names),
                         filterThemeList: (pos) => filterThemeList(pos),
-                        updateActiveState: () => updateActiveState()
+                        updateActiveState: () => updateActiveState(),
+                        normalizeThemeObject
                     });
                     showImportTagSelectionPopup = themeImportModule.showImportTagSelectionPopup;
                     handleBatchThemeImport = themeImportModule.handleBatchThemeImport;
