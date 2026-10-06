@@ -228,6 +228,11 @@ export function initThemeCore(options) {
             if (found) return found;
         }
 
+        if (allParsedThemesMap && (allParsedThemesMap.has(raw) || allParsedThemesMap.has(clean))) {
+            const parsed = allParsedThemesMap.get(raw) || allParsedThemesMap.get(clean);
+            if (parsed && parsed.data && typeof parsed.data === 'object') return parsed.data;
+        }
+
         return null;
     }
 
@@ -244,12 +249,18 @@ export function initThemeCore(options) {
             } else if (window.jQuery && $(editorEl).data('codemirror')) {
                 const cm = $(editorEl).data('codemirror');
                 if (cm && typeof cm.getValue === 'function') currentCss = cm.getValue();
-            } else if (typeof editorEl.value === 'string') {
+            } else if (typeof editorEl.value === 'string' && editorEl.value.trim()) {
                 currentCss = editorEl.value;
             }
         }
-        if (!currentCss && pu && typeof pu.custom_css === 'string') {
+        if (!currentCss && pu && typeof pu.custom_css === 'string' && pu.custom_css.trim()) {
             currentCss = pu.custom_css;
+        }
+        if (!currentCss) {
+            const styleTag = document.getElementById('custom-style');
+            if (styleTag && typeof styleTag.innerHTML === 'string' && styleTag.innerHTML.trim()) {
+                currentCss = styleTag.innerHTML;
+            }
         }
 
         // 辅助提取数值（支持 DOM 滑块、计数器输入框、pu 字段、旧主题对象及保底默认值）
@@ -897,6 +908,7 @@ export function initThemeCore(options) {
                 const fontVal = Number(cleanTheme.font_scale) || 1;
                 if (pu) pu.font_scale = fontVal;
                 document.documentElement.style.setProperty('--sheldFontScale', `${fontVal}`);
+                document.documentElement.style.setProperty('--fontScale', String(fontVal));
                 const slider = document.querySelector('#font_scale');
                 if (slider) slider.value = fontVal;
                 const counter = document.querySelector('#font_scale_counter');
@@ -906,6 +918,7 @@ export function initThemeCore(options) {
                 const blurVal = Number(cleanTheme.blur_strength) || 10;
                 if (pu) pu.blur_strength = blurVal;
                 document.documentElement.style.setProperty('--sheldBlur', `${blurVal}px`);
+                document.documentElement.style.setProperty('--blurStrength', String(blurVal));
                 const slider = document.querySelector('#blur_strength');
                 if (slider) slider.value = blurVal;
                 const counter = document.querySelector('#blur_strength_counter');
@@ -914,6 +927,7 @@ export function initThemeCore(options) {
             if (cleanTheme.shadow_width !== undefined) {
                 const shadowVal = Number(cleanTheme.shadow_width) || 2;
                 if (pu) pu.shadow_width = shadowVal;
+                document.documentElement.style.setProperty('--shadowWidth', String(shadowVal));
                 const slider = document.querySelector('#shadow_width');
                 if (slider) slider.value = shadowVal;
                 const counter = document.querySelector('#shadow_width_counter');

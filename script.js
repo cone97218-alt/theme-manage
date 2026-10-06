@@ -453,7 +453,8 @@
                     applyThemeDirect,
                     getValidInstalledThemeNames,
                     invalidateValidThemeNamesCache,
-                    captureCurrentThemeSnapshot
+                    captureCurrentThemeSnapshot,
+                    isSwitchingTheme
                 } = themeCore;
 
                 const { createTagManager } = await import(`${baseDir}modules/tag-manager.js`);
@@ -902,22 +903,11 @@
                         // 1. 原生 select 同步追加
                         manualUpdateOriginalSelect('add', null, finalNewName);
 
-                        // 2. 更新内存索引
-                        recordThemeMtime(finalNewName);
-                        const newParsedObj = { value: finalNewName, display: finalNewName, tags: [], mtime: Date.now() };
-                        allParsedThemes.push(newParsedObj);
-                        allParsedThemesMap.set(finalNewName, newParsedObj);
-
-                        // 3. 增量在 UI 列表中插入该卡片
-                        const tagsMap = new Map((loadThemeTags() || []).map(t => [t.id, t]));
-                        const newItem = createThemeItem(newParsedObj, tagsMap);
-                        themeItemMap.set(finalNewName, newItem);
+                        // 2. 增量更新内存与 UI（包含完整的 data 配置数据）
                         const listUl = contentWrapper.querySelector('.theme-list');
-                        if (listUl) {
-                            listUl.appendChild(newItem);
-                        }
+                        softAddThemeUI(snapshot, null, listUl);
 
-                        // 4. 立即极速应用新主题
+                        // 3. 立即极速应用新主题
                         applyThemeDirect(finalNewName);
 
                         toastr.success(`新主题「${finalNewName}」已成功创建并应用！`);
@@ -3715,7 +3705,8 @@
                     if (!newThemeName) return;
 
                     // 若是由外部/用户在原生下拉框直接选择主题（非 applyThemeDirect 程序内触发），统一走纯净切换引擎
-                    if (!_isSwitchingTheme) {
+                    const switching = (typeof isSwitchingTheme === 'function') ? isSwitchingTheme() : false;
+                    if (!switching) {
                         applyThemeDirect(newThemeName);
                         return;
                     }
@@ -3740,6 +3731,24 @@
                     const boundBg = themeBackgroundBindings[newThemeName];
                     if (boundBg) {
                         applyBackgroundDirectly(boundBg);
+                    }
+                });
+
+                // 无论通过原生下拉框、插件卡片点击、随机主题、日夜切换还是角色绑定切换，统一准确统计并更新使用次数
+                document.addEventListener('themeManager:themeChanged', (event) => {
+                    const themeName = event.detail?.themeName;
+                    if (!themeName) return;
+                    usageCount[themeName] = (usageCount[themeName] || 0) + 1;
+                    localStorage.setItem(USAGE_COUNT_KEY, JSON.stringify(usageCount));
+                    if (showUsageCount) {
+                        const item = themeItemMap.get(themeName);
+                        if (item) {
+                            const usageSpan = item.children[0]?.querySelector('.theme-usage-count');
+                            if (usageSpan) {
+                                usageSpan.textContent = usageCount[themeName];
+                                usageSpan.style.display = '';
+                            }
+                        }
                     }
                 });
 
