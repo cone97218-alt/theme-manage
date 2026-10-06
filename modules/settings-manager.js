@@ -95,11 +95,16 @@ export function initSettingsManager(config) {
                 }
             }
 
-            toastr.success(`成功导入 ${importCount} 条配置！`, '导入成功 (已实时热更新)');
+            toastr.success(`成功导入 ${importCount} 条配置！正在重新载入页面...`, '导入成功');
 
             // 1. 刷新缓存
             invalidateTagsCache();
             invalidateThemesCache();
+
+            setTimeout(() => {
+                location.reload();
+            }, 1000);
+            return;
 
             // 2. 重新加载内存中的全局变量 (实现无需刷新的热更新)
             const isTwoLineLayout = localStorage.getItem(TWO_LINE_LAYOUT_KEY) === 'true';

@@ -2573,64 +2573,10 @@
                     closePopup,
                     escapeHtml,
                     limitConcurrency,
-                    onRestoreComplete: async ({ themesToImport, importThemesMod, themeOk, themeFail, settingsCount }) => {
-                        // 3. 热更新内存变量
+                    onRestoreComplete: async () => {
+                        // 失效缓存，数据已全部保存至磁盘与本地存储，避免在页面重载前执行昂贵的全量 DOM 重建导致卡死
                         invalidateTagsCache();
                         invalidateThemesCache();
-                        isTwoLineLayout = localStorage.getItem(TWO_LINE_LAYOUT_KEY) === 'true';
-                        hideTagPills = localStorage.getItem(HIDE_TAG_PILLS_KEY) === 'true';
-                        tagPillDisplayMode = localStorage.getItem(TAG_PILL_MODE_KEY) || (hideTagPills ? 'none' : 'all');
-                        showUsageCount = localStorage.getItem(SHOW_USAGE_COUNT_KEY) === 'true';
-                        enableAvatarHelper = localStorage.getItem(ENABLE_AVATAR_HELPER_KEY) !== 'false';
-                        enableColorTransfer = localStorage.getItem(ENABLE_COLOR_TRANSFER_KEY) === 'true';
-                        enableDayNightBinding = localStorage.getItem(ENABLE_DAYNIGHT_BINDING_KEY) !== 'false';
-                        enableReplaceAvatarBtn = localStorage.getItem(ENABLE_REPLACE_AVATAR_BTN_KEY) !== 'false';
-                        tagFilterMode = localStorage.getItem(TAG_FILTER_MODE_KEY) || 'or';
-                        try { usageCount = JSON.parse(localStorage.getItem(USAGE_COUNT_KEY)) || {}; } catch (e) {}
-                        try { favorites = JSON.parse(localStorage.getItem(FAVORITES_KEY)) || []; favoritesSet = new Set(favorites); } catch (e) {}
-                        if (typeof loadThemeDayNightPairs === 'function') {
-                            themeDayNightPairs = loadThemeDayNightPairs();
-                        }
-                        try { autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || autoThemeSettings; } catch (e) {}
-                        try { themeBackgroundBindings = JSON.parse(localStorage.getItem(THEME_BACKGROUND_BINDINGS_KEY)) || {}; } catch (e) {}
-
-                        // 4. 更新 ST 原生下拉框
-                        if (themesToImport.length > 0) {
-                            _suspendObserver = true;
-                            try {
-                                themesToImport.forEach(themeObj => {
-                                    if (!themeObj || !themeObj.name) return;
-                                    updateSTThemeMemory(themeObj, 'add');
-                                    if (!findOptionByValue(originalSelect, themeObj.name)) {
-                                        const opt = document.createElement('option');
-                                        opt.value = themeObj.name;
-                                        opt.textContent = themeObj.name;
-                                        originalSelect.appendChild(opt);
-                                    }
-                                    stKnownThemes.add(themeObj.name);
-                                });
-                                syncStKnownThemes();
-                            } finally {
-                                setTimeout(() => { _suspendObserver = false; }, 0);
-                            }
-                        }
-
-                        // 5. 重建标签索引与 UI
-                        applyKeywordMappings();
-                        const freshTags = loadThemeTags();
-                        buildThemeTagIndex(freshTags);
-                        if (contentWrapper) {
-                            contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
-                            contentWrapper.classList.toggle('hide-tag-pills', hideTagPills);
-                        }
-                        document.dispatchEvent(new CustomEvent('themeManager:enableAvatarHelperChanged', { detail: enableAvatarHelper }));
-                        updateManualToggleBtnVisibility();
-                        if (enableReplaceAvatarBtn) { registerReplaceImageButtons(); } else { removeReplaceImageButtons(); }
-
-                        // 6. 重建全量 UI
-                        await buildThemeUI();
-                        updateActiveState();
-                        if (typeof applyAutoThemeLoop === 'function') applyAutoThemeLoop();
                     }
                 });
                 openCustomExportModal = backupModule.openCustomExportModal;

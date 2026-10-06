@@ -710,7 +710,7 @@ export function initBackupManager(config = {}) {
                                 });
                             }
 
-                            let summary = `备份恢复完成！`;
+                            let summary = `备份恢复完成！正在重新载入页面...`;
                             if (importThemesMod) summary += ` 主题：成功 ${themeOk} 个${themeFail > 0 ? ` (失败 ${themeFail})` : ''}；`;
                             summary += ` 配置恢复：${settingsCount} 条。`;
 
@@ -719,6 +719,10 @@ export function initBackupManager(config = {}) {
                             } else {
                                 toastr.success(summary, '恢复完成');
                             }
+
+                            setTimeout(() => {
+                                location.reload();
+                            }, 1000);
                         } catch (err) {
                             console.error('[Theme Manager] 恢复备份发生异常:', err);
                             toastr.error('导入恢复发生异常: ' + (err.message || err));
