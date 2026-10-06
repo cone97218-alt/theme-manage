@@ -34,7 +34,8 @@ export function initThemeImport(config) {
         softRefreshUI,
         filterThemeList,
         updateActiveState,
-        normalizeThemeObject = (t) => t
+        normalizeThemeObject = (t) => t,
+        openCustomImportModal = () => {}
     } = config;
 
     // 弹窗让用户设置导入美化时所分配的目标分类标签
@@ -384,33 +385,107 @@ export function initThemeImport(config) {
         showLoader();
 
         try {
-            // 1. 并行读取文件内容并解析 JSON
-            const fileReadPromises = Array.from(files).map(async (file) => {
+            // 1. 读取文件内容并智能识别：单主题、主题合集数组、备份包文件或轻量配置
+            const parsedFiles = [];
+            const invalidFiles = [];
+            let detectedBackup = null;
+
+            for (const file of Array.from(files)) {
                 try {
                     const fileContent = await file.text();
-                    const themeObject = JSON.parse(fileContent);
+                    const parsed = JSON.parse(fileContent);
                     const filenameWithoutExt = file.name.replace(/\.json$/i, '').trim();
-                    if (themeObject && typeof themeObject.main_text_color !== 'undefined') {
-                        // 优先显示并使用文件内部定义的主题名称 (themeObject.name)，若未指定才回退到文件名
-                        const internalName = (typeof themeObject.name === 'string' && themeObject.name.trim())
-                            ? themeObject.name.trim()
-                            : '';
-                        const effectiveName = internalName || filenameWithoutExt || '未命名美化';
-                        themeObject.name = effectiveName;
-                        themeObject.value = effectiveName;
-                        return { file, themeObject, valid: true };
+
+                    // 1.1 检查是否为拓展自定义备份文件 (含主题与配置，或模块声明)
+                    const isCustomBackup = parsed && (
+                        parsed._type === 'themeManager_customBackup' ||
+                        (Array.isArray(parsed.themes) && parsed.settings && typeof parsed.settings === 'object') ||
+                        (parsed._modules && parsed.settings)
+                    );
+
+                    // 1.2 检查是否为轻量配置备份文件 (如 theme_manager_config.json)
+                    const isSettingsBackup = parsed && typeof parsed === 'object' && !Array.isArray(parsed) &&
+                        typeof parsed.main_text_color === 'undefined' &&
+                        !parsed.themes &&
+                        Object.keys(parsed).some(k => typeof k === 'string' && k.startsWith('themeManager_'));
+
+                    if (isCustomBackup || isSettingsBackup) {
+                        detectedBackup = parsed;
+                        continue;
                     }
-                    return { file, valid: false, error: '非有效的主题文件' };
+
+                    // 1.3 检查是否为多主题合集数组 [ { main_text_color: ... }, ... ]
+                    if (Array.isArray(parsed)) {
+                        parsed.forEach((item, idx) => {
+                            if (item && typeof item.main_text_color !== 'undefined') {
+                                const internalName = (typeof item.name === 'string' && item.name.trim()) ? item.name.trim() : '';
+                                const effectiveName = internalName || `${filenameWithoutExt}_${idx + 1}`;
+                                item.name = effectiveName;
+                                item.value = effectiveName;
+                                parsedFiles.push({ file, themeObject: item, valid: true });
+                            }
+                        });
+                        continue;
+                    }
+
+                    // 1.4 检查是否为单主题包装对象 { themes: [ ... ] }
+                    if (parsed && Array.isArray(parsed.themes) && !parsed.settings) {
+                        parsed.themes.forEach((item, idx) => {
+                            if (item && typeof item.main_text_color !== 'undefined') {
+                                const internalName = (typeof item.name === 'string' && item.name.trim()) ? item.name.trim() : '';
+                                const effectiveName = internalName || `${filenameWithoutExt}_${idx + 1}`;
+                                item.name = effectiveName;
+                                item.value = effectiveName;
+                                parsedFiles.push({ file, themeObject: item, valid: true });
+                            }
+                        });
+                        continue;
+                    }
+
+                    // 1.5 标准单主题文件
+                    if (parsed && typeof parsed.main_text_color !== 'undefined') {
+                        const internalName = (typeof parsed.name === 'string' && parsed.name.trim()) ? parsed.name.trim() : '';
+                        const effectiveName = internalName || filenameWithoutExt || '未命名美化';
+                        parsed.name = effectiveName;
+                        parsed.value = effectiveName;
+                        parsedFiles.push({ file, themeObject: parsed, valid: true });
+                        continue;
+                    }
+
+                    invalidFiles.push({ file, valid: false, error: '非有效的主题文件' });
                 } catch (err) {
-                    return { file, valid: false, error: err.message };
+                    invalidFiles.push({ file, valid: false, error: err.message });
                 }
-            });
+            }
 
-            console.log(`[Theme Manager] 开始处理批量导入文件, 选择的文件数: ${files.length}`);
+            // 若选择的文件中包含备份文件，且未选择其他独立主题文件，直接调起备份恢复向导
+            if (detectedBackup && parsedFiles.length === 0) {
+                hideLoader();
+                if (typeof openCustomImportModal === 'function') {
+                    toastr.info('检测到拓展备份文件，已自动打开备份恢复向导。');
+                    await openCustomImportModal(detectedBackup);
+                } else {
+                    toastr.warning('检测到备份文件，请前往【设置】面板中的【备份恢复导入】进行恢复。');
+                }
+                return;
+            }
 
-            const parsedFiles = await Promise.all(fileReadPromises);
+            // 若同时勾选了备份包与普通主题，将备份包中的主题也提取导入
+            if (detectedBackup && Array.isArray(detectedBackup.themes)) {
+                detectedBackup.themes.forEach((item, idx) => {
+                    if (item && typeof item.main_text_color !== 'undefined') {
+                        const internalName = (typeof item.name === 'string' && item.name.trim()) ? item.name.trim() : '';
+                        const effectiveName = internalName || `备份主题_${idx + 1}`;
+                        item.name = effectiveName;
+                        item.value = effectiveName;
+                        parsedFiles.push({ file: { name: effectiveName }, themeObject: item, valid: true });
+                    }
+                });
+            }
+
+            console.log(`[Theme Manager] 开始处理批量导入文件, 选择的文件数: ${files.length}, 解析出有效主题数: ${parsedFiles.length}`);
+
             const validFiles = parsedFiles.filter(f => f.valid);
-            const invalidFiles = parsedFiles.filter(f => !f.valid);
 
             if (invalidFiles.length > 0) {
                 invalidFiles.forEach(f => {

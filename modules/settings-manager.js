@@ -83,10 +83,14 @@ export function initSettingsManager(config) {
             const content = await file.text();
             const settingsToImport = JSON.parse(content);
 
+            const settingsDict = (settingsToImport && typeof settingsToImport.settings === 'object')
+                ? settingsToImport.settings
+                : settingsToImport;
+
             let importCount = 0;
-            for (const key in settingsToImport) {
+            for (const key in settingsDict) {
                 if (settingsKeysToSync.includes(key)) {
-                    localStorage.setItem(key, settingsToImport[key]);
+                    localStorage.setItem(key, settingsDict[key]);
                     importCount++;
                 }
             }

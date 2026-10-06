@@ -3135,7 +3135,8 @@
                         softRefreshUI: (names) => softRefreshUI(names),
                         filterThemeList: (pos) => filterThemeList(pos),
                         updateActiveState: () => updateActiveState(),
-                        normalizeThemeObject
+                        normalizeThemeObject,
+                        openCustomImportModal: (backup) => openCustomImportModal(backup)
                     });
                     showImportTagSelectionPopup = themeImportModule.showImportTagSelectionPopup;
                     handleBatchThemeImport = themeImportModule.handleBatchThemeImport;
