@@ -173,9 +173,6 @@ export function initThemeCore(options) {
         _themesCache = (rawThemes || []).map(t => {
             const clean = normalizeThemeObject(t);
             if (clean.name) allThemeObjectsMap.set(clean.name, clean);
-            if (typeof window !== 'undefined' && typeof window.baibaokuHydrateTheme === 'function') {
-                try { window.baibaokuHydrateTheme(clean); } catch (e) {}
-            }
             return clean;
         });
         _themesCacheTime = now;
@@ -460,12 +457,6 @@ export function initThemeCore(options) {
                     updateInArray(window.themes, normalizedObj);
                     updated = true;
                 }
-            }
-
-            if (typeof window !== 'undefined' && typeof window.baibaokuHydrateTheme === 'function' && normalizedObj && action !== 'delete') {
-                try {
-                    window.baibaokuHydrateTheme(normalizedObj);
-                } catch (e) {}
             }
 
             if (action === 'delete') {
@@ -763,22 +754,7 @@ export function initThemeCore(options) {
                 pu.theme = cleanTheme.name;
             }
 
-            if (typeof window !== 'undefined' && typeof window.baibaokuApplyNativeTheme === 'function') {
-                try {
-                    window.baibaokuApplyNativeTheme(cleanTheme.name);
-                } catch (e) {
-                    console.warn('[Theme Manager] 原生主题应用异常:', e);
-                }
-            } else if (select) {
-                onObserverSuspendChange(true);
-                try {
-                    triggerSelectChange(select);
-                } finally {
-                    setTimeout(() => { onObserverSuspendChange(false); }, 50);
-                }
-            }
-
-            // 【核心修复】显式双重保障：自定义 CSS (custom_css) 100% 同步生效至 DOM (<style id="custom-style">)、编辑器与内存
+            // 1. 同步自定义 CSS (custom_css) 至内存、编辑器与 DOM (<style id="custom-style">)
             const customCss = (typeof cleanTheme.custom_css === 'string') ? cleanTheme.custom_css : '';
             if (pu) {
                 pu.custom_css = customCss;
@@ -786,9 +762,6 @@ export function initThemeCore(options) {
             const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style');
             if (editorEl) {
                 editorEl.value = customCss;
-                if (typeof $ !== 'undefined') {
-                    try { $(editorEl).trigger('input').trigger('change'); } catch (e) {}
-                }
             }
             let customStyleTag = document.getElementById('custom-style');
             if (!customStyleTag) {
@@ -798,6 +771,16 @@ export function initThemeCore(options) {
                 document.head.appendChild(customStyleTag);
             }
             customStyleTag.innerHTML = customCss;
+
+            // 2. 触发原生 select 联动，此时内存与 DOM 已完全就绪
+            if (select) {
+                onObserverSuspendChange(true);
+                try {
+                    triggerSelectChange(select);
+                } finally {
+                    setTimeout(() => { onObserverSuspendChange(false); }, 50);
+                }
+            }
 
             // 【核心修复】显式同步高级布尔开关与样式类
             if (cleanTheme.fast_ui_mode !== undefined) {
