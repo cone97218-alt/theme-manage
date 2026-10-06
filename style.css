@@ -1149,9 +1149,12 @@
     flex-wrap: wrap !important;
 }
 
-.tm-matrix-list {
+.tm-matrix-list,
+.tm-matrix-grid {
     flex: 1 !important;
-    max-height: calc(75vh - 140px) !important;
+    min-height: 0 !important;
+    max-height: calc(85vh - 220px) !important;
+    max-height: calc(85dvh - 220px) !important;
     overflow-y: auto !important;
     overflow-x: hidden !important;
     display: flex !important;
@@ -1176,7 +1179,8 @@
     background: rgba(255, 255, 255, 0.06) !important;
 }
 
-.tm-matrix-card-header {
+.tm-matrix-card-header,
+.matrix-card-header {
     display: flex !important;
     align-items: center !important;
     justify-content: space-between !important;
@@ -1184,7 +1188,8 @@
     flex-wrap: wrap !important;
 }
 
-.tm-matrix-tag-input {
+.tm-matrix-tag-input,
+.matrix-tag-name-input {
     flex: 1 1 140px !important;
     min-width: 110px !important;
     max-width: 260px !important;
@@ -1195,19 +1200,21 @@
     writing-mode: horizontal-tb !important;
 }
 
-.tm-matrix-themes-wrapper {
+.tm-matrix-themes-wrapper,
+.matrix-themes-wrapper {
     display: none;
     background: rgba(0, 0, 0, 0.15) !important;
     padding: 8px !important;
     border-radius: 4px !important;
     margin-top: 4px !important;
-    max-height: 160px !important;
+    max-height: 180px !important;
     overflow-y: auto !important;
     flex-direction: column !important;
     gap: 4px !important;
 }
 
-.tm-matrix-themes-wrapper.expanded {
+.tm-matrix-themes-wrapper.expanded,
+.matrix-themes-wrapper.expanded {
     display: flex !important;
 }
 

@@ -379,11 +379,11 @@ export function initAutoGroup(config = {}) {
         const hasDeepestTag = deepestActiveTagId && existingTags.some(t => t.id === deepestActiveTagId);
 
         const setupHtml = `
-            <div style="padding:4px; height:100%; display:flex; flex-direction:column; box-sizing:border-box;">
-                <h4 style="margin:0 0 10px 0; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
+            <div class="tm-wizard-setup-container" style="padding:4px; max-height:calc(85vh - 110px); max-height:calc(85dvh - 110px); height:100%; display:flex; flex-direction:column; box-sizing:border-box; overflow:hidden;">
+                <h4 style="margin:0 0 10px 0; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px; flex-shrink:0;">
                     <i class="fa-solid fa-wand-magic-sparkles" style="color:#ffc107;"></i> 智能美化分组向导
                 </h4>
-                <div style="background:rgba(255,255,255,0.04); border-radius:6px; padding:16px; flex:1; display:flex; flex-direction:column; gap:16px; overflow-y:auto;">
+                <div style="background:rgba(255,255,255,0.04); border-radius:6px; padding:16px; flex:1; min-height:0; max-height:calc(85vh - 180px); max-height:calc(85dvh - 180px); display:flex; flex-direction:column; gap:16px; overflow-y:auto;">
                     <div>
                         <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
                             <i class="fa-solid fa-layer-group"></i> 1. 选择分析的美化基数范围：
@@ -493,6 +493,23 @@ export function initAutoGroup(config = {}) {
                     dlg.style.maxHeight = '80vh';
                     dlg.style.display = 'flex';
                     dlg.style.flexDirection = 'column';
+
+                    const body = dlg.querySelector('.popup-body');
+                    if (body) {
+                        body.style.height = '100%';
+                        body.style.display = 'flex';
+                        body.style.flexDirection = 'column';
+                        body.style.minHeight = '0';
+                        body.style.overflow = 'hidden';
+                    }
+                    const content = dlg.querySelector('.popup-content');
+                    if (content) {
+                        content.style.height = '100%';
+                        content.style.display = 'flex';
+                        content.style.flexDirection = 'column';
+                        content.style.minHeight = '0';
+                        content.style.overflow = 'hidden';
+                    }
                 }
 
                 const parentSelect = dlg.querySelector('#tm-auto-parent-select');
@@ -637,8 +654,8 @@ export function initAutoGroup(config = {}) {
         const totalThemesCount = new Set(candidates.flatMap(c => c.themes)).size;
 
         const matrixHtml = `
-            <div class="tm-matrix-container">
-                <div class="tm-matrix-header">
+            <div class="tm-matrix-container" style="max-height:calc(85vh - 110px); max-height:calc(85dvh - 110px); height:100%; display:flex; flex-direction:column; box-sizing:border-box; overflow:hidden;">
+                <div class="tm-matrix-header" style="flex-shrink:0;">
                     <span style="font-weight:bold; font-size:14px; color:var(--SmartThemeQuoteColor, #4a90e2); display:inline-flex; align-items:center; gap:6px; white-space:nowrap;">
                         <i class="fa-solid fa-table-cells-large" style="color:#ffc107;"></i> 自动分组全景审核矩阵
                     </span>
@@ -647,7 +664,7 @@ export function initAutoGroup(config = {}) {
                     </span>
                 </div>
 
-                <div class="tm-matrix-toolbar">
+                <div class="tm-matrix-toolbar" style="flex-shrink:0;">
                     <div class="matrix-toolbar-row">
                         <label class="matrix-select-all-label">
                             <input type="checkbox" id="matrix-select-all-chk" checked style="margin:0;">
@@ -669,14 +686,14 @@ export function initAutoGroup(config = {}) {
                     </div>
                 </div>
 
-                <div id="tm-matrix-list" class="tm-matrix-grid">
+                <div id="tm-matrix-list" class="tm-matrix-list tm-matrix-grid" style="flex:1; min-height:0; max-height:calc(85vh - 220px); max-height:calc(85dvh - 220px); overflow-y:auto; overflow-x:hidden; display:flex; flex-direction:column; gap:8px; padding-right:4px;">
                     ${candidates.map((c, idx) => `
                         <div class="tm-matrix-card" data-idx="${idx}">
-                            <div class="matrix-card-header">
+                            <div class="tm-matrix-card-header matrix-card-header">
                                 <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin:0; flex-shrink:0;">
                                     <input type="checkbox" class="matrix-group-chk" data-idx="${idx}" checked style="margin:0;">
                                 </label>
-                                <input type="text" class="matrix-tag-name-input text_pole" value="${escapeHtml(c.keyword)}" style="flex:1; min-width:80px; height:24px; padding:1px 6px; font-size:12px; font-weight:bold; margin:0;" title="可直接修改生成的标签名称">
+                                <input type="text" class="tm-matrix-tag-input matrix-tag-name-input text_pole" value="${escapeHtml(c.keyword)}" style="flex:1; min-width:80px; height:24px; padding:1px 6px; font-size:12px; font-weight:bold; margin:0;" title="可直接修改生成的标签名称">
                                 <span style="font-size:11px; opacity:0.75; white-space:nowrap; flex-shrink:0;">
                                     <i class="fa-solid fa-layer-group" style="margin-right:3px;"></i>${c.themes.length}个美化
                                 </span>
@@ -687,7 +704,7 @@ export function initAutoGroup(config = {}) {
                                     <i class="fa-solid fa-chevron-down"></i> 明细
                                 </button>
                             </div>
-                            <div id="matrix-themes-wrapper-${idx}" class="matrix-themes-wrapper">
+                            <div id="matrix-themes-wrapper-${idx}" class="tm-matrix-themes-wrapper matrix-themes-wrapper" style="display:none;">
                                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; padding-bottom:3px; border-bottom:1px solid rgba(255,255,255,0.06);">
                                     <span style="font-size:10.5px; opacity:0.6;">包含的美化列表：</span>
                                     <label style="font-size:10.5px; opacity:0.8; cursor:pointer; display:inline-flex; align-items:center; gap:3px;">
@@ -705,7 +722,7 @@ export function initAutoGroup(config = {}) {
                     `).join('')}
                 </div>
 
-                <div class="tm-matrix-footer">
+                <div class="tm-matrix-footer" style="flex-shrink:0;">
                     <button id="matrix-cancel-btn" class="menu_button" style="margin:0; font-size:12px; padding:5px 12px; background:rgba(128,128,128,0.2) !important; white-space:nowrap;"><i class="fa-solid fa-xmark"></i> 取消退出</button>
                     <button id="matrix-apply-all-btn" class="menu_button active" style="margin:0; font-size:12.5px; font-weight:bold; padding:5px 16px; background:var(--SmartThemeQuoteColor, #007bff) !important; color:#ffffff !important; white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> 一键生成/应用已选分组 (<span id="matrix-apply-count">${candidates.length}</span>)</button>
                 </div>
@@ -775,6 +792,24 @@ export function initAutoGroup(config = {}) {
                     dlg.style.maxHeight = '85vh';
                     dlg.style.display = 'flex';
                     dlg.style.flexDirection = 'column';
+
+                    const body = dlg.querySelector('.popup-body');
+                    if (body) {
+                        body.style.height = '100%';
+                        body.style.display = 'flex';
+                        body.style.flexDirection = 'column';
+                        body.style.minHeight = '0';
+                        body.style.overflow = 'hidden';
+                    }
+                    const content = dlg.querySelector('.popup-content');
+                    if (content) {
+                        content.style.height = '100%';
+                        content.style.display = 'flex';
+                        content.style.flexDirection = 'column';
+                        content.style.minHeight = '0';
+                        content.style.overflow = 'hidden';
+                        content.style.padding = '4px 8px';
+                    }
                 }
 
                 const matrixList = dlg ? dlg.querySelector('#tm-matrix-list') : null;
@@ -857,6 +892,23 @@ export function initAutoGroup(config = {}) {
                             candidates[firstIdx].themes = Array.from(mergedThemes);
                             const countSpan = firstCard.querySelector('.fa-layer-group')?.parentElement;
                             if (countSpan) countSpan.innerHTML = `<i class="fa-solid fa-layer-group" style="margin-right:3px;"></i>${mergedThemes.size}个美化`;
+                            const wrapper = firstCard.querySelector(`#matrix-themes-wrapper-${firstIdx}`);
+                            if (wrapper) {
+                                wrapper.innerHTML = `
+                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; padding-bottom:3px; border-bottom:1px solid rgba(255,255,255,0.06);">
+                                        <span style="font-size:10.5px; opacity:0.6;">包含的美化列表：</span>
+                                        <label style="font-size:10.5px; opacity:0.8; cursor:pointer; display:inline-flex; align-items:center; gap:3px;">
+                                            <input type="checkbox" class="matrix-sub-select-all" data-idx="${firstIdx}" checked style="margin:0;"> 全选
+                                        </label>
+                                    </div>
+                                    ${Array.from(mergedThemes).map(tName => `
+                                        <label style="display:flex; align-items:center; gap:6px; font-size:11.5px; cursor:pointer; padding:3px 6px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none; white-space:nowrap;">
+                                            <input type="checkbox" class="matrix-theme-chk matrix-theme-chk-${firstIdx}" value="${escapeHtml(tName)}" checked style="margin:0;">
+                                            <span style="word-break:break-all;">${escapeHtml(tName)}</span>
+                                        </label>
+                                    `).join('')}
+                                `;
+                            }
                         }
 
                         checkedCards.slice(1).forEach(card => card.remove());
@@ -876,45 +928,53 @@ export function initAutoGroup(config = {}) {
                 }
 
                 if (matrixList) {
-                    matrixList.querySelectorAll('.matrix-toggle-themes-btn').forEach(btn => {
-                        btn.addEventListener('click', (e) => {
+                    matrixList.addEventListener('click', (e) => {
+                        const toggleBtn = e.target.closest('.matrix-toggle-themes-btn');
+                        if (toggleBtn) {
                             e.preventDefault();
-                            const idx = btn.dataset.idx;
+                            const idx = toggleBtn.dataset.idx;
                             const wrapper = matrixList.querySelector(`#matrix-themes-wrapper-${idx}`);
                             if (wrapper) {
-                                const isExpanded = wrapper.classList.toggle('expanded');
-                                btn.innerHTML = isExpanded
-                                    ? '<i class="fa-solid fa-chevron-up"></i> 收起'
-                                    : '<i class="fa-solid fa-chevron-down"></i> 明细';
+                                const isCurrentlyExpanded = wrapper.classList.contains('expanded') || (wrapper.style.display !== 'none' && wrapper.style.display !== '');
+                                const willExpand = !isCurrentlyExpanded;
+                                if (willExpand) {
+                                    wrapper.classList.add('expanded');
+                                    wrapper.style.display = 'flex';
+                                    toggleBtn.innerHTML = '<i class="fa-solid fa-chevron-up"></i> 收起';
+                                } else {
+                                    wrapper.classList.remove('expanded');
+                                    wrapper.style.display = 'none';
+                                    toggleBtn.innerHTML = '<i class="fa-solid fa-chevron-down"></i> 明细';
+                                }
                             }
-                        });
-                    });
+                            return;
+                        }
 
-                    matrixList.querySelectorAll('.matrix-sub-select-all').forEach(subChk => {
-                        subChk.addEventListener('change', (e) => {
-                            const idx = subChk.dataset.idx;
-                            const isChecked = e.target.checked;
-                            matrixList.querySelectorAll(`.matrix-theme-chk-${idx}`).forEach(chk => {
-                                chk.checked = isChecked;
-                            });
-                        });
-                    });
-
-                    matrixList.querySelectorAll('.matrix-remove-card-btn').forEach(btn => {
-                        btn.addEventListener('click', (e) => {
+                        const removeBtn = e.target.closest('.matrix-remove-card-btn');
+                        if (removeBtn) {
                             e.preventDefault();
-                            const idx = btn.dataset.idx;
+                            const idx = removeBtn.dataset.idx;
                             const card = matrixList.querySelector(`.tm-matrix-card[data-idx="${idx}"]`);
                             if (card) {
                                 card.remove();
                                 updateStats();
                             }
-                        });
+                            return;
+                        }
                     });
 
                     matrixList.addEventListener('change', (e) => {
                         if (e.target.classList.contains('matrix-group-chk')) {
                             updateStats();
+                            return;
+                        }
+                        if (e.target.classList.contains('matrix-sub-select-all')) {
+                            const idx = e.target.dataset.idx;
+                            const isChecked = e.target.checked;
+                            matrixList.querySelectorAll(`.matrix-theme-chk-${idx}`).forEach(chk => {
+                                chk.checked = isChecked;
+                            });
+                            return;
                         }
                     });
                 }
@@ -980,8 +1040,8 @@ export function initAutoGroup(config = {}) {
         const remainingThemes = candidate.themes.slice(MAX_INITIAL_THEMES);
 
         const wizardHtml = `
-            <div class="tm-wizard-container" style="padding:4px; height:100%; display:flex; flex-direction:column; box-sizing:border-box; writing-mode:horizontal-tb !important;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid rgba(128,128,128,0.2); padding-bottom:8px; flex-wrap:nowrap; writing-mode:horizontal-tb !important;">
+            <div class="tm-wizard-container" style="padding:4px; max-height:calc(85vh - 110px); max-height:calc(85dvh - 110px); height:100%; display:flex; flex-direction:column; box-sizing:border-box; writing-mode:horizontal-tb !important; overflow:hidden;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid rgba(128,128,128,0.2); padding-bottom:8px; flex-wrap:nowrap; flex-shrink:0; writing-mode:horizontal-tb !important;">
                     <span style="font-weight:bold; font-size:14px; color:var(--SmartThemeQuoteColor, #4a90e2); display:inline-flex; align-items:center; gap:6px; white-space:nowrap; writing-mode:horizontal-tb !important;">
                         <i class="fa-solid fa-list-check" style="color:#ffc107;"></i> 审核分组向导 (${currentIndex + 1} / ${candidates.length})
                     </span>
@@ -989,8 +1049,8 @@ export function initAutoGroup(config = {}) {
                         <i class="fa-solid fa-sitemap" style="margin-right:4px;"></i>${targetLevelLabel}
                     </span>
                 </div>
-                <div style="background:rgba(255,255,255,0.04); padding:12px; border-radius:6px; margin-bottom:10px; flex:1; display:flex; flex-direction:column; min-height:0; writing-mode:horizontal-tb !important;">
-                    <div style="font-size:13px; font-weight:bold; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; flex-wrap:nowrap; gap:10px; writing-mode:horizontal-tb !important;">
+                <div style="background:rgba(255,255,255,0.04); padding:12px; border-radius:6px; margin-bottom:10px; flex:1; min-height:0; display:flex; flex-direction:column; writing-mode:horizontal-tb !important; overflow:hidden;">
+                    <div style="font-size:13px; font-weight:bold; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; flex-wrap:nowrap; gap:10px; flex-shrink:0; writing-mode:horizontal-tb !important;">
                         <label style="display:inline-flex; align-items:center; gap:6px; white-space:nowrap; writing-mode:horizontal-tb !important; margin:0; cursor:pointer;">
                             <i class="fa-solid fa-tag" style="color:#ffc107;"></i>
                             <span style="white-space:nowrap; writing-mode:horizontal-tb !important;">标签名称：</span>
@@ -1000,11 +1060,11 @@ export function initAutoGroup(config = {}) {
                             <i class="fa-solid fa-layer-group" style="margin-right:4px;"></i> 匹配 <b>${candidate.themes.length}</b> 个美化
                         </span>
                     </div>
-                    <div style="font-size:12px; opacity:0.8; margin-bottom:8px; display:flex; align-items:center; gap:4px; white-space:nowrap; writing-mode:horizontal-tb !important;">
+                    <div style="font-size:12px; opacity:0.8; margin-bottom:8px; display:flex; align-items:center; gap:4px; white-space:nowrap; flex-shrink:0; writing-mode:horizontal-tb !important;">
                         <i class="fa-solid fa-tags"></i>
                         <span style="white-space:nowrap; writing-mode:horizontal-tb !important;">勾选需加入该标签的美化（支持多标签与已存在同名分类合并）：</span>
                     </div>
-                    <div id="wizard-themes-container" style="flex:1; max-height:calc(80vh - 180px); overflow-y:auto; background:rgba(0,0,0,0.15); padding:8px; border-radius:4px; display:flex; flex-direction:column; gap:4px; writing-mode:horizontal-tb !important;">
+                    <div id="wizard-themes-container" style="flex:1; min-height:0; max-height:calc(80vh - 220px); max-height:calc(80dvh - 220px); overflow-y:auto; background:rgba(0,0,0,0.15); padding:8px; border-radius:4px; display:flex; flex-direction:column; gap:4px; writing-mode:horizontal-tb !important;">
                         ${initialThemes.map(tName => `
                             <label style="display:flex; flex-direction:row; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:4px 8px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none; white-space:nowrap; writing-mode:horizontal-tb !important;">
                                 <input type="checkbox" class="wizard-theme-chk" value="${escapeHtml(tName)}" checked style="margin:0;">
@@ -1016,7 +1076,7 @@ export function initAutoGroup(config = {}) {
                         ` : ''}
                     </div>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:nowrap; margin-top:6px; writing-mode:horizontal-tb !important;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:nowrap; margin-top:6px; flex-shrink:0; writing-mode:horizontal-tb !important;">
                     <div style="display:flex; gap:6px;">
                         ${historyStack.length > 0 ? `
                             <button id="wizard-undo-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px; background:rgba(255,193,7,0.2) !important; color:#ffc107 !important; white-space:nowrap;" title="撤销上一步操作并重写上个卡片"><i class="fa-solid fa-rotate-left"></i> 上一步</button>
@@ -1046,6 +1106,23 @@ export function initAutoGroup(config = {}) {
                     dlg.style.maxHeight = '80vh';
                     dlg.style.display = 'flex';
                     dlg.style.flexDirection = 'column';
+
+                    const body = dlg.querySelector('.popup-body');
+                    if (body) {
+                        body.style.height = '100%';
+                        body.style.display = 'flex';
+                        body.style.flexDirection = 'column';
+                        body.style.minHeight = '0';
+                        body.style.overflow = 'hidden';
+                    }
+                    const content = dlg.querySelector('.popup-content');
+                    if (content) {
+                        content.style.height = '100%';
+                        content.style.display = 'flex';
+                        content.style.flexDirection = 'column';
+                        content.style.minHeight = '0';
+                        content.style.overflow = 'hidden';
+                    }
                 }
 
                 const updateWizardState = () => {
