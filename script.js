@@ -2633,6 +2633,28 @@
                 triggerFullImport = backupModule.triggerFullImport;
                 const fullBackupFileInput = { click: () => triggerFullImport() };
 
+                const settingsKeysToSync = [
+                    FAVORITES_KEY,
+                    COLLAPSE_KEY,
+                    THEME_TAGS_KEY,
+                    THEME_BACKGROUND_BINDINGS_KEY,
+                    CHARACTER_THEME_BINDINGS_KEY,
+                    THEME_DAY_NIGHT_PAIRS_KEY,
+                    AUTO_THEME_KEY,
+                    TAG_FILTER_MODE_KEY,
+                    ENABLE_SUBTAGS_KEY,
+                    ACTIVE_TAG_PATH_KEY,
+                    USAGE_COUNT_KEY,
+                    SHOW_USAGE_COUNT_KEY,
+                    ENABLE_AVATAR_HELPER_KEY,
+                    ENABLE_COLOR_TRANSFER_KEY,
+                    ENABLE_DAYNIGHT_BINDING_KEY,
+                    ENABLE_REPLACE_AVATAR_BTN_KEY,
+                    TWO_LINE_LAYOUT_KEY,
+                    HIDE_TAG_PILLS_KEY,
+                    TAG_PILL_MODE_KEY
+                ];
+
                 let exportSettings = () => {};
                 let importSettings = () => {};
                 let openResetSystemModal = () => {};
