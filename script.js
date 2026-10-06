@@ -245,7 +245,7 @@
         }
     }, 50);
 
-    const initInterval = setInterval(() => {
+    const initInterval = setInterval(async () => {
         const originalSelect = document.querySelector('#themes');
         const updateButton = document.querySelector('#ui-preset-update-button');
         const saveAsButton = document.querySelector('#ui-preset-save-button');
@@ -306,49 +306,17 @@
                     }
                 }
 
-                let themeDayNightPairs = loadThemeDayNightPairs();
                 let enableDayNightBinding = localStorage.getItem(ENABLE_DAYNIGHT_BINDING_KEY) !== 'false'; // 默认开启 (true)
-
-                function loadThemeDayNightPairs() {
-                    try {
-                        const raw = JSON.parse(localStorage.getItem(THEME_DAY_NIGHT_PAIRS_KEY));
-                        if (Array.isArray(raw)) {
-                            return raw.filter(p => p && (p.dayTheme || p.nightTheme));
-                        }
-                        if (raw && typeof raw === 'object') {
-                            // 兼容性迁移：将旧版字典模式自动平滑迁移为统一日夜组数组模式
-                            const list = [];
-                            const processed = new Set();
-                            Object.keys(raw).forEach(k => {
-                                const targetNight = raw[k]?.nightTarget;
-                                const targetDay = raw[k]?.dayTarget;
-                                if (targetNight && !processed.has(`${k}-${targetNight}`)) {
-                                    list.push({ dayTheme: k, nightTheme: targetNight });
-                                    processed.add(`${k}-${targetNight}`);
-                                    processed.add(`${targetNight}-${k}`);
-                                }
-                                if (targetDay && !processed.has(`${targetDay}-${k}`)) {
-                                    list.push({ dayTheme: targetDay, nightTheme: k });
-                                    processed.add(`${targetDay}-${k}`);
-                                    processed.add(`${k}-${targetDay}`);
-                                }
-                            });
-                            localStorage.setItem(THEME_DAY_NIGHT_PAIRS_KEY, JSON.stringify(list));
-                            return list;
-                        }
-                    } catch (e) {}
-                    return [];
-                }
-
-                function saveThemeDayNightPairs(pairs) {
-                    themeDayNightPairs = pairs;
-                    localStorage.setItem(THEME_DAY_NIGHT_PAIRS_KEY, JSON.stringify(themeDayNightPairs));
-                }
-
-                function getPairForTheme(themeName) {
-                    if (!themeName || !Array.isArray(themeDayNightPairs)) return null;
-                    return themeDayNightPairs.find(p => p && (p.dayTheme === themeName || p.nightTheme === themeName)) || null;
-                }
+                let executeManualThemeToggle = () => {};
+                let updateThemeItemDayNightState = () => {};
+                let openDayNightPairModal = () => {};
+                let applyAutoThemeLoop = () => {};
+                let updateManualToggleBtnVisibility = () => {};
+                let handleAutoThemeRenamed = () => {};
+                let handleAutoThemeDeleted = () => {};
+                let loadThemeDayNightPairs = () => [];
+                let saveThemeDayNightPairs = () => {};
+                let getPairForTheme = () => null;
 
                 const THEME_MTIMES_KEY = 'theme_manager_theme_mtimes';
 
@@ -391,59 +359,9 @@
                     saveThemeMtimes(mtimes);
                 }
 
-                // 读取 ST 主题 CSS 变量并提取 100% 不透明度的 Solid RGB 颜色
-                function getSolidRgbFromCssVar(varName) {
-                    try {
-                        let val = (getComputedStyle(document.documentElement).getPropertyValue(varName) ||
-                                   getComputedStyle(document.body).getPropertyValue(varName) || '').trim();
-                        if (!val) return null;
-
-                        const match = val.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
-                        if (match) {
-                            return { r: parseInt(match[1]), g: parseInt(match[2]), b: parseInt(match[3]), str: `rgb(${match[1]}, ${match[2]}, ${match[3]})` };
-                        }
-
-                        if (val.startsWith('#')) {
-                            let hex = val.slice(1);
-                            if (hex.length === 3) {
-                                hex = hex.split('').map(c => c + c).join('');
-                            }
-                            if (hex.length >= 6) {
-                                const r = parseInt(hex.slice(0, 2), 16);
-                                const g = parseInt(hex.slice(2, 4), 16);
-                                const b = parseInt(hex.slice(4, 6), 16);
-                                if (!isNaN(r) && !isNaN(g) && !isNaN(b)) {
-                                    return { r, g, b, str: `rgb(${r}, ${g}, ${b})` };
-                                }
-                            }
-                        }
-                        return null;
-                    } catch (e) {
-                        return null;
-                    }
-                }
-
-                function getAdaptivePopoverBg() {
-                    // 按优先级检索 ST 主题的背景模糊色调与聊天卡片背景色
-                    const candidateVars = [
-                        '--SmartThemeBlurTintColor',
-                        '--SmartThemeBotMesBlurTintColor',
-                        '--SmartThemeUserMesBlurTintColor',
-                        '--SmartThemeChatTintColor'
-                    ];
-
-                    for (const v of candidateVars) {
-                        const parsed = getSolidRgbFromCssVar(v);
-                        if (parsed) {
-                            // 如果提取到的 RGB 过于靠近纯黑 (r+g+b < 30)，提升适度亮阶以区分图层
-                            if (parsed.r + parsed.g + parsed.b < 30) {
-                                return `rgb(${parsed.r + 32}, ${parsed.g + 34}, ${parsed.b + 42})`;
-                            }
-                            return parsed.str;
-                        }
-                    }
-                    return '#24262e'; // 高质感沉浸暗色兜底
-                }
+                const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
+                const themeCoreModule = await import(`${baseDir}modules/theme-core.js`);
+                const { getSolidRgbFromCssVar, getAdaptivePopoverBg, DEFAULT_THEME_PROPS, normalizeThemeObject } = themeCoreModule;
 
 
 
@@ -503,198 +421,63 @@
                 let activeLevel1TagId = null;
                 let editingThemeForTags = null;
 
-                async function apiRequest(endpoint, method = 'POST', body = {}, suppressToast = false) {
-                    try {
-                        const headers = getRequestHeaders() || {};
-                        if (!headers['Content-Type'] && !headers['content-type']) {
-                            headers['Content-Type'] = 'application/json';
-                        }
-                        const options = { method, headers, body: JSON.stringify(body) };
-                        const response = await fetch(`/api/${endpoint}`, options);
-                        const responseText = await response.text();
-                        if (!response.ok) {
-                            throw new Error(responseText || `HTTP error! status: ${response.status}`);
-                        }
-                        if (responseText.trim().toUpperCase() === 'OK') return { status: 'OK' };
-                        return responseText ? JSON.parse(responseText) : {};
-                    } catch (error) {
-                        console.error(`API request to /api/${endpoint} failed:`, error);
-                        if (!suppressToast) {
-                            toastr.error(`API请求失败: ${error.message}`);
-                        }
-                        throw error;
-                    }
-                }
+                let _suspendObserver = false;
+                let allThemeObjects = [];
+                const themeCore = themeCoreModule.initThemeCore({
+                    getRequestHeaders,
+                    originalSelect,
+                    recordThemeMtime,
+                    allParsedThemesMap,
+                    getThemeBackgroundBindings: () => themeBackgroundBindings,
+                    applyBackgroundDirectly,
+                    updateActiveState: () => updateActiveState(),
+                    onObserverSuspendChange: (val) => { _suspendObserver = val; },
+                    getAllThemeObjects: () => allThemeObjects
+                });
+                const {
+                    getPowerUser,
+                    allThemeObjectsMap,
+                    stKnownThemes,
+                    findThemeObject,
+                    saveTheme,
+                    deleteTheme,
+                    apiRequest,
+                    getAllThemesFromAPI,
+                    getCachedThemes,
+                    invalidateThemesCache,
+                    triggerSelectChange,
+                    deduplicateSelectOptions,
+                    manualUpdateOriginalSelect,
+                    syncStKnownThemes,
+                    updateSTThemeMemory,
+                    applyThemeDirect,
+                    getValidInstalledThemeNames,
+                    invalidateValidThemeNamesCache,
+                    captureCurrentThemeSnapshot
+                } = themeCore;
 
-                async function getAllThemesFromAPI() { return (await apiRequest('settings/get', 'POST', {})).themes || []; }
-                async function deleteTheme(themeName, themeObjParam = null) {
-                    if (!themeName) return false;
+                const { createTagManager } = await import(`${baseDir}modules/tag-manager.js`);
+                const tagManager = createTagManager({
+                    getValidInstalledThemeNames,
+                    getAllParsedThemes: () => allParsedThemes
+                });
+                const {
+                    loadThemeTags,
+                    saveThemeTags,
+                    invalidateTagsCache,
+                    buildThemeTagIndex,
+                    invalidateThemeTagIndex,
+                    getTagsForTheme,
+                    refreshAllParsedThemesTags,
+                    sanitizeTagsWithValidThemes,
+                    sanitizeSubtagThemeAssociations
+                } = tagManager;
 
-                    console.log(`[Theme Manager Delete] ══════════════════════════════════════`);
-                    console.log(`[Theme Manager Delete] 开始擦除物理文件: "${themeName}"`);
-
-                    // 1. 第一优先级：优先绝对精准擦除原始名称
-                    const rawName = String(themeName).trim();
-                    try {
-                        await apiRequest('themes/delete', 'POST', { name: rawName }, true);
-                        console.log(`[Theme Manager Delete] ✅ 成功精准擦除磁盘文件: "${rawName}.json"`);
-                        updateSTThemeMemory({ name: themeName }, 'delete', themeName);
-                        return true;
-                    } catch (err) {
-                        console.log(`[Theme Manager Delete] ℹ️ 精确匹配 "${rawName}.json" 未直接删除 (${err.message})，继续尝试变体文件...`);
-                    }
-
-                    const candidateSet = new Set();
-                    const addNameVariants = (str) => {
-                        if (!str || typeof str !== 'string') return;
-                        const raw = str.trim();
-                        if (!raw) return;
-
-                        const baseList = new Set();
-                        baseList.add(raw);
-
-                        // 标准 OS 文件名 sanitize 变体 (剔除非法 OS 字符)
-                        const sanitized = raw.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim();
-                        if (sanitized) baseList.add(sanitized);
-
-                        // 变体 A: 剥离括号符号 (例如: "【Miao & Game】 360px" -> "Miao & Game 360px")
-                        const unbracketed = raw.replace(/[\[\]【】（）()《》<>]/g, ' ').replace(/\s+/g, ' ').trim();
-                        if (unbracketed) baseList.add(unbracketed);
-
-                        // 变体 B: 剥离括号及其内部内容 (例如: "【Miao & Game】 360px" -> "360px")
-                        const cleanOuter = raw.replace(/([\[【（(《<].*?[\]】）)》>])/g, '').trim();
-                        if (cleanOuter) baseList.add(cleanOuter);
-
-                        // 变体 C: 提取括号内部文本 (例如: "【Miao & Game】 360px" -> "Miao & Game")
-                        const bracketMatches = raw.match(/([\[【（(《<].*?[\]】）)》>])/g);
-                        if (bracketMatches) {
-                            bracketMatches.forEach(bm => {
-                                const inner = bm.replace(/[\[\]【】（）()《》<>]/g, '').trim();
-                                if (inner) baseList.add(inner);
-                            });
-                        }
-
-                        baseList.forEach(v => {
-                            if (!v) return;
-                            const noExt = v.replace(/\.json$/i, '').trim();
-                            if (!noExt) return;
-
-                            candidateSet.add(noExt);
-                            candidateSet.add(noExt.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim());
-
-                            if (noExt.includes('&amp;')) candidateSet.add(noExt.replace(/&amp;/g, '&'));
-                            if (noExt.includes('&')) {
-                                candidateSet.add(noExt.replace(/&/g, 'and'));
-                                candidateSet.add(noExt.replace(/&/g, ' '));
-                                candidateSet.add(noExt.replace(/\s*&\s*/g, '_&_'));
-                                candidateSet.add(noExt.replace(/\s*&\s*/g, '_and_'));
-                            }
-                            if (noExt.includes(' ') || noExt.includes('_')) {
-                                candidateSet.add(noExt.replace(/\s+/g, '_'));
-                                candidateSet.add(noExt.replace(/_/g, ' '));
-                            }
-                            if (noExt.includes(' ') || noExt.includes('-')) {
-                                candidateSet.add(noExt.replace(/\s+/g, '-'));
-                                candidateSet.add(noExt.replace(/-/g, ' '));
-                            }
-                        });
-                    };
-
-                    if (themeObjParam) {
-                        if (themeObjParam.name) addNameVariants(themeObjParam.name);
-                        if (themeObjParam.value) addNameVariants(themeObjParam.value);
-                    }
-                    const stObj = findThemeObject(themeName);
-                    if (stObj) {
-                        if (stObj.name) addNameVariants(stObj.name);
-                        if (stObj.value) addNameVariants(stObj.value);
-                    }
-                    addNameVariants(themeName);
-
-                    const candidates = Array.from(candidateSet).filter(Boolean);
-                    console.log(`[Theme Manager Delete] 📋 试探磁盘候选文件名 (${candidates.length} 个):`, candidates);
-
-                    let isDeletedOnDisk = false;
-
-                    for (const candidateName of candidates) {
-                        try {
-                            await apiRequest('themes/delete', 'POST', { name: candidateName }, true);
-                            isDeletedOnDisk = true;
-                            console.log(`[Theme Manager Delete] ✅ 成功擦除磁盘文件: "${candidateName}.json"`);
-                            break;
-                        } catch (err) {
-                            // 继续下一个候选试探
-                        }
-                    }
-
-                    if (!isDeletedOnDisk) {
-                        console.warn(`[Theme Manager Delete] ⚠️ 所有试探候选名均未命中磁盘文件，可能文件已被手动删除。候选名:`, candidates);
-                    }
-
-                    // 同步清理 ST 内存
-                    updateSTThemeMemory({ name: themeName }, 'delete', themeName);
-                    console.log(`[Theme Manager Delete] ══════════════════════════════════════`);
-                    return isDeletedOnDisk;
-                }
-                // 从 ST 内存里找到某主题的完整数据对象（包含颜色、CSS 等所有字段，支持名称变体如 (1)、前后空格与别名匹配）
-                function findThemeObject(themeName) {
-                    if (!themeName) return null;
-                    const raw = String(themeName).trim();
-                    const clean = raw.replace(/\s*\(\d+\)$/, '').trim(); // 去掉类似 (1) 的副本后缀
-
-                    // 1. 先从本扩展的内存缓存里直接命中
-                    if (allThemeObjectsMap.has(raw)) return allThemeObjectsMap.get(raw);
-                    if (clean && allThemeObjectsMap.has(clean)) return allThemeObjectsMap.get(clean);
-
-                    // 2. 遍历 allThemeObjectsMap 进行模糊/不区分大小写匹配
-                    for (const [k, v] of allThemeObjectsMap.entries()) {
-                        if (!v) continue;
-                        const vName = String(v.name || v.value || '').trim();
-                        if (vName === raw || vName === clean || k.toLowerCase() === raw.toLowerCase() || vName.toLowerCase() === raw.toLowerCase()) {
-                            return v;
-                        }
-                    }
-
-                    // 3. 从 ST 全局 themes 数组里查找（这里存的是包含完整字段的对象）
-                    if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
-                        const ctx = SillyTavern.getContext();
-                        const stThemes = ctx?.themes || ctx?.power_user?.themes;
-                        if (Array.isArray(stThemes)) {
-                            const found = stThemes.find(t => t && (t.name === raw || t.name === clean || t.value === raw || (t.name && t.name.toLowerCase() === raw.toLowerCase())));
-                            if (found) return found;
-                        }
-                    }
-
-                    // 4. 全局 power_user 对象
-                    if (typeof power_user !== 'undefined' && Array.isArray(power_user.themes)) {
-                        const found = power_user.themes.find(t => t && (t.name === raw || t.name === clean || t.value === raw || (t.name && t.name.toLowerCase() === raw.toLowerCase())));
-                        if (found) return found;
-                    }
-
-                    // 5. 查找 window.themes 兜底
-                    if (typeof window !== 'undefined' && Array.isArray(window.themes)) {
-                        const found = window.themes.find(t => t && (t.name === raw || t.name === clean || t.value === raw));
-                        if (found) return found;
-                    }
-
-                    return null;
-                }
-
-                // 直接把主题对象写盘（对象里必须包含 name 字段和完整样式字段）
-                async function saveTheme(themeObject) {
-                    if (!themeObject || !themeObject.name) {
-                        console.error('[Theme Manager] saveTheme: 传入的对象无效或缺少 name', themeObject);
-                        return;
-                    }
-                    console.log(`[Theme Manager] saveTheme → 写入 "${themeObject.name}.json"`);
-                    await apiRequest('themes/save', 'POST', themeObject);
-                    console.log(`[Theme Manager] saveTheme ✅ 写入成功: "${themeObject.name}.json"`);
-
-                    const now = Date.now();
-                    recordThemeMtime(themeObject.name, now);
-                    const parsed = allParsedThemesMap.get(themeObject.name);
-                    if (parsed) parsed.mtime = now;
-                }
+                let applyKeywordMappings = () => false;
+                let openAutoGroupWizard = () => {};
+                let openAutoGroupBatchMatrix = () => {};
+                let runAutoGroupReviewStep = () => {};
+                let extractCandidateThemeGroups = () => [];
 
 
                 // === 移动端/跨端通用确认弹窗助手 ===
@@ -838,9 +621,6 @@
                     return Array.from(selectEl.options).find(opt => opt.value === value) || null;
                 }
 
-                // MutationObserver 暂停标记（在手动操作 originalSelect 时避免冗余重建）
-                let _suspendObserver = false;
-
                 // buildThemeUI 防抖
                 let _buildThemeUITimer = null;
                 function debouncedBuildThemeUI(delay = 200) {
@@ -848,740 +628,6 @@
                     _buildThemeUITimer = setTimeout(() => buildThemeUI(), delay);
                 }
 
-                // API 缓存
-                let _themesCache = null;
-                let _themesCacheTime = 0;
-                const CACHE_TTL = 5000; // 5秒缓存
-                async function getCachedThemes() {
-                    const now = Date.now();
-                    if (_themesCache && (now - _themesCacheTime) < CACHE_TTL) {
-                        return _themesCache;
-                    }
-                    _themesCache = await getAllThemesFromAPI();
-                    _themesCacheTime = now;
-                    return _themesCache;
-                }
-                function invalidateThemesCache() {
-                    _themesCache = null;
-                    _themesCacheTime = 0;
-                    invalidateValidThemeNamesCache();
-                }
-
-                // 双重触发展示与 jQuery 原生 change 事件，保证 ST 原生 $('#themes').on('change') 监听函数必被激活
-                function triggerSelectChange(selectEl) {
-                    if (!selectEl) return;
-                    console.log(`[Theme Manager] 触发展示与原生 change 事件, 当前选中值: ${selectEl.value}`);
-                    selectEl.dispatchEvent(new Event('change', { bubbles: true }));
-                    if (window.jQuery) {
-                        try {
-                            $(selectEl).trigger('change');
-                            console.log('[Theme Manager] jQuery $(#themes).trigger("change") 执行成功');
-                        } catch (e) {
-                            console.error('[Theme Manager Error] jQuery trigger("change") 失败:', e);
-                        }
-                    }
-                }
-
-                // 剔除 #themes select 中的重复 option，从根源杜绝 DOM 节点与全量 UI 渲染产生同名重复卡片
-                function deduplicateSelectOptions(selectEl) {
-                    if (!selectEl || !selectEl.options) return;
-                    const activeVal = (typeof power_user !== 'undefined' && power_user.theme) || selectEl.value || '';
-                    const seen = new Map(); // value -> opt
-                    const options = Array.from(selectEl.options);
-                    let removedCount = 0;
-                    const prevSuspend = _suspendObserver;
-                    _suspendObserver = true;
-                    try {
-                        options.forEach(opt => {
-                            if (!opt.value) {
-                                opt.remove();
-                                removedCount++;
-                                return;
-                            }
-                            if (seen.has(opt.value)) {
-                                const prevOpt = seen.get(opt.value);
-                                // 如果当前重复项处于选中状态或匹配 activeVal，保留它并移除旧项
-                                if (opt.selected || opt.value === activeVal) {
-                                    prevOpt.remove();
-                                    seen.set(opt.value, opt);
-                                } else {
-                                    opt.remove();
-                                }
-                                removedCount++;
-                            } else {
-                                seen.set(opt.value, opt);
-                            }
-                        });
-                        // 无论如何强制锁定 activeVal 选中，杜绝 selectedIndex 归零导致回退到首个默认主题
-                        if (activeVal && seen.has(activeVal)) {
-                            const targetOpt = seen.get(activeVal);
-                            targetOpt.selected = true;
-                            selectEl.value = activeVal;
-                            if (typeof power_user !== 'undefined') {
-                                power_user.theme = activeVal;
-                            }
-                        }
-                    } finally {
-                        _suspendObserver = prevSuspend;
-                    }
-                    if (removedCount > 0) {
-                        console.log(`[Theme Manager] deduplicateSelectOptions 智能清理了 ${removedCount} 个重复 option 节点，保持当前主题: "${activeVal}"`);
-                    }
-                }
-
-                function manualUpdateOriginalSelect(action, oldName, newName) {
-                    const originalSelect = document.querySelector('#themes');
-                    if (!originalSelect) return;
-                    console.log(`[Theme Manager] manualUpdateOriginalSelect: action=${action}, oldName=${oldName}, newName=${newName}`);
-                    _suspendObserver = true;
-                    try {
-                        if (action === 'add') {
-                            const existingOption = findOptionByValue(originalSelect, newName);
-                            if (!existingOption) {
-                                const option = document.createElement('option');
-                                option.value = newName; option.textContent = newName;
-                                originalSelect.appendChild(option);
-                            }
-                            stKnownThemes.add(newName);
-                        } else if (action === 'delete') {
-                            const cleanName = oldName ? oldName.replace(/\[.*?\]/g, '').trim() : '';
-                            Array.from(originalSelect.options).forEach(opt => {
-                                if (opt.value === oldName || opt.value === cleanName || opt.textContent === oldName || opt.textContent === cleanName) {
-                                    opt.remove();
-                                }
-                            });
-                            stKnownThemes.delete(oldName);
-                            if (cleanName) stKnownThemes.delete(cleanName);
-                        } else if (action === 'rename') {
-                            const optionToRename = findOptionByValue(originalSelect, oldName);
-                            if (optionToRename) {
-                                optionToRename.value = newName;
-                                optionToRename.textContent = newName;
-                            }
-                            // 如果被重命名的是当前激活项，同步更新 select.value
-                            if (originalSelect.value === oldName) {
-                                originalSelect.value = newName;
-                            }
-                            stKnownThemes.delete(oldName);
-                            stKnownThemes.add(newName);
-                        }
-                        deduplicateSelectOptions(originalSelect);
-                    } finally {
-                        setTimeout(() => { _suspendObserver = false; }, 0);
-                    }
-                }
-
-                // === 动态同步 stKnownThemes 集合，防范导入/重命名新主题后识别为未知主题导致原生切换失效 ===
-                function syncStKnownThemes() {
-                    const originalSelect = document.querySelector('#themes');
-                    if (originalSelect && originalSelect.options) {
-                        Array.from(originalSelect.options).forEach(opt => {
-                            if (opt.value) stKnownThemes.add(opt.value);
-                        });
-                    }
-                }
-
-                // === ST 原生 Custom CSS 编辑器与 CodeMirror 深度内存/DOM 双向同步助手 ===
-                function syncCustomCssToST(customCss) {
-                    const cssVal = customCss !== undefined && customCss !== null ? customCss : '';
-                    console.log(`[Theme Manager] syncCustomCssToST 触发, 目标 CSS 字节数: ${cssVal.length}`);
-
-                    // 1. 写入 ST 官方权威单一数据源 power_user.custom_css
-                    try {
-                        if (typeof power_user !== 'undefined') {
-                            power_user.custom_css = cssVal;
-                        }
-                        if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
-                            const ctx = SillyTavern.getContext();
-                            if (ctx && ctx.power_user) {
-                                ctx.power_user.custom_css = cssVal;
-                            }
-                        }
-                    } catch (e) {
-                        console.error('[Theme Manager Error] 同步 power_user.custom_css 失败:', e);
-                    }
-
-                    // 2. 优先直接使用酒馆原生的 applyCustomCSS 官方渲染管道
-                    try {
-                        if (typeof applyCustomCSS === 'function') {
-                            applyCustomCSS();
-                        }
-                    } catch (e) {}
-
-                    // 3. 兜底同步酒馆原生 Custom CSS 文本框元素 DOM 与 CodeMirror 编辑器
-                    const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style') || document.querySelector('#style_custom');
-                    if (editorEl) {
-                        if (editorEl.value !== cssVal) {
-                            editorEl.value = cssVal;
-                            editorEl.dispatchEvent(new Event('input', { bubbles: true }));
-                            editorEl.dispatchEvent(new Event('change', { bubbles: true }));
-                        }
-
-                        if (editorEl.CodeMirror && editorEl.CodeMirror.getValue() !== cssVal) {
-                            editorEl.CodeMirror.setValue(cssVal);
-                        } else if (window.jQuery && $(editorEl).data('codemirror')) {
-                            const cm = $(editorEl).data('codemirror');
-                            if (cm && cm.getValue() !== cssVal) {
-                                cm.setValue(cssVal);
-                            }
-                        }
-                    }
-
-                    // 4. 全局 CodeMirror DOM 实例兜底同步
-                    try {
-                        const cmDoms = document.querySelectorAll('.CodeMirror');
-                        if (cmDoms.length > 0) {
-                            cmDoms.forEach(cmDom => {
-                                if (cmDom && cmDom.CodeMirror && cmDom.CodeMirror.getValue() !== cssVal) {
-                                    cmDom.CodeMirror.setValue(cssVal);
-                                }
-                            });
-                        }
-                    } catch (e) {}
-
-                    // 5. 确保原生 <style id="custom-style"> 标签节点同步刷新
-                    let style = document.getElementById('custom-style');
-                    if (!style) {
-                        style = document.createElement('style');
-                        style.id = 'custom-style';
-                        document.head.appendChild(style);
-                    }
-                    style.innerHTML = cssVal;
-                }
-
-                // === ST 内部内存同步助手（实现真正的热更新与落盘固化） ===
-                function updateSTThemeMemory(themeObject, action = 'add', oldName = null) {
-                    const targetName = themeObject ? (themeObject.name || themeObject.value) : oldName;
-                    if (!targetName) return;
-
-                    const cleanName = String(targetName).replace(/\[.*?\]/g, '').trim();
-                    const exactNames = new Set([String(targetName)]);
-                    if (cleanName) exactNames.add(cleanName);
-                    if (themeObject && themeObject.name) exactNames.add(String(themeObject.name));
-                    if (oldName) {
-                        exactNames.add(String(oldName));
-                        exactNames.add(String(oldName).replace(/\[.*?\]/g, '').trim());
-                    }
-
-                    const isMatch = (item) => {
-                        if (!item) return false;
-                        const itemStr = typeof item === 'string' ? item : (item.name || item.value || '');
-                        return exactNames.has(String(itemStr));
-                    };
-
-                    try {
-                        let updated = false;
-
-                        const purgeFromArray = (arr) => {
-                            if (!Array.isArray(arr)) return false;
-                            let changed = false;
-                            for (let i = arr.length - 1; i >= 0; i--) {
-                                if (isMatch(arr[i])) {
-                                    arr.splice(i, 1);
-                                    changed = true;
-                                }
-                            }
-                            return changed;
-                        };
-
-                        // 1. 同步 ST getContext 内存数组 (包括 ctx.themes 以及 ctx.power_user.themes)
-                        if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
-                            const ctx = SillyTavern.getContext();
-                            if (ctx) {
-                                if (action === 'delete') {
-                                    if (purgeFromArray(ctx.themes)) updated = true;
-                                    if (ctx.power_user && purgeFromArray(ctx.power_user.themes)) updated = true;
-                                } else if (action === 'rename' && oldName) {
-                                    if (Array.isArray(ctx.themes)) {
-                                        const idx = ctx.themes.findIndex(t => isMatch(t));
-                                        if (idx !== -1) ctx.themes[idx] = themeObject;
-                                        else ctx.themes.push(themeObject);
-                                        updated = true;
-                                    }
-                                    if (ctx.power_user && Array.isArray(ctx.power_user.themes)) {
-                                        const idx = ctx.power_user.themes.findIndex(t => isMatch(t));
-                                        if (idx !== -1) ctx.power_user.themes[idx] = themeObject;
-                                        else ctx.power_user.themes.push(themeObject);
-                                        updated = true;
-                                    }
-                                } else if (action === 'add' || action === 'save') {
-                                    if (Array.isArray(ctx.themes)) {
-                                        const idx = ctx.themes.findIndex(t => isMatch(t));
-                                        if (idx !== -1) ctx.themes[idx] = themeObject;
-                                        else ctx.themes.push(themeObject);
-                                        updated = true;
-                                    }
-                                    if (ctx.power_user && Array.isArray(ctx.power_user.themes)) {
-                                        const idx = ctx.power_user.themes.findIndex(t => isMatch(t));
-                                        if (idx !== -1) ctx.power_user.themes[idx] = themeObject;
-                                        else ctx.power_user.themes.push(themeObject);
-                                        updated = true;
-                                    }
-                                }
-                            }
-                        }
-
-                        // 2. 同步全局 power_user 对象的 themes 数组
-                        if (typeof power_user !== 'undefined' && power_user) {
-                            if (action === 'delete') {
-                                if (purgeFromArray(power_user.themes)) updated = true;
-                            } else if (action === 'rename' && oldName) {
-                                if (Array.isArray(power_user.themes)) {
-                                    const idx = power_user.themes.findIndex(t => isMatch(t));
-                                    if (idx !== -1) power_user.themes[idx] = themeObject;
-                                    else power_user.themes.push(themeObject);
-                                    updated = true;
-                                }
-                            } else if (action === 'add' || action === 'save') {
-                                if (Array.isArray(power_user.themes)) {
-                                    const idx = power_user.themes.findIndex(t => isMatch(t));
-                                    if (idx !== -1) power_user.themes[idx] = themeObject;
-                                    else power_user.themes.push(themeObject);
-                                    updated = true;
-                                }
-                            }
-                        }
-
-                        // 3. 同步全局 themes 数组 (针对旧版与手机端全局变量)
-                        if (typeof themes !== 'undefined' && Array.isArray(themes)) {
-                            if (action === 'delete') {
-                                if (purgeFromArray(themes)) updated = true;
-                            } else if (action === 'rename' && oldName) {
-                                const idx = themes.findIndex(t => isMatch(t));
-                                if (idx !== -1) themes[idx] = themeObject;
-                                else themes.push(themeObject);
-                                updated = true;
-                            } else if (action === 'add' || action === 'save') {
-                                const idx = themes.findIndex(t => isMatch(t));
-                                if (idx !== -1) themes[idx] = themeObject;
-                                else themes.push(themeObject);
-                                updated = true;
-                            }
-                        }
-                        if (typeof window !== 'undefined' && Array.isArray(window.themes)) {
-                            if (action === 'delete') {
-                                if (purgeFromArray(window.themes)) updated = true;
-                            }
-                        }
-
-                        // 4. 固化持久写入磁盘 settings.json 文件
-                        if (updated || action === 'delete') {
-                            if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
-                                const ctx = SillyTavern.getContext();
-                                if (ctx.saveSettingsDebounced) ctx.saveSettingsDebounced();
-                                else if (ctx.saveSettings) ctx.saveSettings();
-                            } else if (typeof saveSettingsDebounced === 'function') {
-                                saveSettingsDebounced();
-                            } else if (typeof saveSettings === 'function') {
-                                saveSettings();
-                            }
-                        }
-                    } catch (e) {
-                        console.error('[Theme Manager Error] 同步 ST 内部主题内存失败:', e);
-                    }
-                }
-
-                // UI 控件 DOM 缓存 (避免在切换新主题时反复进行昂贵的 querySelector)
-                let _uiControlsCache = null;
-                function getUIControls() {
-                    if (!_uiControlsCache) {
-                        _uiControlsCache = {};
-                        const selectors = [
-                            '#main-text-color-picker', '#italics-color-picker', '#underline-color-picker',
-                            '#quote-color-picker', '#blur-tint-color-picker', '#chat-tint-color-picker',
-                            '#user-mes-blur-tint-color-picker', '#bot-mes-blur-tint-color-picker',
-                            '#shadow-color-picker', '#border-color-picker', '#blur_strength_counter',
-                            '#blur_strength', '#shadow_width_counter', '#shadow_width',
-                            '#font_scale_counter', '#font_scale', '#chat_width_slider_counter',
-                            '#chat_width_slider', '#fast_ui_mode', '#waifuMode', '#noShadowsmode',
-                            '#avatar_style', '#chat_display', '#blur-strength-block', '#shadow-width-block',
-                            'meta[name=theme-color]'
-                        ];
-                        selectors.forEach(sel => {
-                            const el = document.querySelector(sel);
-                            if (el) _uiControlsCache[sel] = el;
-                        });
-                    }
-                    return _uiControlsCache;
-                }
-
-                // === 彻底消除上一个美化颜色残留的全量主题颜色/控件应用函数 ===
-                function applyThemeColors(themeObj) {
-                    if (!themeObj) return;
-
-                    console.log(`[Theme Manager] 执行 applyThemeColors 颜色重置与映射, 主题: "${themeObj.name}"`);
-                    const root = document.documentElement;
-
-                    const colorMap = [
-                        { prop: 'main_text_color', var: '--SmartThemeBodyColor', picker: '#main-text-color-picker', default: 'rgba(255, 255, 255, 1)' },
-                        { prop: 'italics_text_color', var: '--SmartThemeEmColor', picker: '#italics-color-picker', default: 'rgba(255, 255, 255, 1)' },
-                        { prop: 'underline_text_color', var: '--SmartThemeUnderlineColor', picker: '#underline-color-picker', default: 'rgba(255, 255, 255, 1)' },
-                        { prop: 'quote_text_color', var: '--SmartThemeQuoteColor', picker: '#quote-color-picker', default: 'rgba(255, 255, 255, 1)' },
-                        { prop: 'blur_tint_color', var: '--SmartThemeBlurTintColor', picker: '#blur-tint-color-picker', default: 'rgba(0, 0, 0, 0.6)' },
-                        { prop: 'chat_tint_color', var: '--SmartThemeChatTintColor', picker: '#chat-tint-color-picker', default: 'rgba(0, 0, 0, 0.4)' },
-                        { prop: 'user_mes_blur_tint_color', var: '--SmartThemeUserMesBlurTintColor', picker: '#user-mes-blur-tint-color-picker', default: 'rgba(0, 0, 0, 0.4)' },
-                        { prop: 'bot_mes_blur_tint_color', var: '--SmartThemeBotMesBlurTintColor', picker: '#bot-mes-blur-tint-color-picker', default: 'rgba(0, 0, 0, 0.4)' },
-                        { prop: 'shadow_color', var: '--SmartThemeShadowColor', picker: '#shadow-color-picker', default: 'rgba(0, 0, 0, 0.8)' },
-                        { prop: 'border_color', var: '--SmartThemeBorderColor', picker: '#border-color-picker', default: 'rgba(255, 255, 255, 0.1)' },
-                    ];
-
-                    colorMap.forEach(item => {
-                        let val = themeObj[item.prop];
-                        if (val === undefined || val === null || val === '') {
-                            if (typeof power_user !== 'undefined' && power_user[item.prop]) {
-                                val = power_user[item.prop];
-                            } else {
-                                val = item.default;
-                            }
-                        }
-                        
-                        // 1. 设置 CSS 变量 (高效直接写入行内 style)
-                        root.style.setProperty(item.var, val);
-
-                        // 2. 主文本色 RGB 拆分
-                        if (item.prop === 'main_text_color' && val) {
-                            try {
-                                const parts = val.split('(')[1].split(')')[0].split(',');
-                                root.style.setProperty('--SmartThemeCheckboxBgColorR', parts[0].trim());
-                                root.style.setProperty('--SmartThemeCheckboxBgColorG', parts[1].trim());
-                                root.style.setProperty('--SmartThemeCheckboxBgColorB', parts[2].trim());
-                                root.style.setProperty('--SmartThemeCheckboxBgColorA', parts[3] ? parts[3].trim() : '1');
-                            } catch(e){}
-                        }
-
-                        // 3. 极速更新酒馆 UI 界面中的 Color Picker 控件（静默赋值，防止 20 次事件轰炸导致重绘顿挫）
-                        const pickerEl = document.querySelector(item.picker);
-                        if (pickerEl) {
-                            pickerEl.setAttribute('color', val);
-                            pickerEl.value = val;
-                        }
-
-                        // 4. 同步更新 power_user 内存中对应的值
-                        if (typeof power_user !== 'undefined') {
-                            power_user[item.prop] = val;
-                        }
-                        if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
-                            const ctx = SillyTavern.getContext();
-                            if (ctx && ctx.power_user) {
-                                ctx.power_user[item.prop] = val;
-                            }
-                        }
-                    });
-
-                    // 5. 应用数值与开关系列参数（带有默认兜底）
-                    const numMap = [
-                        { prop: 'blur_strength', var: '--blurStrength', picker: '#blur_strength', counter: '#blur_strength_counter', default: 10 },
-                        { prop: 'shadow_width', var: '--shadowWidth', picker: '#shadow_width', counter: '#shadow_width_counter', default: 2 },
-                        { prop: 'font_scale', var: '--fontScale', picker: '#font_scale', counter: '#font_scale_counter', default: 1 },
-                    ];
-                    numMap.forEach(item => {
-                        let val = themeObj[item.prop];
-                        if (val === undefined || val === null || val === '') {
-                            if (typeof power_user !== 'undefined' && power_user[item.prop] !== undefined) {
-                                val = power_user[item.prop];
-                            } else {
-                                val = item.default;
-                            }
-                        }
-                        root.style.setProperty(item.var, String(val));
-                        const pEl = document.querySelector(item.picker);
-                        const cEl = document.querySelector(item.counter);
-                        if (pEl) pEl.value = val;
-                        if (cEl) cEl.value = val;
-                        if (typeof power_user !== 'undefined') power_user[item.prop] = val;
-                    });
-
-                    if (themeObj.chat_width !== undefined) {
-                        root.style.setProperty('--sheldWidth', `${themeObj.chat_width}vw`);
-                        const cw = document.querySelector('#chat_width_slider');
-                        const cwc = document.querySelector('#chat_width_slider_counter');
-                        if (cw) cw.value = themeObj.chat_width;
-                        if (cwc) cwc.value = themeObj.chat_width;
-                        if (typeof power_user !== 'undefined') power_user.chat_width = themeObj.chat_width;
-                    }
-                }
-
-                // === 直接应用主题（热更新核心） ===
-                // 绕过 ST 内部模块作用域 of themes 引用失效问题
-                // 在重命名/导入后无需刷新即可切换主题
-                function applyThemeDirect(themeName) {
-                    console.log(`[Theme Manager] applyThemeDirect 触发切换至主题: "${themeName}"`);
-                    const originalSelect = document.querySelector('#themes');
-                    deduplicateSelectOptions(originalSelect);
-                    syncStKnownThemes();
-
-                    let themeObj = findThemeObject(themeName);
-                    if (!themeObj && originalSelect) {
-                        const opt = findOptionByValue(originalSelect, themeName);
-                        if (opt && opt.value !== themeName) {
-                            themeObj = findThemeObject(opt.value);
-                        }
-                    }
-
-                    const targetCss = (themeObj && themeObj.custom_css) ? themeObj.custom_css : '';
-
-                    if (themeObj) {
-                        updateSTThemeMemory(themeObj, 'add');
-                        applyThemeColors(themeObj);
-                        syncCustomCssToST(targetCss);
-                    } else {
-                        console.warn(`[Theme Manager] ⚠️ 内存未命中主题 "${themeName}"，尝试全量 API 补齐`);
-                        getAllThemesFromAPI().then(freshThemes => {
-                            if (Array.isArray(freshThemes)) {
-                                const cleanName = String(themeName).replace(/\s*\(\d+\)$/, '').trim();
-                                const fetched = freshThemes.find(t => t && (t.name === themeName || t.name === cleanName || (t.name && t.name.toLowerCase() === themeName.toLowerCase())));
-                                if (fetched) {
-                                    allThemeObjectsMap.set(themeName, fetched);
-                                    updateSTThemeMemory(fetched, 'add');
-                                    applyThemeColors(fetched);
-                                    if (fetched.custom_css) {
-                                        syncCustomCssToST(fetched.custom_css);
-                                    }
-                                }
-                            }
-                        }).catch(() => {});
-                    }
-
-                    // 防范 ST 原生 loadTheme 异步写回导致 custom_css 偏移的静默守护
-                    const scheduleAsyncProtection = () => {
-                        setTimeout(() => {
-                            const curCss = (typeof power_user !== 'undefined' && power_user.custom_css) || '';
-                            if (curCss !== targetCss) {
-                                console.log(`[Theme Manager] 静默纠偏同步主题 "${themeName}" 的 Custom CSS`);
-                                syncCustomCssToST(targetCss);
-                            }
-                        }, 250);
-                    };
-
-                    // 核心优化: 严谨更新选中值并同步触发表单变更（加入容错与兜底补齐，杜绝 select.value 赋值失败停留在上一个主题）
-                    if (originalSelect) {
-                        let opt = findOptionByValue(originalSelect, themeName);
-                        if (!opt && originalSelect.options) {
-                            const raw = String(themeName).trim();
-                            const clean = raw.replace(/\s*\(\d+\)$/, '').trim();
-                            const rawLower = raw.toLowerCase();
-                            for (let i = 0; i < originalSelect.options.length; i++) {
-                                const o = originalSelect.options[i];
-                                const ov = o.value || '';
-                                if (ov === raw || ov === clean || ov.toLowerCase() === rawLower) {
-                                    opt = o;
-                                    break;
-                                }
-                            }
-                        }
-                        if (opt) {
-                            originalSelect.value = opt.value;
-                        } else {
-                            // 动态补齐 option，避免浏览器拒绝赋值导致停留在旧主题
-                            const newOpt = document.createElement('option');
-                            newOpt.value = themeName;
-                            newOpt.textContent = themeName;
-                            originalSelect.appendChild(newOpt);
-                            originalSelect.value = themeName;
-                        }
-                        triggerSelectChange(originalSelect);
-                    }
-                    if (typeof power_user !== 'undefined') {
-                        power_user.theme = originalSelect?.value || themeName;
-                    }
-
-                    // 兼容性核心：如果原生存在 baibaokuApplyNativeTheme，直接调用以免疫面板冻结导致事件断流
-                    if (typeof window !== 'undefined' && typeof window.baibaokuApplyNativeTheme === 'function') {
-                        try {
-                            window.baibaokuApplyNativeTheme(themeName);
-                        } catch (e) {
-                            console.warn('[Theme Manager] baibaokuApplyNativeTheme 调用失败:', e);
-                        }
-                    }
-
-                    // 核心修复：直接应用当前主题绑定的背景图，彻底解除对 select change 事件冒泡的单一依赖
-                    try {
-                        const boundBg = typeof themeBackgroundBindings !== 'undefined' ? themeBackgroundBindings[themeName] : null;
-                        if (boundBg) {
-                            applyBackgroundDirectly(boundBg);
-                        }
-                    } catch (e) {
-                        console.error('[Theme Manager] 切换主题应用绑定背景失败:', e);
-                    }
-
-                    // 持久化当前选择到酒馆设置
-                    if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
-                        try {
-                            SillyTavern.getContext().saveSettingsDebounced();
-                        } catch (e) {}
-                    }
-
-                    updateActiveState();
-                    try {
-                        document.dispatchEvent(new CustomEvent('themeManager:themeChanged', { 
-                            detail: { themeName, themeObj } 
-                        }));
-                    } catch (e) {}
-                    scheduleAsyncProtection();
-                }
-
-                // 获取当前系统实际存在的所有合法美化主题名称 Set (带高性能缓存)
-                let _cachedValidThemeNames = null;
-                function invalidateValidThemeNamesCache() {
-                    _cachedValidThemeNames = null;
-                }
-
-                function getValidInstalledThemeNames() {
-                    if (_cachedValidThemeNames) return _cachedValidThemeNames;
-                    const names = new Set();
-                    if (typeof stKnownThemes !== 'undefined' && stKnownThemes && stKnownThemes.size > 0) {
-                        stKnownThemes.forEach(name => { if (name) names.add(name); });
-                    }
-                    if (typeof allParsedThemes !== 'undefined' && allParsedThemes && allParsedThemes.length > 0) {
-                        allParsedThemes.forEach(t => { if (t && t.value) names.add(t.value); });
-                    }
-                    if (typeof allThemeObjectsMap !== 'undefined' && allThemeObjectsMap && allThemeObjectsMap.size > 0) {
-                        allThemeObjectsMap.forEach((_, name) => { if (name) names.add(name); });
-                    }
-                    if (typeof allThemeObjects !== 'undefined' && Array.isArray(allThemeObjects) && allThemeObjects.length > 0) {
-                        allThemeObjects.forEach(t => { if (t && t.name) names.add(t.name); });
-                    }
-                    const select = document.querySelector('#themes');
-                    if (select && select.options) {
-                        for (let i = 0; i < select.options.length; i++) {
-                            const val = select.options[i].value;
-                            if (val) names.add(val);
-                        }
-                    }
-                    _cachedValidThemeNames = names;
-                    return names;
-                }
-
-                // 校验并规范化标签关联：
-                // 1. 自动过滤剔除不存在于当前机器的非本域美化死链接 (O(N) 线性过滤)
-                // 2. 基于当前机器实际存在的美化，针对含有关键词的标签做高性能预转换与动态匹配 (O(N) Set + Break)
-                // 3. 子标签包含的主题自动同步提升至其父级一级标签
-                function sanitizeTagsWithValidThemes(tags) {
-                    if (!Array.isArray(tags)) return tags;
-                    const validThemeNames = getValidInstalledThemeNames();
-
-                    tags.forEach(t => {
-                        if (!Array.isArray(t.themes)) t.themes = [];
-                        if (!Array.isArray(t.keywords)) t.keywords = [];
-                    });
-
-                    if (validThemeNames.size > 0) {
-                        // 1. 过滤不存在于本机的异地美化名称
-                        tags.forEach(t => {
-                            t.themes = t.themes.filter(themeName => validThemeNames.has(themeName));
-                        });
-
-                        // 2. 重新扫描本机美化，自动匹配已定义的关键词 (极致循环优化)
-                        const allThemes = Array.from(validThemeNames);
-                        tags.forEach(tag => {
-                            if (!tag.keywords || tag.keywords.length === 0) return;
-                            const kwLCs = tag.keywords.filter(Boolean).map(kw => kw.toLowerCase());
-                            if (kwLCs.length === 0) return;
-
-                            const existingThemesSet = new Set(tag.themes);
-                            for (let i = 0; i < allThemes.length; i++) {
-                                const themeName = allThemes[i];
-                                if (existingThemesSet.has(themeName)) continue;
-                                const nameLC = themeName.toLowerCase();
-                                for (let j = 0; j < kwLCs.length; j++) {
-                                    if (nameLC.includes(kwLCs[j])) {
-                                        tag.themes.push(themeName);
-                                        existingThemesSet.add(themeName);
-                                        break;
-                                    }
-                                }
-                            }
-                        });
-                    }
-
-                    return sanitizeSubtagThemeAssociations(tags);
-                }
-
-                // 校验并规范化标签关联：子标签包含的主题自动同步向上递归提升至其所有父级/祖先标签 (N-Level 递归)
-                function sanitizeSubtagThemeAssociations(tags) {
-                    if (!Array.isArray(tags)) return tags;
-                    const tagMap = new Map(tags.map(t => [t.id, t]));
-                    
-                    // 确保数组初始化完整
-                    tags.forEach(t => {
-                        if (!Array.isArray(t.themes)) t.themes = [];
-                        if (!Array.isArray(t.keywords)) t.keywords = [];
-                    });
-
-                    // 自动向上递归同步 (Recursive Auto-promote)：多级子标签拥有的主题自动并入其所有父级/祖先标签
-                    tags.forEach(t => {
-                        let currentParentId = t.parentId;
-                        const visited = new Set();
-                        while (currentParentId && !visited.has(currentParentId)) {
-                            visited.add(currentParentId);
-                            const parent = tagMap.get(currentParentId);
-                            if (parent) {
-                                if (!Array.isArray(parent.themes)) parent.themes = [];
-                                t.themes.forEach(themeName => {
-                                    if (!parent.themes.includes(themeName)) {
-                                        parent.themes.push(themeName);
-                                    }
-                                });
-                                currentParentId = parent.parentId;
-                            } else {
-                                break;
-                            }
-                        }
-                    });
-
-                    return tags;
-                }
-
-                // 标签数据缓存（避免每次调用都 JSON.parse）
-                let _tagsCache = null;
-                function loadThemeTags() {
-                    if (_tagsCache) return _tagsCache;
-                    _tagsCache = JSON.parse(localStorage.getItem(THEME_TAGS_KEY)) || [];
-                    sanitizeTagsWithValidThemes(_tagsCache);
-                    return _tagsCache;
-                }
-                function refreshAllParsedThemesTags() {
-                    const tags = loadThemeTags();
-                    buildThemeTagIndex(tags);
-                    if (allParsedThemes && allParsedThemes.length > 0) {
-                        allParsedThemes.forEach(t => {
-                            t.tags = getTagsForTheme(t.value, tags);
-                        });
-                    }
-                }
-                function saveThemeTags(tags) {
-                    sanitizeTagsWithValidThemes(tags);
-                    _tagsCache = tags; // 更新缓存
-                    localStorage.setItem(THEME_TAGS_KEY, JSON.stringify(tags));
-                    invalidateThemeTagIndex(); // 标签数据变了，反向索引也要失效
-                    refreshAllParsedThemesTags(); // 实时重刷全量 parsedThemes 的标签关联
-                    document.dispatchEvent(new CustomEvent('themeManager:tagsChanged', { detail: tags }));
-                }
-                function invalidateTagsCache() {
-                    _tagsCache = null;
-                    invalidateThemeTagIndex();
-                }
-                // 构建 themeName -> [tagId] 的反向索引，避免每次调用都做 O(tags*themes) 扫描
-                let _themeTagIndex = null;
-                function buildThemeTagIndex(tags) {
-                    const index = new Map();
-                    tags.forEach(t => {
-                        if (t.themes) {
-                            t.themes.forEach(themeName => {
-                                if (!index.has(themeName)) index.set(themeName, []);
-                                index.get(themeName).push(t.id);
-                            });
-                        }
-                    });
-                    _themeTagIndex = index;
-                    return index;
-                }
-                function invalidateThemeTagIndex() { _themeTagIndex = null; }
-                function getTagsForTheme(themeName, cachedTags) {
-                    if (_themeTagIndex) return _themeTagIndex.get(themeName) || [];
-                    const allTags = cachedTags || loadThemeTags();
-                    return allTags.filter(t => t.themes && t.themes.includes(themeName)).map(t => t.id);
-                }
 
                 // 暴露出 API 供其他扩展联动使用
                 window.themeManager = {
@@ -1593,9 +639,9 @@
                         });
                     },
                     applyBoundThemeForCharacter: (avatarName) => applyBoundThemeForCharacter(avatarName),
-                    getCurrentTheme: () => originalSelect?.value || _activeThemeItem?.dataset?.value || (typeof power_user !== 'undefined' ? power_user.theme : '') || '',
+                    getCurrentTheme: () => originalSelect?.value || _activeThemeItem?.dataset?.value || (typeof getPowerUser === 'function' ? getPowerUser()?.theme : null) || '',
                     getCurrentThemeObject: () => {
-                        const cur = originalSelect?.value || _activeThemeItem?.dataset?.value || (typeof power_user !== 'undefined' ? power_user.theme : '');
+                        const cur = originalSelect?.value || _activeThemeItem?.dataset?.value || (typeof getPowerUser === 'function' ? getPowerUser()?.theme : null) || '';
                         return cur ? allThemeObjectsMap.get(cur) : null;
                     },
                     getAllThemes: () => Array.from(allThemeObjectsMap.values()),
@@ -1773,91 +819,115 @@
                 originalContainer.prepend(managerPanel);
 
                 const nativeButtonsContainer = managerPanel.querySelector('#native-buttons-container');
-                nativeButtonsContainer.appendChild(updateButton);
-                nativeButtonsContainer.appendChild(saveAsButton);
 
-                // 原生保存/另存为按钮点击后的内存与已知主题防爆同步
-                // 原生保存/另存为按钮点击后的内存与已知主题防爆同步
-                if (updateButton) {
-                    updateButton.addEventListener('click', () => {
-                        // 1. 同步立即抓取当前点击保存的主题名，杜绝任何延迟与下拉框扰动
-                        const savedThemeName = (typeof power_user !== 'undefined' && power_user.theme) || originalSelect?.value || '';
-                        if (!savedThemeName) return;
-
-                        let themeObj = allThemeObjectsMap.get(savedThemeName);
-                        if (!themeObj) {
-                            themeObj = { name: savedThemeName };
-                            allThemeObjectsMap.set(savedThemeName, themeObj);
-                        }
-
-                        // 同步 custom_css
-                        const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style') || document.querySelector('#style_custom');
-                        if (editorEl) {
-                            themeObj.custom_css = editorEl.value;
-                        } else if (typeof power_user !== 'undefined' && power_user.custom_css !== undefined) {
-                            themeObj.custom_css = power_user.custom_css;
-                        }
-
-                        // 极速纯内存同步所有颜色与数值控件属性（0 DOM 重排，微秒级极速）
-                        const themeSyncKeys = [
-                            'main_text_color', 'italics_text_color', 'underline_text_color', 'quote_text_color',
-                            'blur_tint_color', 'chat_tint_color', 'user_mes_blur_tint_color', 'bot_mes_blur_tint_color',
-                            'shadow_color', 'border_color', 'blur_strength', 'shadow_width', 'font_scale', 'chat_width',
-                            'fast_ui_mode', 'waifuMode', 'avatar_style', 'chat_display', 'toastr_position', 'noShadows'
-                        ];
-                        if (typeof power_user !== 'undefined') {
-                            themeSyncKeys.forEach(k => {
-                                if (power_user[k] !== undefined) {
-                                    themeObj[k] = power_user[k];
-                                }
-                            });
-                        }
-
-                        // 严密同步 ST 原生内存与上下文，注意绝不可用旧的 stTheme 反向覆盖 themeObj
-                        updateSTThemeMemory(themeObj, 'add');
-
-                        // 内存热更新 _themesCache，防止后续 getCachedThemes 读到陈旧数据或引发多余请求
-                        if (Array.isArray(_themesCache)) {
-                            const idx = _themesCache.findIndex(t => (t.name || t.value) === savedThemeName);
-                            if (idx !== -1) {
-                                _themesCache[idx] = Object.assign({}, _themesCache[idx], themeObj);
-                            } else {
-                                _themesCache.push(Object.assign({}, themeObj));
-                            }
-                        }
-
-                        const now = Date.now();
-                        recordThemeMtime(savedThemeName, now);
-                        const parsed = allParsedThemesMap.get(savedThemeName);
-                        if (parsed) parsed.mtime = now;
-
-                        // 延迟 300ms 等待 ST 原生 fetch('/api/themes/save') 完成后，严密维护原生下拉框与激活态
-                        setTimeout(() => {
-                            syncStKnownThemes();
-                            deduplicateSelectOptions(originalSelect);
-                            if (originalSelect && originalSelect.value !== savedThemeName) {
-                                const opt = findOptionByValue(originalSelect, savedThemeName);
-                                if (opt) {
-                                    opt.selected = true;
-                                    originalSelect.value = savedThemeName;
-                                }
-                            }
-                            if (typeof power_user !== 'undefined') {
-                                power_user.theme = savedThemeName;
-                            }
-                            updateActiveState();
-                        }, 300);
-                    });
+                // === 彻底接管原生保存与另存为操作（断开原生可能并发冲突的监听器，统一走原子引擎） ===
+                let cleanUpdateButton = updateButton;
+                let cleanSaveAsButton = saveAsButton;
+                try {
+                    const clonedUpdate = updateButton.cloneNode(true);
+                    const clonedSaveAs = saveAsButton.cloneNode(true);
+                    if (updateButton.parentNode) updateButton.parentNode.replaceChild(clonedUpdate, updateButton);
+                    if (saveAsButton.parentNode) saveAsButton.parentNode.replaceChild(clonedSaveAs, saveAsButton);
+                    cleanUpdateButton = clonedUpdate;
+                    cleanSaveAsButton = clonedSaveAs;
+                } catch (e) {
+                    console.warn('[Theme Manager] 按钮克隆隔离失败，降级直接绑定:', e);
                 }
-                if (saveAsButton) {
-                    saveAsButton.addEventListener('click', () => {
-                        setTimeout(() => {
-                            syncStKnownThemes();
-                            invalidateThemesCache();
-                            debouncedBuildThemeUI(300);
-                        }, 500);
-                    });
-                }
+
+                nativeButtonsContainer.appendChild(cleanUpdateButton);
+                nativeButtonsContainer.appendChild(cleanSaveAsButton);
+
+                // 1. 深度接管“更新当前主题” (Update Theme)
+                cleanUpdateButton.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
+                    const currentThemeName = pu?.theme || originalSelect?.value || '';
+                    if (!currentThemeName) {
+                        toastr.warning('当前未选中任何主题，无法更新');
+                        return;
+                    }
+
+                    showLoader();
+                    try {
+                        console.log(`[Theme Manager] 正在更新并固化当前主题: "${currentThemeName}"`);
+                        const snapshot = captureCurrentThemeSnapshot(currentThemeName);
+
+                        const ok = await saveTheme(snapshot);
+                        if (!ok) throw new Error('保存主题写盘失败');
+
+                        // 增量维护内存与 UI mtime
+                        recordThemeMtime(currentThemeName);
+                        const parsed = allParsedThemesMap.get(currentThemeName);
+                        if (parsed) parsed.mtime = Date.now();
+
+                        toastr.success(`主题「${currentThemeName}」已成功保存并更新！`);
+                    } catch (err) {
+                        console.error('[Theme Manager Error] 保存更新主题失败:', err);
+                        toastr.error(`更新主题失败: ${err.message || err}`);
+                    } finally {
+                        hideLoader();
+                    }
+                });
+
+                // 2. 深度接管“另存为新主题” (Save As New Theme)
+                cleanSaveAsButton.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
+                    const baseName = pu?.theme || originalSelect?.value || '新主题';
+                    const suggestedName = `${baseName} (副本)`;
+
+                    const inputName = await promptAction('请输入新美化主题名称：', suggestedName);
+                    if (!inputName || !inputName.trim()) return;
+
+                    const finalNewName = inputName.trim();
+
+                    // 检查是否重名
+                    if (allParsedThemesMap.has(finalNewName)) {
+                        toastr.warning(`主题「${finalNewName}」已存在，请使用其他名称`);
+                        return;
+                    }
+
+                    showLoader();
+                    try {
+                        console.log(`[Theme Manager] 正在另存为新主题: "${finalNewName}"`);
+                        const snapshot = captureCurrentThemeSnapshot(finalNewName);
+
+                        const ok = await saveTheme(snapshot);
+                        if (!ok) throw new Error('保存主题写盘失败');
+
+                        // 1. 原生 select 同步追加
+                        manualUpdateOriginalSelect('add', null, finalNewName);
+
+                        // 2. 更新内存索引
+                        recordThemeMtime(finalNewName);
+                        const newParsedObj = { value: finalNewName, display: finalNewName, tags: [], mtime: Date.now() };
+                        allParsedThemes.push(newParsedObj);
+                        allParsedThemesMap.set(finalNewName, newParsedObj);
+
+                        // 3. 增量在 UI 列表中插入该卡片
+                        const tagsMap = new Map((loadThemeTags() || []).map(t => [t.id, t]));
+                        const newItem = createThemeItem(newParsedObj, tagsMap);
+                        themeItemMap.set(finalNewName, newItem);
+                        const listUl = contentWrapper.querySelector('.theme-list');
+                        if (listUl) {
+                            listUl.appendChild(newItem);
+                        }
+
+                        // 4. 立即极速应用新主题
+                        applyThemeDirect(finalNewName);
+
+                        toastr.success(`新主题「${finalNewName}」已成功创建并应用！`);
+                    } catch (err) {
+                        console.error('[Theme Manager Error] 另存为主题失败:', err);
+                        toastr.error(`另存为主题失败: ${err.message || err}`);
+                    } finally {
+                        hideLoader();
+                    }
+                });
 
                 const header = managerPanel.querySelector('#theme-manager-header');
                 const content = managerPanel.querySelector('#theme-manager-content');
@@ -1925,9 +995,7 @@
                     favoritesSet = new Set(favorites);
                     localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
                 }
-                let allThemeObjects = [];
-                let allThemeObjectsMap = new Map(); // themeName -> themeObject O(1) cache
-                const stKnownThemes = new Set(Array.from(originalSelect.options).map(opt => opt.value));
+
                 let isBatchEditMode = false;
                 let selectedForBatch = new Set();
                 let lastClickedThemeName = null;
@@ -2009,7 +1077,8 @@
                         // 🧹 严格以服务端 API 返回的真实磁盘文件列表为准，清理原生下拉框中已从磁盘删除的死选项节点
                         const serverThemeNames = new Set(Array.from(allThemeObjectsMap.keys()));
                         if (originalSelect && originalSelect.options) {
-                            const activeVal = (typeof power_user !== 'undefined' && power_user.theme) || originalSelect.value || '';
+                            const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
+                            const activeVal = pu?.theme || originalSelect.value || '';
                             const prevSuspend = _suspendObserver;
                             _suspendObserver = true;
                             try {
@@ -2098,7 +1167,7 @@
                         // 2. 从后端直接全量重新拉取磁盘上的所有主题文件数据
                         let freshThemes = await getAllThemesFromAPI();
 
-                        // 3. 全量规范化重写落盘，确保每一个物理文件的文件名与 JSON 内 name 100% 强制对齐
+                        // 3. 规范化与同名冲突对齐（仅在发现同名冲突时才对冲突项重写落盘，避免数百次网络轰炸）
                         let fixedCount = 0;
                         const usedNames = new Set();
                         for (let i = 0; i < freshThemes.length; i++) {
@@ -2107,7 +1176,6 @@
                             let origName = (t.name || t.value || '未命名主题').trim();
 
                             if (usedNames.has(origName)) {
-                                // 发现同名冲突，自动添加后缀区别并规范落盘
                                 let suffixIndex = 2;
                                 let newUniqueName = `${origName} (${suffixIndex})`;
                                 while (usedNames.has(newUniqueName)) {
@@ -2119,17 +1187,19 @@
                                 t.value = newUniqueName;
                                 origName = newUniqueName;
                                 fixedCount++;
+
+                                // 仅针对冲突重命名项执行规范化落盘
+                                try {
+                                    const cleanObj = normalizeThemeObject(t, origName);
+                                    const { mtime: _m, ...payload } = cleanObj;
+                                    await apiRequest('themes/save', 'POST', payload, true);
+                                } catch (e) {
+                                    console.warn('[Theme Manager Resync] 冲突项重新规范落盘提示:', e);
+                                }
                             }
                             usedNames.add(origName);
-
-                            // 规范化落盘：重新提交一次 save 请求，强制后端按当前 name 写入规范物理文件名 sanitize(name).json
-                            try {
-                                const { mtime: _m, ...cleanObj } = t;
-                                cleanObj.name = origName;
-                                await apiRequest('themes/save', 'POST', cleanObj, true);
-                            } catch (e) {
-                                console.warn('[Theme Manager Resync] 重新规范落盘提示:', e);
-                            }
+                            // 纯净规范化内存对象
+                            freshThemes[i] = normalizeThemeObject(t, origName);
                         }
 
                         if (fixedCount > 0) {
@@ -2139,12 +1209,13 @@
                         }
 
                         // 4. 全量更新 ST getContext / power_user 内存
+                        const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
                         if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
                             const ctx = SillyTavern.getContext();
                             if (ctx) ctx.themes = freshThemes;
                         }
-                        if (typeof power_user !== 'undefined') {
-                            power_user.themes = freshThemes;
+                        if (pu) {
+                            pu.themes = freshThemes;
                         }
                         if (typeof themes !== 'undefined' && Array.isArray(themes)) {
                             themes.length = 0;
@@ -2154,7 +1225,7 @@
                         // 5. 重构原生 #themes 下拉框 (<select id="themes">)
                         const selectEl = originalSelect || document.querySelector('#themes');
                         if (selectEl) {
-                            const currentVal = selectEl.value || (typeof power_user !== 'undefined' ? power_user.theme : '');
+                            const currentVal = selectEl.value || pu?.theme || '';
                             const prevSuspend = _suspendObserver;
                             _suspendObserver = true;
                             try {
@@ -2175,9 +1246,9 @@
                                 // 还原之前的选中项，如果原选中项已被从磁盘删除，则落到第一项
                                 if (currentVal && existingNames.has(currentVal)) {
                                     selectEl.value = currentVal;
-                                    if (typeof power_user !== 'undefined') power_user.theme = currentVal;
-                                } else if (typeof power_user !== 'undefined' && power_user.theme && existingNames.has(power_user.theme)) {
-                                    selectEl.value = power_user.theme;
+                                    if (pu) pu.theme = currentVal;
+                                } else if (pu?.theme && existingNames.has(pu.theme)) {
+                                    selectEl.value = pu.theme;
                                 } else if (freshThemes.length > 0) {
                                     const fallbackName = freshThemes[0].name || freshThemes[0].value;
                                     if (fallbackName) {
@@ -3365,7 +2436,8 @@
                     }
                 }
                 function updateActiveState() {
-                    const currentValue = originalSelect?.value || (typeof power_user !== 'undefined' ? power_user.theme : '');
+                    const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
+                    const currentValue = originalSelect?.value || pu?.theme || '';
                     if (!currentValue) return;
 
                     let currentItem = themeItemMap.get(currentValue) || null;
@@ -3399,295 +2471,89 @@
                         _activeThemeItem.classList.add('active');
                     }
                 }
-
-                async function performBatchRename(renameLogic) {
-                    if (selectedForBatch.size === 0) { toastr.info('请先选择至少一个主题。'); return; }
-                    showLoader();
-                    _suspendObserver = true;
-
-                    let successCount = 0;
-                    let errorCount = 0;
-                    let skippedCount = 0;
-                    let activeThemeWasRenamed = false;
-
-                    try {
-                        const currentThemes = await getAllThemesFromAPI();
-                        let favoritesToUpdate = JSON.parse(localStorage.getItem(FAVORITES_KEY)) || [];
-                        let tagsToUpdate = loadThemeTags();
-
-                        const renameTasks = [];
-                        const usedNewNames = new Set();
-
-                        for (const oldName of selectedForBatch) {
-                            const newName = renameLogic(oldName);
-                            if (!newName || !newName.trim()) {
-                                skippedCount++;
-                                continue;
-                            }
-
-                            if (usedNewNames.has(newName) || currentThemes.some(t => t.name === newName && t.name !== oldName)) {
-                                console.warn(`批量操作：目标名称 "${newName}" 已存在或内部冲突，已跳过 "${oldName}"。`);
-                                toastr.warning(`主题名称 "${newName}" 冲突，已跳过。`);
-                                skippedCount++;
-                                continue;
-                            }
-
-                            if (newName === oldName) {
-                                successCount++; // 名字没变
-                                continue;
-                            }
-
-                            // ⚠️ 在入队时立刻快照完整对象，避免并发 task 互相清除内存后找不到
-                            const fullThemeObj = findThemeObject(oldName);
-                            if (!fullThemeObj) {
-                                console.error(`[Theme Manager Batch Rename] 无法读取主题 "${oldName}" 的完整数据，跳过此项`);
-                                errorCount++;
-                                continue;
-                            }
-
-                            usedNewNames.add(newName);
-                            renameTasks.push({ oldName, newName, fullThemeObj });
-                        }
-
-                        if (renameTasks.length > 0) {
-                            // 并发数降低到 3：write-file-atomic 高并发下易出现文件系统竞争，导致 HTTP 超时但文件实际已写入
-                            const results = await limitConcurrency(3, renameTasks, async ({ oldName, newName, fullThemeObj }) => {
-                                // 去掉 mtime（服务器读时自动添加，写盘时不应包含）
-                                const { mtime: _mtime, ...cleanObj } = fullThemeObj;
-                                const objectToSave = { ...cleanObj, name: newName };
-
-                                let saveOk = false;
-                                let deleteOk = false;
-
-                                // 1. 尝试写入新文件（suppressToast：true，由返回结果统一处理提示）
-                                try {
-                                    await apiRequest('themes/save', 'POST', objectToSave, true);
-                                    saveOk = true;
-                                    console.log(`[Batch Rename] ✅ 保存成功: "${newName}.json"`);
-                                } catch (saveErr) {
-                                    // 即使 HTTP 报错，文件可能实际已写入（write-file-atomic 超时常见）
-                                    console.warn(`[Batch Rename] ⚠️ 保存报错 (${saveErr.message})，但文件可能已写入，继续删除旧文件`);
-                                }
-
-                                // 2. 无论保存是否报错都尝试删除旧文件
-                                // （保存可能实际已成功，不删旧文件会导致磁盘上同时存在新旧两个文件）
-                                try {
-                                    const deleted = await deleteTheme(oldName, fullThemeObj);
-                                    deleteOk = deleted;
-                                } catch (delErr) {
-                                    console.warn(`[Batch Rename] 删除旧主题 "${oldName}" 失败:`, delErr);
-                                }
-
-                                return { oldName, newName, newThemeObject: objectToSave, saveOk, deleteOk };
-                            });
-
-                            // 批量更新原生 DOM、内存与插件状态
-                            results.forEach((res, index) => {
-                                const task = renameTasks[index];
-                                if (res.status === 'fulfilled') {
-                                    const { oldName, newName, newThemeObject, saveOk, deleteOk } = res.value;
-
-                                    if (!saveOk && !deleteOk) {
-                                        // 两者均失败，确认报错
-                                        errorCount++;
-                                        toastr.error(`重命名「${oldName}」失败（保存和删除均失败）`);
-                                        return;
-                                    }
-
-                                    successCount++;
-                                    if (!saveOk) console.warn(`[Batch Rename] "${oldName}" 保存报错但删除成功，可能新文件已存在`);
-                                    if (!deleteOk) console.warn(`[Batch Rename] "${oldName}" 新文件已写入但旧文件未删除`);
-
-                                    const isActive = originalSelect.value === oldName;
-                                    manualUpdateOriginalSelect('rename', oldName, newName);
-                                    if (isActive) activeThemeWasRenamed = true;
-
-                                    updateSTThemeMemory({ name: oldName }, 'delete');
-                                    updateSTThemeMemory(newThemeObject, 'add');
-                                    softRenameThemeUI(oldName, newName);
-
-                                    const favIndex = favoritesToUpdate.indexOf(oldName);
-                                    if (favIndex > -1) favoritesToUpdate[favIndex] = newName;
-
-                                    if (themeBackgroundBindings[oldName]) {
-                                        themeBackgroundBindings[newName] = themeBackgroundBindings[oldName];
-                                        delete themeBackgroundBindings[oldName];
-                                    }
-
-                                    // 同步更新标签数据
-                                    tagsToUpdate.forEach(tag => {
-                                        if (tag.themes) {
-                                            const idx = tag.themes.indexOf(oldName);
-                                            if (idx > -1) tag.themes[idx] = newName;
-                                        }
-                                    });
-                                } else {
-                                    // Promise 本身报错（极少出现）
-                                    errorCount++;
-                                    console.error(`批量重命名任务异常 "${task.oldName}":`, res.reason);
-                                    toastr.error(`处理「${task.oldName}」时异常: ${res.reason?.message || res.reason}`);
-                                }
-                            });
-                        }
-
-                        updateFavorites(favoritesToUpdate);
-                        localStorage.setItem(THEME_BACKGROUND_BINDINGS_KEY, JSON.stringify(themeBackgroundBindings));
-                        saveThemeTags(tagsToUpdate);
-
-                        selectedForBatch.clear();
-                        lastClickedThemeName = null;
-                        managerPanel.querySelectorAll('.selected-for-batch').forEach(el => el.classList.remove('selected-for-batch'));
-                        invalidateThemesCache();
-                        filterThemeList();
-
-                        let summary = `批量操作完成！成功 ${successCount} 个`;
-                        if (errorCount > 0) summary += `，失败 ${errorCount} 个`;
-                        if (skippedCount > 0) summary += `，跳过 ${skippedCount} 个`;
-                        summary += '。';
-                        toastr.success(summary);
-
-                        if (activeThemeWasRenamed) {
-                            triggerSelectChange(originalSelect);
-                        }
-                        updateActiveState();
-                    } catch (err) {
-                        console.error('批量重命名执行失败:', err);
-                        toastr.error('批量重命名发生异常：' + (err.message || err));
-                    } finally {
-                        hideLoader();
-                        setTimeout(() => { _suspendObserver = false; }, 100);
-                    }
+                let performBatchRename = () => {};
+                let openBatchRenamePopup = () => {};
+                try {
+                    const { initBatchRename } = await import(`${baseDir}modules/batch-rename.js`);
+                    const batchRenameModule = initBatchRename({
+                        getSelectedForBatch: () => selectedForBatch,
+                        clearSelectedForBatch: () => {
+                            selectedForBatch.clear();
+                            lastClickedThemeName = null;
+                            managerPanel.querySelectorAll('.selected-for-batch').forEach(el => el.classList.remove('selected-for-batch'));
+                        },
+                        showLoader,
+                        hideLoader,
+                        getAllThemesFromAPI,
+                        findThemeObject,
+                        normalizeThemeObject,
+                        apiRequest,
+                        deleteTheme,
+                        limitConcurrency,
+                        originalSelect,
+                        manualUpdateOriginalSelect,
+                        updateSTThemeMemory,
+                        softRenameThemeUI,
+                        updateFavorites,
+                        getThemeBackgroundBindings: () => themeBackgroundBindings,
+                        loadThemeTags,
+                        saveThemeTags,
+                        invalidateThemesCache,
+                        filterThemeList,
+                        triggerSelectChange,
+                        updateActiveState,
+                        setSuspendObserver: (val) => { _suspendObserver = val; },
+                        callGenericPopup,
+                        toastr,
+                        escapeHtml
+                    });
+                    performBatchRename = batchRenameModule.performBatchRename;
+                    openBatchRenamePopup = batchRenameModule.openBatchRenamePopup;
+                } catch (e) {
+                    console.error('[Theme Manager] 批量重命名模块加载失败:', e);
                 }
 
-                async function performBatchDelete() {
-                    if (selectedForBatch.size === 0) { toastr.info('请先选择至少一个主题。'); return; }
-                    const deleteCount = selectedForBatch.size;
-                    const confirmed = await confirmAction(`确定要删除选中的 ${deleteCount} 个主题吗？`);
-                    if (!confirmed) return;
-
-                    const deletedThemes = Array.from(selectedForBatch);
-                    const successSet = new Set(deletedThemes);
-
-                    // ⚠️ 必须在清内存前先快照每个主题的完整对象（deleteTheme 需要 name 字段来定位磁盘文件）
-                    const themeObjSnapshots = new Map();
-                    deletedThemes.forEach(name => {
-                        const obj = findThemeObject(name);
-                        if (obj) themeObjSnapshots.set(name, obj);
+                let performBatchDelete = () => {};
+                try {
+                    const { initBatchDelete } = await import(`${baseDir}modules/batch-delete.js`);
+                    const batchDeleteModule = initBatchDelete({
+                        getSelectedForBatch: () => selectedForBatch,
+                        clearSelectedForBatch: () => selectedForBatch.clear(),
+                        setLastClickedThemeName: (val) => { lastClickedThemeName = val; },
+                        confirmAction,
+                        findThemeObject,
+                        findOptionByValue,
+                        originalSelect,
+                        suspendObserver: (fn) => {
+                            _suspendObserver = true;
+                            try { fn(); } finally { setTimeout(() => { _suspendObserver = false; }, 0); }
+                        },
+                        limitConcurrency,
+                        deleteTheme,
+                        themeItemMap,
+                        allParsedThemes,
+                        allParsedThemesMap,
+                        allThemeObjects,
+                        allThemeObjectsMap,
+                        stKnownThemes,
+                        themeBackgroundBindings,
+                        THEME_BACKGROUND_BINDINGS_KEY,
+                        getFavorites: () => favorites,
+                        setFavorites: (newFavs) => { favorites = newFavs; },
+                        updateFavorites,
+                        loadThemeTags,
+                        saveThemeTags,
+                        applyThemeDirect,
+                        renderTagsUI,
+                        updateActiveState,
+                        toastr,
+                        invalidateThemesCache
                     });
-
-                    // 0ms 乐观 UI 更新：立刻清除选择状态与视口 DOM 节点
-                    selectedForBatch.clear();
-                    lastClickedThemeName = null;
-
-                    // 1. 批量更新 ST 原生下拉框
-                    _suspendObserver = true;
-                    try {
-                        deletedThemes.forEach(themeName => {
-                            const optionToDelete = findOptionByValue(originalSelect, themeName);
-                            if (optionToDelete) optionToDelete.remove();
-                        });
-                    } finally {
-                        setTimeout(() => { _suspendObserver = false; }, 0);
-                    }
-
-                    // 2. 批量同步 ST 内部主题内存
-                    try {
-                        const contexts = [];
-                        if (typeof power_user !== 'undefined') contexts.push(power_user);
-                        if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
-                            contexts.push(SillyTavern.getContext());
-                        }
-
-                        contexts.forEach(ctx => {
-                            if (ctx && Array.isArray(ctx.themes)) {
-                                ctx.themes = ctx.themes.filter(t => !successSet.has(t.name) && !successSet.has(t.value));
-                            }
-                        });
-
-                        if (typeof themes !== 'undefined' && Array.isArray(themes)) {
-                            for (let i = themes.length - 1; i >= 0; i--) {
-                                if (successSet.has(themes[i].name) || successSet.has(themes[i].value)) {
-                                    themes.splice(i, 1);
-                                }
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('[Theme Manager] 批量同步 ST 内部主题内存失败:', e);
-                    }
-
-                    // 3. 批量删除主题 UI 状态与缓存
-                    deletedThemes.forEach(themeName => {
-                        const item = themeItemMap.get(themeName);
-                        if (item) {
-                            item.remove();
-                            themeItemMap.delete(themeName);
-                        }
-
-                        const idx = allParsedThemes.findIndex(t => t.value === themeName);
-                        if (idx > -1) {
-                            allParsedThemes.splice(idx, 1);
-                            allParsedThemesMap.delete(themeName);
-                        }
-
-                        const objIndex = allThemeObjects.findIndex(t => t.name === themeName || t.value === themeName);
-                        if (objIndex > -1) {
-                            allThemeObjects.splice(objIndex, 1);
-                        }
-                        allThemeObjectsMap.set(themeName, null);
-                        allThemeObjectsMap.delete(themeName);
-                        stKnownThemes.delete(themeName);
-
-                        if (themeBackgroundBindings[themeName]) {
-                            delete themeBackgroundBindings[themeName];
-                        }
-                    });
-
-                    // 4. 清理收藏和标签数据
-                    favorites = favorites.filter(f => !successSet.has(f));
-                    let tagsToUpdate = loadThemeTags();
-                    tagsToUpdate.forEach(tag => {
-                        if (tag.themes) {
-                            tag.themes = tag.themes.filter(t => !successSet.has(t));
-                        }
-                    });
-
-                    localStorage.setItem(THEME_BACKGROUND_BINDINGS_KEY, JSON.stringify(themeBackgroundBindings));
-                    updateFavorites(favorites);
-                    saveThemeTags(tagsToUpdate);
-
-                    // 5. 切换激活状态，如果被删的主题是当前激活的
-                    const isCurrentlyActiveDeleted = successSet.has(originalSelect.value);
-                    if (isCurrentlyActiveDeleted) {
-                        const azureOption = findOptionByValue(originalSelect, 'Azure');
-                        const fallbackName = azureOption ? 'Azure' : (originalSelect.options[0]?.value || '');
-                        if (fallbackName) {
-                            applyThemeDirect(fallbackName);
-                        }
-                    }
-
-                    // 0ms 瞬间完成 UI 刷新与提示
-                    renderTagsUI(tagsToUpdate);
-                    updateActiveState();
-                    toastr.success(`已成功批量删除 ${deleteCount} 个美化主题！`);
-
-                    // 后台高并发 (25) 异步执行物理磁盘文件擦除（使用提前快照的 themeObj，此时 ST 内存已清除）
-                    (async () => {
-                        try {
-                            await limitConcurrency(25, deletedThemes, name => {
-                                const themeObj = themeObjSnapshots.get(name) || null;
-                                return deleteTheme(name, themeObj);
-                            });
-
-                            if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
-                                const ctx = SillyTavern.getContext();
-                                if (ctx.saveSettingsDebounced) ctx.saveSettingsDebounced();
-                            }
-                            invalidateThemesCache();
-                        } catch (err) {
-                            console.error('[Theme Manager] 异步批量删除物理文件异常:', err);
-                        }
-                    })();
+                    performBatchDelete = batchDeleteModule.performBatchDelete;
+                } catch (e) {
+                    console.error('[Theme Manager] 批量删除模块加载失败:', e);
                 }
+
 
 
 
@@ -3698,942 +2564,147 @@
                 // VVVVVVVVVVVV 新增代码 VVVVVVVVVVVV -->
 
                 // ===================== 自定义模块化备份系统 =====================
-
-                const BACKUP_MODULE_DEFS = [
-                    {
-                        id: 'themes',
-                        name: '美化主题文件',
-                        icon: 'fa-solid fa-palette',
-                        desc: '包含选定主题的完整样式、颜色与自定义 CSS 配置',
-                        isThemes: true
-                    },
-                    {
-                        id: 'tags',
-                        name: '标签分类体系',
-                        icon: 'fa-solid fa-tags',
-                        desc: '包含全部分级标签树、子标签、过滤偏好与关键词自动映射规则',
-                        keys: [
-                            THEME_TAGS_KEY,
-                            TAG_FILTER_MODE_KEY,
-                            ENABLE_SUBTAGS_KEY,
-                            ACTIVE_TAGS_KEY,
-                            ACTIVE_TAG_PATH_KEY,
-                            TAG_PILL_MODE_KEY,
-                            HIDE_TAG_PILLS_KEY
-                        ]
-                    },
-                    {
-                        id: 'daynight',
-                        name: '日夜模式与日夜组',
-                        icon: 'fa-solid fa-circle-half-stroke',
-                        desc: '包含日夜主题组配对绑定、自动主题切换策略与开关状态',
-                        keys: [
-                            THEME_DAY_NIGHT_PAIRS_KEY,
-                            'themeManager_autoTheme',
-                            ENABLE_DAYNIGHT_BINDING_KEY
-                        ]
-                    },
-                    {
-                        id: 'backgrounds',
-                        name: '背景图绑定',
-                        icon: 'fa-solid fa-image',
-                        desc: '包含各美化主题所关联绑定的专属背景图配置',
-                        keys: [
-                            THEME_BACKGROUND_BINDINGS_KEY
-                        ]
-                    },
-                    {
-                        id: 'avatars',
-                        name: '角色绑定与头像管理',
-                        icon: 'fa-solid fa-user-gear',
-                        desc: '包含角色卡绑定的专属美化配置、头像辅助器及替换按键设置',
-                        keys: [
-                            CHARACTER_THEME_BINDINGS_KEY,
-                            ENABLE_AVATAR_HELPER_KEY,
-                            ENABLE_REPLACE_AVATAR_BTN_KEY
-                        ]
-                    },
-                    {
-                        id: 'favorites_usage',
-                        name: '收藏夹与使用统计',
-                        icon: 'fa-solid fa-star',
-                        desc: '包含加星收藏主题列表以及主题使用点击次数统计',
-                        keys: [
-                            FAVORITES_KEY,
-                            USAGE_COUNT_KEY,
-                            SHOW_USAGE_COUNT_KEY
-                        ]
-                    },
-                    {
-                        id: 'ui_preferences',
-                        name: '界面显示偏好',
-                        icon: 'fa-solid fa-sliders',
-                        desc: '包含换行排版、分页大小、排序方式、配色提取器等界面习惯偏好',
-                        keys: [
-                            TWO_LINE_LAYOUT_KEY,
-                            PAGE_SIZE_KEY,
-                            SORT_SELECT_KEY,
-                            LIST_MODE_KEY,
-                            ENABLE_COLOR_TRANSFER_KEY,
-                            COLLAPSE_KEY,
-                            BATCH_EDIT_COLLAPSED_KEY
-                        ]
-                    }
-                ];
-
-                // 打开自定义备份导出弹窗
-                async function openCustomExportModal() {
-                    showLoader();
-                    let allThemes = [];
-                    try {
-                        allThemes = await getAllThemesFromAPI();
-                    } catch (e) {
-                        console.error('[Theme Manager] 获取全量主题失败:', e);
-                        toastr.error('获取主题列表失败，请检查网络');
-                    } finally {
-                        hideLoader();
-                    }
-
-                    const exportDlgHtml = `
-                        <div class="tm-custom-backup-modal" style="max-height: 78vh; overflow-y: auto; overflow-x: hidden; padding: 4px 6px; box-sizing: border-box; text-align: left;">
-                            <style>
-                                .tm-custom-backup-modal .menu_button {
-                                    white-space: nowrap !important;
-                                    word-break: keep-all !important;
-                                    flex-shrink: 0 !important;
-                                    display: inline-flex !important;
-                                    align-items: center !important;
-                                    justify-content: center !important;
-                                    text-align: center !important;
-                                    min-width: max-content !important;
-                                    writing-mode: horizontal-tb !important;
-                                }
-                            </style>
-                            <div style="margin-bottom: 12px; font-size: 12px; opacity: 0.8; line-height: 1.5;">
-                                请勾选需要导出的数据模块。您也可以在下方单独挑选需要备份的美化主题：
-                            </div>
-
-                            <!-- 模块全选/清空快捷栏 -->
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 4px 2px; flex-wrap: wrap; gap: 8px;">
-                                <span style="font-weight: bold; font-size: 13px; color: var(--SmartThemeQuoteColor, #4a90e2); white-space: nowrap; flex-shrink: 0;">
-                                    <i class="fa-solid fa-cubes" style="margin-right: 4px;"></i> 数据模块选择
-                                </span>
-                                <div style="display: flex; flex-direction: row; gap: 8px; flex-shrink: 0; align-items: center;">
-                                    <button id="tm-exp-select-all-mod" class="menu_button" style="padding: 3px 10px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;"><i class="fa-solid fa-check-double" style="margin-right: 4px;"></i>全选模块</button>
-                                    <button id="tm-exp-clear-all-mod" class="menu_button" style="padding: 3px 10px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;"><i class="fa-solid fa-xmark" style="margin-right: 4px;"></i>清空模块</button>
-                                </div>
-                            </div>
-
-                            <!-- 模块复选框列表 -->
-                            <div id="tm-exp-modules-container" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px;">
-                                ${BACKUP_MODULE_DEFS.map(mod => `
-                                    <label class="tm-mod-card" style="display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; cursor: pointer;">
-                                        <input type="checkbox" class="tm-exp-mod-cb" data-mod-id="${mod.id}" checked style="margin-top: 3px; flex-shrink: 0;">
-                                        <div style="flex: 1; min-width: 0;">
-                                            <div style="font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                                                <i class="${mod.icon}" style="color: var(--SmartThemeQuoteColor, #4a90e2); flex-shrink: 0;"></i>
-                                                <span style="white-space: nowrap;">${escapeHtml(mod.name)}</span>
-                                                ${mod.isThemes ? `<span style="font-size: 11px; opacity: 0.7; font-weight: normal; white-space: nowrap;">(共 ${allThemes.length} 个主题)</span>` : ''}
-                                            </div>
-                                            <div style="font-size: 11.5px; opacity: 0.65; margin-top: 2px;">
-                                                ${escapeHtml(mod.desc)}
-                                            </div>
-                                        </div>
-                                    </label>
-                                `).join('')}
-                            </div>
-
-                            <!-- 主题精细选择容器 -->
-                            <div id="tm-exp-themes-subpanel" style="border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 10px; background: rgba(0,0,0,0.15); margin-bottom: 14px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
-                                    <span style="font-weight: bold; font-size: 12.5px; display: flex; align-items: center; gap: 6px; white-space: nowrap;">
-                                        <i class="fa-solid fa-list-check" style="color: var(--SmartThemeQuoteColor, #4a90e2);"></i> 选择需要导出的美化主题
-                                    </span>
-                                    <span id="tm-exp-theme-count-badge" style="font-size: 11.5px; opacity: 0.75; white-space: nowrap;">已选: ${allThemes.length} / ${allThemes.length}</span>
-                                </div>
-                                <div style="display: flex; gap: 6px; margin-bottom: 8px; align-items: center; flex-wrap: wrap;">
-                                    <input type="text" id="tm-exp-theme-search" class="text_pole" placeholder="搜索主题名称..." style="flex: 1 1 140px; min-width: 110px; height: 28px; font-size: 11.5px; padding: 2px 8px; margin: 0; box-sizing: border-box;">
-                                    <div style="display: flex; flex-direction: row; gap: 6px; flex-shrink: 0; align-items: center;">
-                                        <button id="tm-exp-theme-select-all" class="menu_button" style="padding: 3px 8px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;">全选</button>
-                                        <button id="tm-exp-theme-unselect-all" class="menu_button" style="padding: 3px 8px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;">全不选</button>
-                                        <button id="tm-exp-theme-range-select" class="menu_button" style="padding: 3px 8px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;" title="连选：选中首尾已勾选主题之间的全部美化">连选</button>
-                                        <button id="tm-exp-theme-invert" class="menu_button" style="padding: 3px 8px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;">反选</button>
-                                    </div>
-                                </div>
-                                <div id="tm-exp-theme-list" style="max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 6px; background: rgba(255,255,255,0.01);">
-                                    ${allThemes.map(t => {
-                                        const themeName = t.name || t.value || '';
-                                        return `
-                                            <label class="tm-exp-theme-row" data-theme-name="${escapeHtml(themeName.toLowerCase())}" style="display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 6px; border-radius: 4px; cursor: pointer; user-select: none;">
-                                                <input type="checkbox" class="tm-exp-theme-cb" value="${escapeHtml(themeName)}" checked style="flex-shrink: 0;">
-                                                <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(themeName)}</span>
-                                            </label>
-                                        `;
-                                    }).join('')}
-                                </div>
-                            </div>
-                        </div>
-                    `;
-
-                    await callGenericPopup(exportDlgHtml, 'confirm', null, {
-                        title: '自定义备份导出',
-                        okButton: '确认导出',
-                        cancelButton: '取消',
-                        wide: true,
-                        onOpen: (popup) => {
-                            const dlg = popup.dlg;
-                            if (!dlg) return;
-
-                            const themeSubpanel = dlg.querySelector('#tm-exp-themes-subpanel');
-                            const themesModCb = dlg.querySelector('.tm-exp-mod-cb[data-mod-id="themes"]');
-                            const modCheckboxes = dlg.querySelectorAll('.tm-exp-mod-cb');
-                            const themeCheckboxes = dlg.querySelectorAll('.tm-exp-theme-cb');
-                            const themeCountBadge = dlg.querySelector('#tm-exp-theme-count-badge');
-                            const themeSearchInput = dlg.querySelector('#tm-exp-theme-search');
-                            const themeRows = dlg.querySelectorAll('.tm-exp-theme-row');
-
-                            const updateThemeCount = () => {
-                                const checkedCount = dlg.querySelectorAll('.tm-exp-theme-cb:checked').length;
-                                if (themeCountBadge) {
-                                    themeCountBadge.textContent = `已选: ${checkedCount} / ${allThemes.length}`;
-                                }
-                            };
-
-                            const updateThemesSubpanelVisibility = () => {
-                                if (themeSubpanel && themesModCb) {
-                                    themeSubpanel.style.display = themesModCb.checked ? 'block' : 'none';
-                                }
-                            };
-
-                            if (themesModCb) {
-                                themesModCb.addEventListener('change', updateThemesSubpanelVisibility);
-                            }
-
-                            // 模块全选/清空
-                            dlg.querySelector('#tm-exp-select-all-mod')?.addEventListener('click', () => {
-                                modCheckboxes.forEach(cb => { cb.checked = true; });
-                                updateThemesSubpanelVisibility();
-                            });
-                            dlg.querySelector('#tm-exp-clear-all-mod')?.addEventListener('click', () => {
-                                modCheckboxes.forEach(cb => { cb.checked = false; });
-                                updateThemesSubpanelVisibility();
-                            });
-
-                            // 主题搜索过滤
-                            if (themeSearchInput) {
-                                themeSearchInput.addEventListener('input', (e) => {
-                                    const kw = (e.target.value || '').trim().toLowerCase();
-                                    themeRows.forEach(row => {
-                                        const name = row.getAttribute('data-theme-name') || '';
-                                        row.style.display = (!kw || name.includes(kw)) ? 'flex' : 'none';
-                                    });
-                                });
-                            }
-
-                            // 主题全选/全不选/连选/反选
-                            dlg.querySelector('#tm-exp-theme-select-all')?.addEventListener('click', () => {
-                                themeCheckboxes.forEach(cb => {
-                                    const row = cb.closest('.tm-exp-theme-row');
-                                    if (row && row.style.display !== 'none') cb.checked = true;
-                                });
-                                updateThemeCount();
-                            });
-                            dlg.querySelector('#tm-exp-theme-unselect-all')?.addEventListener('click', () => {
-                                themeCheckboxes.forEach(cb => {
-                                    const row = cb.closest('.tm-exp-theme-row');
-                                    if (row && row.style.display !== 'none') cb.checked = false;
-                                });
-                                updateThemeCount();
-                            });
-                            dlg.querySelector('#tm-exp-theme-range-select')?.addEventListener('click', () => {
-                                const visibleRows = Array.from(themeRows).filter(row => row.style.display !== 'none');
-                                const selectedIndices = [];
-                                visibleRows.forEach((row, idx) => {
-                                    const cb = row.querySelector('.tm-exp-theme-cb');
-                                    if (cb && cb.checked) selectedIndices.push(idx);
-                                });
-
-                                if (selectedIndices.length < 2) {
-                                    toastr.info('请先至少勾选 2 个主题作为连选的【起点】和【终点】。');
-                                    return;
-                                }
-
-                                const start = selectedIndices[0];
-                                const end = selectedIndices[selectedIndices.length - 1];
-
-                                for (let i = start; i <= end; i++) {
-                                    const cb = visibleRows[i].querySelector('.tm-exp-theme-cb');
-                                    if (cb) cb.checked = true;
-                                }
-
-                                updateThemeCount();
-                                toastr.success(`连选成功！已覆盖区间内的 ${end - start + 1} 个主题。`);
-                            });
-                            dlg.querySelector('#tm-exp-theme-invert')?.addEventListener('click', () => {
-                                themeCheckboxes.forEach(cb => {
-                                    const row = cb.closest('.tm-exp-theme-row');
-                                    if (row && row.style.display !== 'none') cb.checked = !cb.checked;
-                                });
-                                updateThemeCount();
-                            });
-
-                            let lastExpCheckedIndex = -1;
-                            themeCheckboxes.forEach((cb, idx) => {
-                                cb.addEventListener('click', (e) => {
-                                    if (e.shiftKey && lastExpCheckedIndex !== -1 && lastExpCheckedIndex !== idx) {
-                                        const visibleRows = Array.from(themeRows).filter(row => row.style.display !== 'none');
-                                        const startIdx = Math.min(lastExpCheckedIndex, idx);
-                                        const endIdx = Math.max(lastExpCheckedIndex, idx);
-                                        const targetChecked = cb.checked;
-                                        for (let i = startIdx; i <= endIdx; i++) {
-                                            const targetCb = themeCheckboxes[i];
-                                            if (targetCb) targetCb.checked = targetChecked;
-                                        }
-                                    }
-                                    lastExpCheckedIndex = idx;
-                                    updateThemeCount();
-                                });
-                            });
-
-                            // 确认导出按钮事件
-                            const okBtn = dlg.querySelector('.popup-button-ok');
-                            if (okBtn) {
-                                okBtn.addEventListener('click', (e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-
-                                    const selectedModIds = Array.from(modCheckboxes).filter(cb => cb.checked).map(cb => cb.getAttribute('data-mod-id'));
-                                    const exportThemesMod = selectedModIds.includes('themes');
-                                    const selectedThemeNames = new Set(
-                                        exportThemesMod ? Array.from(themeCheckboxes).filter(cb => cb.checked).map(cb => cb.value) : []
-                                    );
-
-                                    if (selectedModIds.length === 0 || (exportThemesMod && selectedModIds.length === 1 && selectedThemeNames.size === 0)) {
-                                        toastr.warning('请至少选择一个模块或主题进行导出。');
-                                        return;
-                                    }
-
-                                    closePopup(popup);
-
-                                    // 执行导出打包
-                                    const themesToExport = exportThemesMod
-                                        ? allThemes.filter(t => selectedThemeNames.has(t.name || t.value))
-                                        : [];
-
-                                    const settingsSnapshot = {};
-                                    const keysToExport = new Set();
-                                    BACKUP_MODULE_DEFS.forEach(mod => {
-                                        if (selectedModIds.includes(mod.id) && mod.keys) {
-                                            mod.keys.forEach(k => keysToExport.add(k));
-                                        }
-                                    });
-
-                                    keysToExport.forEach(key => {
-                                        const val = localStorage.getItem(key);
-                                        if (val !== null) settingsSnapshot[key] = val;
-                                    });
-
-                                    const backup = {
-                                        _version: 2,
-                                        _type: 'themeManager_customBackup',
-                                        _exportedAt: new Date().toISOString(),
-                                        _modules: selectedModIds,
-                                        _themeCount: themesToExport.length,
-                                        themes: themesToExport,
-                                        settings: settingsSnapshot
-                                    };
-
-                                    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-                                    const filename = `theme_manager_backup_${ts}.json`;
-                                    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-                                    const url = URL.createObjectURL(blob);
-                                    const a = document.createElement('a');
-                                    a.href = url;
-                                    a.download = filename;
-                                    document.body.appendChild(a);
-                                    a.click();
-                                    document.body.removeChild(a);
-                                    URL.revokeObjectURL(url);
-
-                                    toastr.success(`备份导出成功！共 ${themesToExport.length} 个主题 + ${Object.keys(settingsSnapshot).length} 条配置。`, '备份导出');
-                                });
-                            }
-                        }
-                    });
-                }
-
-                // 打开自定义备份导入弹窗
-                async function openCustomImportModal(backup) {
-                    const themeList = Array.isArray(backup.themes) ? backup.themes : [];
-                    const settingsMap = (backup.settings && typeof backup.settings === 'object') ? backup.settings : (typeof backup === 'object' && !backup._type ? backup : {});
-
-                    // 判断备份包中实际包含哪些模块
-                    const availableModules = BACKUP_MODULE_DEFS.filter(mod => {
-                        if (mod.isThemes) return themeList.length > 0;
-                        if (mod.keys) {
-                            return mod.keys.some(k => settingsMap[k] !== undefined && settingsMap[k] !== null);
-                        }
-                        return false;
-                    });
-
-                    if (availableModules.length === 0 && themeList.length === 0 && Object.keys(settingsMap).length === 0) {
-                        toastr.error('该文件不包含任何可识别的美化主题或配置数据。');
-                        return;
-                    }
-
-                    const exportedDateStr = backup._exportedAt ? new Date(backup._exportedAt).toLocaleString('zh-CN') : '未知时间';
-
-                    const importDlgHtml = `
-                        <div class="tm-custom-backup-modal" style="max-height: 78vh; overflow-y: auto; overflow-x: hidden; padding: 4px 6px; box-sizing: border-box; text-align: left;">
-                            <style>
-                                .tm-custom-backup-modal .menu_button {
-                                    white-space: nowrap !important;
-                                    word-break: keep-all !important;
-                                    flex-shrink: 0 !important;
-                                    display: inline-flex !important;
-                                    align-items: center !important;
-                                    justify-content: center !important;
-                                    text-align: center !important;
-                                    min-width: max-content !important;
-                                    writing-mode: horizontal-tb !important;
-                                }
-                            </style>
-                            <div style="margin-bottom: 10px; font-size: 12px; opacity: 0.8; line-height: 1.5;">
-                                备份文件生成于：<b>${escapeHtml(exportedDateStr)}</b><br>
-                                请勾选本次需要恢复的数据模块（未勾选的模块将保持现状不变）：
-                            </div>
-
-                            <!-- 模块全选/清空快捷栏 -->
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 4px 2px; flex-wrap: wrap; gap: 8px;">
-                                <span style="font-weight: bold; font-size: 13px; color: var(--SmartThemeQuoteColor, #4a90e2); white-space: nowrap; flex-shrink: 0;">
-                                    <i class="fa-solid fa-cubes" style="margin-right: 4px;"></i> 待恢复模块
-                                </span>
-                                <div style="display: flex; flex-direction: row; gap: 8px; flex-shrink: 0; align-items: center;">
-                                    <button id="tm-imp-select-all-mod" class="menu_button" style="padding: 3px 10px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;"><i class="fa-solid fa-check-double" style="margin-right: 4px;"></i>全选模块</button>
-                                    <button id="tm-imp-clear-all-mod" class="menu_button" style="padding: 3px 10px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;"><i class="fa-solid fa-xmark" style="margin-right: 4px;"></i>清空模块</button>
-                                </div>
-                            </div>
-
-                            <!-- 可用模块复选框列表 -->
-                            <div id="tm-imp-modules-container" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px;">
-                                ${availableModules.map(mod => `
-                                    <label class="tm-mod-card" style="display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; cursor: pointer;">
-                                        <input type="checkbox" class="tm-imp-mod-cb" data-mod-id="${mod.id}" checked style="margin-top: 3px; flex-shrink: 0;">
-                                        <div style="flex: 1; min-width: 0;">
-                                            <div style="font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                                                <i class="${mod.icon}" style="color: var(--SmartThemeQuoteColor, #4a90e2); flex-shrink: 0;"></i>
-                                                <span style="white-space: nowrap;">${escapeHtml(mod.name)}</span>
-                                                ${mod.isThemes ? `<span style="font-size: 11px; opacity: 0.7; font-weight: normal; white-space: nowrap;">(备份包内含 ${themeList.length} 个主题)</span>` : ''}
-                                            </div>
-                                            <div style="font-size: 11.5px; opacity: 0.65; margin-top: 2px;">
-                                                ${escapeHtml(mod.desc)}
-                                            </div>
-                                        </div>
-                                    </label>
-                                `).join('')}
-                            </div>
-
-                            <!-- 主题精细选择容器（若包含主题） -->
-                            ${themeList.length > 0 ? `
-                                <div id="tm-imp-themes-subpanel" style="border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 10px; background: rgba(0,0,0,0.15); margin-bottom: 14px;">
-                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
-                                        <span style="font-weight: bold; font-size: 12.5px; display: flex; align-items: center; gap: 6px; white-space: nowrap;">
-                                            <i class="fa-solid fa-list-check" style="color: var(--SmartThemeQuoteColor, #4a90e2);"></i> 勾选需要恢复导入的美化主题
-                                        </span>
-                                        <span id="tm-imp-theme-count-badge" style="font-size: 11.5px; opacity: 0.75; white-space: nowrap;">已选: ${themeList.length} / ${themeList.length}</span>
-                                    </div>
-                                    <div style="display: flex; gap: 6px; margin-bottom: 8px; align-items: center; flex-wrap: wrap;">
-                                        <input type="text" id="tm-imp-theme-search" class="text_pole" placeholder="搜索主题名称..." style="flex: 1 1 140px; min-width: 110px; height: 28px; font-size: 11.5px; padding: 2px 8px; margin: 0; box-sizing: border-box;">
-                                        <div style="display: flex; flex-direction: row; gap: 6px; flex-shrink: 0; align-items: center;">
-                                            <button id="tm-imp-theme-select-all" class="menu_button" style="padding: 3px 8px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;">全选</button>
-                                            <button id="tm-imp-theme-unselect-all" class="menu_button" style="padding: 3px 8px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;">全不选</button>
-                                            <button id="tm-imp-theme-range-select" class="menu_button" style="padding: 3px 8px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;" title="连选：选中首尾已勾选主题之间的全部美化">连选</button>
-                                            <button id="tm-imp-theme-invert" class="menu_button" style="padding: 3px 8px; font-size: 11.5px; white-space: nowrap; flex-shrink: 0;">反选</button>
-                                        </div>
-                                    </div>
-                                    <div id="tm-imp-theme-list" style="max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 6px; background: rgba(255,255,255,0.01);">
-                                        ${themeList.map(t => {
-                                            const themeName = t.name || t.value || '';
-                                            return `
-                                                <label class="tm-imp-theme-row" data-theme-name="${escapeHtml(themeName.toLowerCase())}" style="display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 6px; border-radius: 4px; cursor: pointer; user-select: none;">
-                                                    <input type="checkbox" class="tm-imp-theme-cb" value="${escapeHtml(themeName)}" checked style="flex-shrink: 0;">
-                                                    <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(themeName)}</span>
-                                                </label>
-                                            `;
-                                        }).join('')}
-                                    </div>
-                                </div>
-                            ` : ''}
-                        </div>
-                    `;
-
-                    await callGenericPopup(importDlgHtml, 'confirm', null, {
-                        title: '选择性备份恢复导入',
-                        okButton: '确认导入',
-                        cancelButton: '取消',
-                        wide: true,
-                        onOpen: (popup) => {
-                            const dlg = popup.dlg;
-                            if (!dlg) return;
-
-                            const themeSubpanel = dlg.querySelector('#tm-imp-themes-subpanel');
-                            const themesModCb = dlg.querySelector('.tm-imp-mod-cb[data-mod-id="themes"]');
-                            const modCheckboxes = dlg.querySelectorAll('.tm-imp-mod-cb');
-                            const themeCheckboxes = dlg.querySelectorAll('.tm-imp-theme-cb');
-                            const themeCountBadge = dlg.querySelector('#tm-imp-theme-count-badge');
-                            const themeSearchInput = dlg.querySelector('#tm-imp-theme-search');
-                            const themeRows = dlg.querySelectorAll('.tm-imp-theme-row');
-
-                            const updateThemeCount = () => {
-                                const checkedCount = dlg.querySelectorAll('.tm-imp-theme-cb:checked').length;
-                                if (themeCountBadge) {
-                                    themeCountBadge.textContent = `已选: ${checkedCount} / ${themeList.length}`;
-                                }
-                            };
-
-                            const updateThemesSubpanelVisibility = () => {
-                                if (themeSubpanel && themesModCb) {
-                                    themeSubpanel.style.display = themesModCb.checked ? 'block' : 'none';
-                                }
-                            };
-
-                            if (themesModCb) {
-                                themesModCb.addEventListener('change', updateThemesSubpanelVisibility);
-                            }
-
-                            // 模块全选/清空
-                            dlg.querySelector('#tm-imp-select-all-mod')?.addEventListener('click', () => {
-                                modCheckboxes.forEach(cb => { cb.checked = true; });
-                                updateThemesSubpanelVisibility();
-                            });
-                            dlg.querySelector('#tm-imp-clear-all-mod')?.addEventListener('click', () => {
-                                modCheckboxes.forEach(cb => { cb.checked = false; });
-                                updateThemesSubpanelVisibility();
-                            });
-
-                            // 主题搜索过滤
-                            if (themeSearchInput) {
-                                themeSearchInput.addEventListener('input', (e) => {
-                                    const kw = (e.target.value || '').trim().toLowerCase();
-                                    themeRows.forEach(row => {
-                                        const name = row.getAttribute('data-theme-name') || '';
-                                        row.style.display = (!kw || name.includes(kw)) ? 'flex' : 'none';
-                                    });
-                                });
-                            }
-
-                            // 主题全选/全不选/连选/反选
-                            dlg.querySelector('#tm-imp-theme-select-all')?.addEventListener('click', () => {
-                                themeCheckboxes.forEach(cb => {
-                                    const row = cb.closest('.tm-imp-theme-row');
-                                    if (row && row.style.display !== 'none') cb.checked = true;
-                                });
-                                updateThemeCount();
-                            });
-                            dlg.querySelector('#tm-imp-theme-unselect-all')?.addEventListener('click', () => {
-                                themeCheckboxes.forEach(cb => {
-                                    const row = cb.closest('.tm-imp-theme-row');
-                                    if (row && row.style.display !== 'none') cb.checked = false;
-                                });
-                                updateThemeCount();
-                            });
-                            dlg.querySelector('#tm-imp-theme-range-select')?.addEventListener('click', () => {
-                                const visibleRows = Array.from(themeRows).filter(row => row.style.display !== 'none');
-                                const selectedIndices = [];
-                                visibleRows.forEach((row, idx) => {
-                                    const cb = row.querySelector('.tm-imp-theme-cb');
-                                    if (cb && cb.checked) selectedIndices.push(idx);
-                                });
-
-                                if (selectedIndices.length < 2) {
-                                    toastr.info('请先至少勾选 2 个主题作为连选的【起点】和【终点】。');
-                                    return;
-                                }
-
-                                const start = selectedIndices[0];
-                                const end = selectedIndices[selectedIndices.length - 1];
-
-                                for (let i = start; i <= end; i++) {
-                                    const cb = visibleRows[i].querySelector('.tm-imp-theme-cb');
-                                    if (cb) cb.checked = true;
-                                }
-
-                                updateThemeCount();
-                                toastr.success(`连选成功！已覆盖区间内的 ${end - start + 1} 个主题。`);
-                            });
-                            dlg.querySelector('#tm-imp-theme-invert')?.addEventListener('click', () => {
-                                themeCheckboxes.forEach(cb => {
-                                    const row = cb.closest('.tm-imp-theme-row');
-                                    if (row && row.style.display !== 'none') cb.checked = !cb.checked;
-                                });
-                                updateThemeCount();
-                            });
-
-                            let lastImpCheckedIndex = -1;
-                            themeCheckboxes.forEach((cb, idx) => {
-                                cb.addEventListener('click', (e) => {
-                                    if (e.shiftKey && lastImpCheckedIndex !== -1 && lastImpCheckedIndex !== idx) {
-                                        const visibleRows = Array.from(themeRows).filter(row => row.style.display !== 'none');
-                                        const startIdx = Math.min(lastImpCheckedIndex, idx);
-                                        const endIdx = Math.max(lastImpCheckedIndex, idx);
-                                        const targetChecked = cb.checked;
-                                        for (let i = startIdx; i <= endIdx; i++) {
-                                            const targetCb = themeCheckboxes[i];
-                                            if (targetCb) targetCb.checked = targetChecked;
-                                        }
-                                    }
-                                    lastImpCheckedIndex = idx;
-                                    updateThemeCount();
-                                });
-                            });
-
-                            // 确认导入按钮事件
-                            const okBtn = dlg.querySelector('.popup-button-ok');
-                            if (okBtn) {
-                                okBtn.addEventListener('click', async (e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-
-                                    const selectedModIds = Array.from(modCheckboxes).filter(cb => cb.checked).map(cb => cb.getAttribute('data-mod-id'));
-                                    const importThemesMod = selectedModIds.includes('themes');
-                                    const selectedThemeNames = new Set(
-                                        importThemesMod ? Array.from(themeCheckboxes).filter(cb => cb.checked).map(cb => cb.value) : []
-                                    );
-
-                                    if (selectedModIds.length === 0 || (importThemesMod && selectedModIds.length === 1 && selectedThemeNames.size === 0)) {
-                                        toastr.warning('请至少选择一个需要恢复的模块或主题。');
-                                        return;
-                                    }
-
-                                    closePopup(popup);
-                                    showLoader();
-
-                                    try {
-                                        let themeOk = 0, themeFail = 0;
-                                        const themesToImport = importThemesMod
-                                            ? themeList.filter(t => selectedThemeNames.has(t.name || t.value))
-                                            : [];
-
-                                        // 1. 写入选中的主题文件（带并发限制）
-                                        if (themesToImport.length > 0) {
-                                            await limitConcurrency(4, themesToImport, async (themeObj) => {
-                                                if (!themeObj || !themeObj.name) { themeFail++; return; }
-                                                try {
-                                                    const { mtime: _m, ...cleanObj } = themeObj;
-                                                    await apiRequest('themes/save', 'POST', cleanObj, true);
-                                                    allThemeObjectsMap.set(themeObj.name, themeObj);
-                                                    recordThemeMtime(themeObj.name, Date.now());
-                                                    themeOk++;
-                                                } catch (err) {
-                                                    console.error(`[Theme Manager] 恢复主题失败 "${themeObj.name}":`, err);
-                                                    themeFail++;
-                                                }
-                                            });
-                                        }
-
-                                        // 2. 写入选中的配置模块
-                                        const keysToRestore = new Set();
-                                        BACKUP_MODULE_DEFS.forEach(mod => {
-                                            if (selectedModIds.includes(mod.id) && mod.keys) {
-                                                mod.keys.forEach(k => keysToRestore.add(k));
-                                            }
-                                        });
-
-                                        let settingsCount = 0;
-                                        keysToRestore.forEach(key => {
-                                            if (settingsMap[key] !== undefined && settingsMap[key] !== null) {
-                                                localStorage.setItem(key, settingsMap[key]);
-                                                settingsCount++;
-                                            }
-                                        });
-
-                                        // 3. 热更新内存变量
-                                        invalidateTagsCache();
-                                        invalidateThemesCache();
-                                        isTwoLineLayout = localStorage.getItem(TWO_LINE_LAYOUT_KEY) === 'true';
-                                        hideTagPills = localStorage.getItem(HIDE_TAG_PILLS_KEY) === 'true';
-                                        tagPillDisplayMode = localStorage.getItem(TAG_PILL_MODE_KEY) || (hideTagPills ? 'none' : 'all');
-                                        showUsageCount = localStorage.getItem(SHOW_USAGE_COUNT_KEY) === 'true';
-                                        enableAvatarHelper = localStorage.getItem(ENABLE_AVATAR_HELPER_KEY) !== 'false';
-                                        enableColorTransfer = localStorage.getItem(ENABLE_COLOR_TRANSFER_KEY) === 'true';
-                                        enableDayNightBinding = localStorage.getItem(ENABLE_DAYNIGHT_BINDING_KEY) !== 'false';
-                                        enableReplaceAvatarBtn = localStorage.getItem(ENABLE_REPLACE_AVATAR_BTN_KEY) !== 'false';
-                                        tagFilterMode = localStorage.getItem(TAG_FILTER_MODE_KEY) || 'or';
-                                        try { usageCount = JSON.parse(localStorage.getItem(USAGE_COUNT_KEY)) || {}; } catch (e) {}
-                                        try { favorites = JSON.parse(localStorage.getItem(FAVORITES_KEY)) || []; favoritesSet = new Set(favorites); } catch (e) {}
-                                        themeDayNightPairs = loadThemeDayNightPairs();
-                                        try { autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || autoThemeSettings; } catch (e) {}
-                                        themeBackgroundBindings = JSON.parse(localStorage.getItem(THEME_BACKGROUND_BINDINGS_KEY)) || {};
-
-                                        // 4. 更新 ST 原生下拉框
-                                        if (themesToImport.length > 0) {
-                                            _suspendObserver = true;
-                                            try {
-                                                themesToImport.forEach(themeObj => {
-                                                    if (!themeObj || !themeObj.name) return;
-                                                    updateSTThemeMemory(themeObj, 'add');
-                                                    if (!findOptionByValue(originalSelect, themeObj.name)) {
-                                                        const opt = document.createElement('option');
-                                                        opt.value = themeObj.name;
-                                                        opt.textContent = themeObj.name;
-                                                        originalSelect.appendChild(opt);
-                                                    }
-                                                    stKnownThemes.add(themeObj.name);
-                                                });
-                                                syncStKnownThemes();
-                                            } finally {
-                                                setTimeout(() => { _suspendObserver = false; }, 0);
-                                            }
-                                        }
-
-                                        // 5. 重建标签索引与 UI
-                                        applyKeywordMappings();
-                                        const freshTags = loadThemeTags();
-                                        buildThemeTagIndex(freshTags);
-                                        if (contentWrapper) {
-                                            contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
-                                            contentWrapper.classList.toggle('hide-tag-pills', hideTagPills);
-                                        }
-                                        document.dispatchEvent(new CustomEvent('themeManager:enableAvatarHelperChanged', { detail: enableAvatarHelper }));
-                                        updateManualToggleBtnVisibility();
-                                        if (enableReplaceAvatarBtn) { registerReplaceImageButtons(); } else { removeReplaceImageButtons(); }
-
-                                        // 6. 重建全量 UI
-                                        await buildThemeUI();
-                                        updateActiveState();
-                                        if (typeof checkAutoTheme === 'function') checkAutoTheme();
-
-                                        let summary = `备份恢复完成！`;
-                                        if (importThemesMod) summary += ` 主题：成功 ${themeOk} 个${themeFail > 0 ? ` (失败 ${themeFail})` : ''}；`;
-                                        summary += ` 配置恢复：${settingsCount} 条。`;
-
-                                        if (themeFail > 0) {
-                                            toastr.warning(summary, '恢复完成');
-                                        } else {
-                                            toastr.success(summary, '恢复完成');
-                                        }
-                                    } catch (err) {
-                                        console.error('[Theme Manager] 恢复备份发生异常:', err);
-                                        toastr.error('导入恢复发生异常: ' + (err.message || err));
-                                    } finally {
-                                        hideLoader();
-                                    }
-                                });
-                            }
-                        }
-                    });
-                }
-
-                // 文件选择处理器
-                async function handleBackupFileInputChange(event) {
-                    const file = event.target.files[0];
-                    if (!file) return;
-
-                    try {
-                        const content = await file.text();
-                        const backup = JSON.parse(content);
-                        await openCustomImportModal(backup);
-                    } catch (err) {
-                        console.error('[Theme Manager] 解析备份文件失败:', err);
-                        toastr.error(`解析备份文件失败，文件可能已损坏或格式不正确。错误: ${err.message}`);
-                    } finally {
-                        event.target.value = '';
-                    }
-                }
-
-                // ===================== 全量备份文件输入控件 =====================
-                const fullBackupFileInput = document.createElement('input');
-                fullBackupFileInput.type = 'file';
-                fullBackupFileInput.accept = '.json';
-                fullBackupFileInput.style.display = 'none';
-                document.body.appendChild(fullBackupFileInput);
-                fullBackupFileInput.addEventListener('change', handleBackupFileInputChange);
-
-                function exportSettings() {
-                    const settingsToExport = {};
-                    settingsKeysToSync.forEach(key => {
-                        const value = localStorage.getItem(key);
-                        if (value !== null) {
-                            settingsToExport[key] = value;
-                        }
-                    });
-
-                    const blob = new Blob([JSON.stringify(settingsToExport, null, 2)], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'theme_manager_config.json';
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                    toastr.success('配置已成功导出！');
-                }
-
-                async function importSettings(event) {
-                    const file = event.target.files[0];
-                    if (!file) return;
-
-                    try {
-                        const content = await file.text();
-                        const settingsToImport = JSON.parse(content);
-
-                        let importCount = 0;
-                        for (const key in settingsToImport) {
-                            if (settingsKeysToSync.includes(key)) {
-                                localStorage.setItem(key, settingsToImport[key]);
-                                importCount++;
-                            }
-                        }
-
-                        toastr.success(`成功导入 ${importCount} 条配置！`, '导入成功 (已实时热更新)');
-
-                        // 1. 刷新缓存
+                let openCustomExportModal = () => {};
+                let openCustomImportModal = () => {};
+                let triggerFullImport = () => {};
+
+                const { initBackupManager, BACKUP_MODULE_DEFS } = await import(`${baseDir}modules/backup-manager.js`);
+                const backupModule = initBackupManager({
+                    getAllThemesFromAPI,
+                    apiRequest,
+                    allThemeObjectsMap,
+                    recordThemeMtime,
+                    showLoader,
+                    hideLoader,
+                    callGenericPopup,
+                    closePopup,
+                    escapeHtml,
+                    limitConcurrency,
+                    onRestoreComplete: async ({ themesToImport, importThemesMod, themeOk, themeFail, settingsCount }) => {
+                        // 3. 热更新内存变量
                         invalidateTagsCache();
                         invalidateThemesCache();
-
-                        // 2. 重新加载内存中的全局变量 (实现无需刷新的热更新)
                         isTwoLineLayout = localStorage.getItem(TWO_LINE_LAYOUT_KEY) === 'true';
                         hideTagPills = localStorage.getItem(HIDE_TAG_PILLS_KEY) === 'true';
                         tagPillDisplayMode = localStorage.getItem(TAG_PILL_MODE_KEY) || (hideTagPills ? 'none' : 'all');
                         showUsageCount = localStorage.getItem(SHOW_USAGE_COUNT_KEY) === 'true';
-                        enableAvatarHelper = localStorage.getItem(ENABLE_AVATAR_HELPER_KEY) === 'true';
+                        enableAvatarHelper = localStorage.getItem(ENABLE_AVATAR_HELPER_KEY) !== 'false';
                         enableColorTransfer = localStorage.getItem(ENABLE_COLOR_TRANSFER_KEY) === 'true';
                         enableDayNightBinding = localStorage.getItem(ENABLE_DAYNIGHT_BINDING_KEY) !== 'false';
-                        enableReplaceAvatarBtn = localStorage.getItem(ENABLE_REPLACE_AVATAR_BTN_KEY) === 'true';
+                        enableReplaceAvatarBtn = localStorage.getItem(ENABLE_REPLACE_AVATAR_BTN_KEY) !== 'false';
                         tagFilterMode = localStorage.getItem(TAG_FILTER_MODE_KEY) || 'or';
+                        try { usageCount = JSON.parse(localStorage.getItem(USAGE_COUNT_KEY)) || {}; } catch (e) {}
+                        try { favorites = JSON.parse(localStorage.getItem(FAVORITES_KEY)) || []; favoritesSet = new Set(favorites); } catch (e) {}
+                        themeDayNightPairs = loadThemeDayNightPairs();
+                        try { autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || autoThemeSettings; } catch (e) {}
+                        themeBackgroundBindings = JSON.parse(localStorage.getItem(THEME_BACKGROUND_BINDINGS_KEY)) || {};
 
-                        if (localStorage.getItem(USAGE_COUNT_KEY)) {
+                        // 4. 更新 ST 原生下拉框
+                        if (themesToImport.length > 0) {
+                            _suspendObserver = true;
                             try {
-                                usageCount = JSON.parse(localStorage.getItem(USAGE_COUNT_KEY)) || {};
-                            } catch (e) { }
-                        }
-                        if (localStorage.getItem(FAVORITES_KEY)) {
-                            try {
-                                favorites = JSON.parse(localStorage.getItem(FAVORITES_KEY)) || [];
-                                favoritesSet = new Set(favorites);
-                            } catch (e) { }
-                        }
-                        if (localStorage.getItem(THEME_DAY_NIGHT_PAIRS_KEY)) {
-                            themeDayNightPairs = loadThemeDayNightPairs();
-                        }
-                        if (localStorage.getItem(AUTO_THEME_KEY)) {
-                            try {
-                                autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || autoThemeSettings;
-                            } catch (e) { }
+                                themesToImport.forEach(themeObj => {
+                                    if (!themeObj || !themeObj.name) return;
+                                    updateSTThemeMemory(themeObj, 'add');
+                                    if (!findOptionByValue(originalSelect, themeObj.name)) {
+                                        const opt = document.createElement('option');
+                                        opt.value = themeObj.name;
+                                        opt.textContent = themeObj.name;
+                                        originalSelect.appendChild(opt);
+                                    }
+                                    stKnownThemes.add(themeObj.name);
+                                });
+                                syncStKnownThemes();
+                            } finally {
+                                setTimeout(() => { _suspendObserver = false; }, 0);
+                            }
                         }
 
-                        // 3. 应用关键词自动映射
+                        // 5. 重建标签索引与 UI
                         applyKeywordMappings();
-
-                        // 4. 重新构建标签与主题关联索引
                         const freshTags = loadThemeTags();
                         buildThemeTagIndex(freshTags);
-                        if (allParsedThemes && allParsedThemes.length > 0) {
-                            allParsedThemes.forEach(t => {
-                                t.tags = getTagsForTheme(t.value, freshTags);
-                            });
-                        }
-
-                        // 5. 更新容器 Layout Class
                         if (contentWrapper) {
                             contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
                             contentWrapper.classList.toggle('hide-tag-pills', hideTagPills);
                         }
-
-                        // 6. 派发事件与更新扩展辅助模块
                         document.dispatchEvent(new CustomEvent('themeManager:enableAvatarHelperChanged', { detail: enableAvatarHelper }));
                         updateManualToggleBtnVisibility();
+                        if (enableReplaceAvatarBtn) { registerReplaceImageButtons(); } else { removeReplaceImageButtons(); }
 
-                        if (enableReplaceAvatarBtn) {
-                            registerReplaceImageButtons();
-                        } else {
-                            removeReplaceImageButtons();
-                        }
-
-                        // 7. 更新已渲染卡片的局部按钮与状态
-                        themeItemMap.forEach((item, themeName) => {
-                            const colorBtn = item.querySelector('.color-transfer-btn');
-                            if (colorBtn) colorBtn.style.display = enableColorTransfer ? 'inline-flex' : 'none';
-
-                            const daynightBtn = item.querySelector('.link-daynight-btn');
-                            if (daynightBtn) daynightBtn.style.display = enableDayNightBinding ? 'inline-flex' : 'none';
-
-                            const usageSpan = item.querySelector('.theme-usage-count');
-                            if (usageSpan) {
-                                if (showUsageCount && usageCount[themeName]) {
-                                    usageSpan.textContent = usageCount[themeName];
-                                    usageSpan.style.display = '';
-                                } else {
-                                    usageSpan.style.display = 'none';
-                                }
-                            }
-
-                            updateThemeItemDayNightState(themeName);
-                        });
-
-                        // 8. 若高级设置弹窗已打开，同步更新弹窗内部按钮控件状态
-                        const settingsDlg = document.querySelector('.tm-settings-popup');
-                        if (settingsDlg) {
-                            const btnTwoLine = settingsDlg.querySelector('#tm-pop-toggle-twoline');
-                            if (btnTwoLine) {
-                                btnTwoLine.classList.toggle('active', isTwoLineLayout);
-                                btnTwoLine.innerHTML = `<i class="fa-solid fa-align-left"></i> 换行排版 (${isTwoLineLayout ? '开启' : '关闭'})`;
-                            }
-                            const btnUsage = settingsDlg.querySelector('#tm-pop-toggle-usage');
-                            if (btnUsage) {
-                                btnUsage.classList.toggle('active', showUsageCount);
-                                btnUsage.innerHTML = `<i class="fa-solid fa-chart-bar"></i> 使用统计 (${showUsageCount ? '开启' : '关闭'})`;
-                            }
-                            const btnDayNight = settingsDlg.querySelector('#tm-pop-toggle-daynight');
-                            if (btnDayNight) {
-                                btnDayNight.classList.toggle('active', enableDayNightBinding);
-                                btnDayNight.innerHTML = `<i class="fa-solid fa-circle-half-stroke"></i> 日夜图标 (${enableDayNightBinding ? '开启' : '关闭'})`;
-                            }
-                            const btnReplace = settingsDlg.querySelector('#tm-pop-toggle-replace');
-                            if (btnReplace) {
-                                btnReplace.classList.toggle('active', enableReplaceAvatarBtn);
-                                btnReplace.innerHTML = `<i class="fa-solid fa-check"></i> 详情页替换 (${enableReplaceAvatarBtn ? '开启' : '关闭'})`;
-                            }
-                            const btnAvatar = settingsDlg.querySelector('#tm-pop-toggle-avatar');
-                            if (btnAvatar) {
-                                btnAvatar.classList.toggle('active', enableAvatarHelper);
-                                btnAvatar.innerHTML = `<i class="fa-solid fa-user-gear"></i> 头像管理 (${enableAvatarHelper ? '开启' : '关闭'})`;
-                            }
-                            const btnColor = settingsDlg.querySelector('#tm-pop-toggle-color');
-                            if (btnColor) {
-                                btnColor.classList.toggle('active', enableColorTransfer);
-                                btnColor.innerHTML = `<i class="fa-solid fa-palette"></i> 提取配色 (${enableColorTransfer ? '开启' : '关闭'})`;
-                            }
-                            const selectPillMode = settingsDlg.querySelector('#tm-pop-select-tag-pill-mode');
-                            if (selectPillMode) {
-                                selectPillMode.value = tagPillDisplayMode;
-                                const iconMap = {
-                                    'all': 'fa-solid fa-tags',
-                                    'l1': 'fa-solid fa-folder-tree',
-                                    'l2': 'fa-solid fa-tag',
-                                    'none': 'fa-solid fa-eye-slash'
-                                };
-                                const iconEl = settingsDlg.querySelector('#tm-pill-mode-icon');
-                                if (iconEl) iconEl.className = iconMap[tagPillDisplayMode] || 'fa-solid fa-tags';
-                            }
-                        }
-
-                        // 9. 刷新 UI 与激活状态
-                        softRefreshUI();
+                        // 6. 重建全量 UI
+                        await buildThemeUI();
                         updateActiveState();
-
-                        if (typeof checkAutoTheme === 'function') {
-                            checkAutoTheme();
-                        }
-
-                    } catch (error) {
-                        console.error('导入配置失败:', error);
-                        toastr.error(`导入失败，文件可能已损坏或格式不正确。错误: ${error.message}`);
-                    } finally {
-                        event.target.value = ''; // 确保总是重置文件输入
+                        if (typeof checkAutoTheme === 'function') checkAutoTheme();
                     }
+                });
+                openCustomExportModal = backupModule.openCustomExportModal;
+                openCustomImportModal = backupModule.openCustomImportModal;
+                triggerFullImport = backupModule.triggerFullImport;
+                const fullBackupFileInput = { click: () => triggerFullImport() };
+
+                let exportSettings = () => {};
+                let importSettings = () => {};
+                let openResetSystemModal = () => {};
+                let openSettingsPopup = () => {};
+
+                try {
+                    const { initSettingsManager } = await import(`${baseDir}modules/settings-manager.js`);
+                    const smModule = initSettingsManager({
+                        settingsKeysToSync,
+                        callGenericPopup,
+                        closePopup,
+                        toastr,
+                        invalidateTagsCache,
+                        invalidateThemesCache,
+                        loadThemeTags,
+                        buildThemeTagIndex,
+                        applyKeywordMappings: () => applyKeywordMappings(),
+                        loadThemeDayNightPairs,
+                        getTagsForTheme: (v, t) => getTagsForTheme(v, t),
+                        getAllParsedThemes: () => allParsedThemes,
+                        getContentWrapper: () => contentWrapper,
+                        getThemeItemMap: () => themeItemMap,
+                        getUsageCount: () => usageCount,
+                        updateThemeItemDayNightState: (name) => updateThemeItemDayNightState(name),
+                        softRefreshUI: () => softRefreshUI(),
+                        updateActiveState: () => updateActiveState(),
+                        checkAutoTheme: () => { if (typeof checkAutoTheme === 'function') checkAutoTheme(); },
+                        updateManualToggleBtnVisibility: () => updateManualToggleBtnVisibility(),
+                        registerReplaceImageButtons,
+                        removeReplaceImageButtons,
+                        openCustomExportModal: () => openCustomExportModal(),
+                        getSettingsFileInput: () => settingsFileInput,
+                        getFullBackupFileInput: () => fullBackupFileInput,
+                        hardResyncThemes: (showToast) => hardResyncThemes(showToast),
+                        getFavorites: () => favorites,
+                        setFavorites: (favs) => { favorites = favs; favoritesSet = new Set(favs); },
+                        setAutoThemeSettings: (ats) => { autoThemeSettings = ats; },
+                        getAutoThemeSettings: () => autoThemeSettings,
+                        keys: {
+                            TWO_LINE_LAYOUT_KEY,
+                            TAG_PILL_MODE_KEY,
+                            HIDE_TAG_PILLS_KEY,
+                            SHOW_USAGE_COUNT_KEY,
+                            ENABLE_DAYNIGHT_BINDING_KEY,
+                            ENABLE_REPLACE_AVATAR_BTN_KEY,
+                            ENABLE_AVATAR_HELPER_KEY,
+                            ENABLE_COLOR_TRANSFER_KEY,
+                            TAG_FILTER_MODE_KEY,
+                            USAGE_COUNT_KEY,
+                            FAVORITES_KEY,
+                            THEME_DAY_NIGHT_PAIRS_KEY,
+                            AUTO_THEME_KEY
+                        }
+                    });
+                    exportSettings = smModule.exportSettings;
+                    importSettings = smModule.importSettings;
+                    openResetSystemModal = smModule.openResetSystemModal;
+                    openSettingsPopup = smModule.openSettingsPopup;
+                } catch (e) {
+                    console.error('[Theme Manager] 设置管理模块加载失败:', e);
                 }
+
 
                 settingsFileInput.addEventListener('change', importSettings);
 
@@ -4650,13 +2721,6 @@
                 // ---------- 功能结束 ----------
 
                 // ^^^^^^^^^^^^ 新增代码 ^^^^^^^^^^^^ -->
-
-                function updateManualToggleBtnVisibility() {
-                    const btn = managerPanel.querySelector('#tm-quick-manual-toggle-btn');
-                    if (btn) {
-                        btn.style.display = autoThemeSettings.enableManualToggle ? 'inline-flex' : 'none';
-                    }
-                }
 
                 header.addEventListener('click', (e) => {
                     if (e.target.closest('#native-buttons-container')) return;
@@ -4804,97 +2868,24 @@
                     });
                 }
 
-                // 替换卡图按键开启/禁用 toggle 及按键注入逻辑
-                function removeReplaceImageButtons() {
-                    $('#theme-manager-char-replace-image-btn, .theme-manager-char-replace-image-btn').remove();
-                    $('#theme-manager-user-replace-image-btn, .theme-manager-user-replace-image-btn').remove();
-                }
+                // ==========================================================
+                // ========= 替换卡图/头像按钮注入 (模块化: modules/avatar-replace.js) =========
+                // ==========================================================
+                let removeReplaceImageButtons = () => {};
+                let registerReplaceImageButtons = () => {};
 
-                function registerReplaceImageButtons() {
-                    if (localStorage.getItem(ENABLE_REPLACE_AVATAR_BTN_KEY) === 'false') {
-                        removeReplaceImageButtons();
-                        return;
-                    }
-
-                    // 极速短路：若角色卡与用户两处替换按钮均已挂载，微秒级直接返回，消除每秒定时器无谓的 DOM 深度扫描
-                    const charBtnExists = document.getElementById('theme-manager-char-replace-image-btn');
-                    const userBtnExists = document.getElementById('theme-manager-user-replace-image-btn');
-                    if (charBtnExists && userBtnExists) return;
-
-                    // 1. 角色卡详情页替换卡图按钮
-                    $('.form_create_bottom_buttons_block').each(function() {
-                        const $container = $(this);
-                        if ($container.find('#theme-manager-char-replace-image-btn').length === 0) {
-                            const $btn = $('<div>', {
-                                id: 'theme-manager-char-replace-image-btn',
-                                class: 'menu_button fa-solid fa-file-image theme-manager-char-replace-image-btn',
-                                title: '替换角色卡图片',
-                                'data-i18n': '[title]替换角色卡图片'
-                            }).on('click', function(e) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                const addAvatarBtn = document.getElementById('add_avatar_button');
-                                if (addAvatarBtn) {
-                                    addAvatarBtn.click();
-                                } else {
-                                    toastr.warning('未找到角色卡头像上传组件。');
-                                }
-                            });
-
-                            const $deleteBtn = $container.find('#delete_button');
-                            if ($deleteBtn.length > 0) {
-                                $btn.insertBefore($deleteBtn);
-                            } else {
-                                $container.append($btn);
-                            }
-                        }
+                try {
+                    const { initAvatarReplace } = await import(`${baseDir}modules/avatar-replace.js`);
+                    const avatarReplaceModule = initAvatarReplace({
+                        ENABLE_REPLACE_AVATAR_BTN_KEY,
+                        toastr
                     });
-
-                    // 2. 用户详情页替换头像按钮
-                    $('.persona_controls_buttons_block').each(function() {
-                        const $container = $(this);
-                        if ($container.find('#theme-manager-user-replace-image-btn').length === 0) {
-                            const $btn = $('<div>', {
-                                id: 'theme-manager-user-replace-image-btn',
-                                class: 'menu_button fa-solid fa-file-image theme-manager-user-replace-image-btn',
-                                title: '替换用户头像图片',
-                                'data-i18n': '[title]替换用户头像图片'
-                            }).on('click', function(e) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                const personaSetImgBtn = document.getElementById('persona_set_image_button');
-                                if (personaSetImgBtn) {
-                                    personaSetImgBtn.click();
-                                } else {
-                                    const userAvatarInput = document.getElementById('avatar_upload_file');
-                                    const userAvatarOverwrite = document.getElementById('avatar_upload_overwrite');
-                                    if (userAvatarInput && userAvatarOverwrite) {
-                                        const currentPersona = typeof user_avatar !== 'undefined' ? user_avatar : '';
-                                        userAvatarOverwrite.value = currentPersona;
-                                        userAvatarInput.click();
-                                    } else {
-                                        toastr.warning('未找到用户头像上传组件。');
-                                    }
-                                }
-                            });
-
-                            const $deletePersonaBtn = $container.find('#persona_delete_button');
-                            if ($deletePersonaBtn.length > 0) {
-                                $btn.insertBefore($deletePersonaBtn);
-                            } else {
-                                $container.append($btn);
-                            }
-                        }
-                    });
+                    removeReplaceImageButtons = avatarReplaceModule.removeReplaceImageButtons;
+                    registerReplaceImageButtons = avatarReplaceModule.registerReplaceImageButtons;
+                    avatarReplaceModule.initAvatarReplaceListeners();
+                } catch (e) {
+                    console.error('[Theme Manager] 头像替换模块加载失败:', e);
                 }
-
-                // 立即注册并开启轻量级巡检与面板交互监听，确保 100% 成功注入
-                registerReplaceImageButtons();
-                setInterval(registerReplaceImageButtons, 1000);
-                $(document).on('click', '#rightNavDrawerIcon, #avatar-and-name-block, #persona_controls, .character_select, .persona_item, .drawer-icon, #user_avatar_block', function() {
-                    setTimeout(registerReplaceImageButtons, 50);
-                    setTimeout(registerReplaceImageButtons, 300);
-                });
 
                 const toggleReplaceAvatarBtn = managerPanel.querySelector('#tm-toggle-replace-avatar-btn');
                 if (toggleReplaceAvatarBtn) {
@@ -4919,271 +2910,36 @@
                         document.dispatchEvent(new CustomEvent('themeManager:enableReplaceAvatarBtnChanged', { detail: enableReplaceAvatarBtn }));
                     });
                 }
+                // ==========================================================
+                // ========= 配色提取与调色板迁移 (模块化: modules/color-transfer.js) =========
+                // ==========================================================
+                let openColorTransferModal = () => {};
+                let closeColorTransferModal = () => {};
+                let transferThemeColors = () => {};
+                let extractThemeBaseName = () => '';
+                let getSmartRecommendedThemes = () => [];
 
-                // === 智能推荐算法：提取美化主题的基础系列名称 (去除色彩词、修饰词及作者后缀) ===
-                function extractThemeBaseName(name) {
-                    if (!name) return '';
-                    let base = name;
-                    // 移除作者后缀 (如 by xxx, author xxx)
-                    base = base.replace(/by\s*.*$/i, '');
-                    // 移除版本号 (如 v1, v2.0)
-                    base = base.replace(/v\d+(\.\d+)?/gi, '');
-                    // 移除常见色彩、修饰词与符号
-                    const modifierRegex = /(深色|浅色|暗色|亮色|黑色|白色|红色|蓝色|绿色|黄色|粉色|紫色|灰色|米色|棕色|金|银|莫兰迪|莫兰迪米|莫兰迪暗|Dark|Light|Black|White|Red|Blue|Green|Yellow|Pink|Purple|Grey|Gray|Beige|Night|Day|版|模式|配色|主题|美化|[·・\-_s])/gi;
-                    base = base.replace(modifierRegex, '').trim();
-                    return base.toLowerCase();
-                }
-
-                // 计算智能推荐主题列表 (按置信度降序)
-                function getSmartRecommendedThemes(targetThemeName, allThemes) {
-                    const targetBase = extractThemeBaseName(targetThemeName);
-                    const recommendations = [];
-
-                    allThemes.forEach(t => {
-                        if (t.value === targetThemeName) return;
-                        const sourceBase = extractThemeBaseName(t.value);
-
-                        let isRecommended = false;
-                        let score = 0;
-
-                        if (targetBase && sourceBase) {
-                            if (targetBase === sourceBase) {
-                                isRecommended = true;
-                                score = 100;
-                            } else if (targetBase.length >= 2 && sourceBase.includes(targetBase)) {
-                                isRecommended = true;
-                                score = 80;
-                            } else if (sourceBase.length >= 2 && targetBase.includes(sourceBase)) {
-                                isRecommended = true;
-                                score = 70;
-                            }
-                        }
-
-                        // 回退匹配：原始名字前缀相同 (前 3 个字符及以上)
-                        if (!isRecommended && targetThemeName.length >= 3 && t.value.length >= 3) {
-                            const prefixTarget = targetThemeName.slice(0, 3).toLowerCase();
-                            const prefixSource = t.value.slice(0, 3).toLowerCase();
-                            if (prefixTarget === prefixSource) {
-                                isRecommended = true;
-                                score = 50;
-                            }
-                        }
-
-                        if (isRecommended) {
-                            recommendations.push({ theme: t, score });
-                        }
+                try {
+                    const { initColorTransfer } = await import(`${baseDir}modules/color-transfer.js`);
+                    const colorModule = initColorTransfer({
+                        getAllParsedThemes: () => allParsedThemes,
+                        allThemeObjectsMap,
+                        loadThemeTags,
+                        saveTheme,
+                        updateSTThemeMemory,
+                        originalSelect,
+                        applyThemeDirect,
+                        showLoader,
+                        hideLoader
                     });
-
-                    recommendations.sort((a, b) => b.score - a.score);
-                    return recommendations.map(r => r.theme);
+                    openColorTransferModal = colorModule.openColorTransferModal;
+                    closeColorTransferModal = colorModule.closeColorTransferModal;
+                    transferThemeColors = colorModule.transferThemeColors;
+                    extractThemeBaseName = colorModule.extractThemeBaseName;
+                    getSmartRecommendedThemes = colorModule.getSmartRecommendedThemes;
+                } catch (e) {
+                    console.error('[Theme Manager] 提取配色模块加载失败:', e);
                 }
-
-                // === 提取配色模态框相关逻辑 (支持动态注入、FontAwesome 搜索与 OptGroup 结构化分组) ===
-                let _colorTransferTargetTheme = null;
-
-                function getOrBuildColorTransferModal() {
-                    let modal = document.querySelector('#tm-color-transfer-modal');
-                    if (!modal) {
-                        modal = document.createElement('div');
-                        modal.id = 'tm-color-transfer-modal';
-                        modal.className = 'tm-modal';
-                        modal.style.display = 'none';
-                        modal.innerHTML = `
-                            <div class="tm-modal-content" style="max-width: 440px;">
-                                <div class="tm-modal-header">
-                                    <h3><i class="fa-solid fa-palette"></i> 提取配色方案</h3>
-                                    <button id="close-color-transfer-modal" class="tm-modal-close"><i class="fa-solid fa-xmark"></i></button>
-                                </div>
-                                <div class="tm-modal-body">
-                                    <div style="margin-bottom: 12px; font-size: 13px;">
-                                        <strong>目标美化:</strong> <span id="color-transfer-target-name" style="color: var(--SmartThemeQuoteColor, #4a90e2); font-weight: bold;"></span>
-                                    </div>
-                                    <div style="margin-bottom: 15px;">
-                                        <label style="display: block; margin-bottom: 6px; font-size: 12px;"><strong>选择来源美化 (提取其颜色配置):</strong></label>
-                                        <div style="position: relative; margin-bottom: 8px;">
-                                            <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); opacity: 0.5; font-size: 12px; pointer-events: none;"></i>
-                                            <input type="search" id="color-transfer-search-input" class="text_pole" placeholder="搜索来源美化名称..." style="width: 100%; height: 32px; padding-left: 30px; font-size: 12px; box-sizing: border-box; margin: 0;">
-                                        </div>
-                                        <select id="color-transfer-source-select" class="text_pole" size="8" style="width: 100%; height: 200px; font-size: 12px; margin: 0; padding: 4px; box-sizing: border-box;"></select>
-                                    </div>
-                                </div>
-                                <div class="tm-modal-footer" style="display:flex; justify-content:flex-end; gap:8px; padding-top:10px;">
-                                    <button id="cancel-color-transfer-btn" class="menu_button" style="margin:0;">取消</button>
-                                    <button id="confirm-color-transfer-btn" class="menu_button menu_button_icon primary" style="background: var(--SmartThemeQuoteColor, #4a90e2) !important; color: #fff !important; margin:0;"><i class="fa-solid fa-check"></i> 确认覆盖配色</button>
-                                </div>
-                            </div>`;
-                        document.body.appendChild(modal);
-
-                        modal.querySelector('#close-color-transfer-modal').addEventListener('click', closeColorTransferModal);
-                        modal.querySelector('#cancel-color-transfer-btn').addEventListener('click', closeColorTransferModal);
-                        modal.querySelector('#confirm-color-transfer-btn').addEventListener('click', async () => {
-                            if (!_colorTransferTargetTheme) return;
-                            const sourceSelect = modal.querySelector('#color-transfer-source-select');
-                            const sourceThemeName = sourceSelect ? sourceSelect.value : '';
-                            if (!sourceThemeName) {
-                                toastr.warning('请先选择一个来源美化！');
-                                return;
-                            }
-                            const targetThemeName = _colorTransferTargetTheme;
-                            closeColorTransferModal();
-                            await transferThemeColors(sourceThemeName, targetThemeName);
-                        });
-                    }
-                    return modal;
-                }
-
-                function openColorTransferModal(targetThemeName) {
-                    _colorTransferTargetTheme = targetThemeName;
-                    const modal = getOrBuildColorTransferModal();
-                    const targetNameSpan = modal.querySelector('#color-transfer-target-name');
-                    const sourceSelect = modal.querySelector('#color-transfer-source-select');
-                    const searchInput = modal.querySelector('#color-transfer-search-input');
-
-                    if (targetNameSpan) targetNameSpan.textContent = targetThemeName;
-                    if (searchInput) searchInput.value = '';
-
-                    const otherThemes = allParsedThemes.filter(t => t.value !== targetThemeName);
-                    const recommendedThemes = getSmartRecommendedThemes(targetThemeName, otherThemes);
-                    const recommendedSet = new Set(recommendedThemes.map(t => t.value));
-
-                    // 加载扩展分类标签
-                    const cachedTags = loadThemeTags();
-                    const tagMap = new Map();
-                    cachedTags.forEach(tag => {
-                        tagMap.set(tag.id, { name: tag.name, themes: [] });
-                    });
-
-                    const unclassifiedThemes = [];
-
-                    // 归类非推荐的主题
-                    otherThemes.forEach(t => {
-                        if (recommendedSet.has(t.value)) return;
-
-                        if (t.tags && t.tags.length > 0) {
-                            let added = false;
-                            t.tags.forEach(tagId => {
-                                const group = tagMap.get(tagId);
-                                if (group) {
-                                    group.themes.push(t);
-                                    added = true;
-                                }
-                            });
-                            if (!added) unclassifiedThemes.push(t);
-                        } else {
-                            unclassifiedThemes.push(t);
-                        }
-                    });
-
-                    function renderSourceSelectOptions(filterKeyword = '') {
-                        if (!sourceSelect) return;
-                        sourceSelect.innerHTML = '';
-                        const keyword = filterKeyword.toLowerCase().trim();
-                        let firstSelectableOption = null;
-
-                        const addGroup = (groupTitle, themes, isRecommend = false) => {
-                            const cachedTags = loadThemeTags();
-                            const tagsMap = new Map(cachedTags.map(t => [t.id, t]));
-                            const matched = themes.filter(t => isThemeMatchingSearch(t, filterKeyword, tagsMap));
-                            if (matched.length === 0) return;
-
-                            const groupEl = document.createElement('optgroup');
-                            groupEl.label = groupTitle;
-
-                            matched.forEach(t => {
-                                const opt = document.createElement('option');
-                                opt.value = t.value;
-                                opt.textContent = isRecommend ? `${t.display} (智能推荐)` : t.display;
-                                groupEl.appendChild(opt);
-                                if (!firstSelectableOption) {
-                                    firstSelectableOption = opt;
-                                }
-                            });
-
-                            sourceSelect.appendChild(groupEl);
-                        };
-
-                        // 1. 智能推荐分组
-                        if (recommendedThemes.length > 0) {
-                            addGroup('智能推荐 (同系列美化)', recommendedThemes, true);
-                        }
-
-                        // 2. 标签分类分组
-                        cachedTags.forEach(tag => {
-                            const groupData = tagMap.get(tag.id);
-                            if (groupData && groupData.themes.length > 0) {
-                                addGroup(`标签: ${groupData.name}`, groupData.themes);
-                            }
-                        });
-
-                        // 3. 其他未分类分组
-                        if (unclassifiedThemes.length > 0) {
-                            addGroup('未分类美化', unclassifiedThemes);
-                        }
-
-                        // 默认选中推荐的第一项
-                        if (firstSelectableOption) {
-                            firstSelectableOption.selected = true;
-                        }
-                    }
-
-                    renderSourceSelectOptions();
-
-                    // 绑定实时搜索框输入事件
-                    if (searchInput) {
-                        searchInput.oninput = (e) => {
-                            renderSourceSelectOptions(e.target.value);
-                        };
-                    }
-
-                    modal.style.display = 'flex';
-                }
-
-                function closeColorTransferModal() {
-                    const modal = document.querySelector('#tm-color-transfer-modal');
-                    if (modal) modal.style.display = 'none';
-                    _colorTransferTargetTheme = null;
-                }
-
-                async function transferThemeColors(sourceName, targetName) {
-                    const sourceObj = allThemeObjectsMap.get(sourceName);
-                    const targetObj = allThemeObjectsMap.get(targetName);
-                    if (!sourceObj || !targetObj) {
-                        toastr.error('获取美化主题数据失败！');
-                        return;
-                    }
-
-                    showLoader();
-                    try {
-                        const colorKeys = [
-                            'main_text_color', 'italics_text_color', 'underline_text_color', 'quote_text_color',
-                            'blur_tint_color', 'chat_tint_color', 'user_mes_blur_tint_color', 'bot_mes_blur_tint_color',
-                            'shadow_color', 'border_color', 'blur_strength', 'shadow_width', 'font_scale', 'chat_width'
-                        ];
-
-                        colorKeys.forEach(key => {
-                            if (sourceObj[key] !== undefined) {
-                                targetObj[key] = sourceObj[key];
-                            }
-                        });
-
-                        await saveTheme(targetObj);
-                        updateSTThemeMemory(targetObj, 'add');
-                        allThemeObjectsMap.set(targetName, targetObj);
-
-                        if (originalSelect.value === targetName) {
-                            applyThemeColors(targetObj);
-                            syncCustomCssToST(targetObj.custom_css);
-                        }
-
-                        toastr.success(`已成功从「${sourceName}」提取配色应用至「${targetName}」！`);
-                    } catch (err) {
-                        console.error('[Theme Manager Error] 提取配色应用失败:', err);
-                        toastr.error('配色应用失败，请检查控制台。');
-                    } finally {
-                        hideLoader();
-                    }
-                }
-
                 const scrollToThemeListTop = () => {
                     if (contentWrapper) {
                         contentWrapper.scrollTop = 0;
@@ -5327,533 +3083,60 @@
 
 
                 // 弹窗让用户设置导入美化时所分配的目标分类标签
-                async function showImportTagSelectionPopup(validFiles, invalidFiles) {
-                    const tags = loadThemeTags();
-                    const subtagsEnabled = isSubtagsEnabled();
+                let showImportTagSelectionPopup = () => {};
+                let handleBatchThemeImport = () => {};
 
-                    // 检查当前是否有正在筛选的单标签
-                    const currentActiveTagId = (activeTagFilters && activeTagFilters.size === 1)
-                        ? Array.from(activeTagFilters)[0]
-                        : null;
-
-                    // 构建下拉框选项
-                    let optionsHtml = `<option value="">-- 不分配标签 (默认) --</option>`;
-                    optionsHtml += `<option value="__new__">➕ 创建新标签并导入...</option>`;
-
-                    if (!subtagsEnabled) {
-                        tags.forEach(t => {
-                            const isSelected = (currentActiveTagId && t.id === currentActiveTagId);
-                            optionsHtml += `<option value="${escapeHtml(t.id)}" ${isSelected ? 'selected' : ''}>🏷️ ${escapeHtml(t.name)}${isSelected ? ' (当前筛选)' : ''}</option>`;
-                        });
-                    } else {
-                        const rootTags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
-                        const renderOptionTree = (nodeTag, depth) => {
-                            const isSelected = (currentActiveTagId && nodeTag.id === currentActiveTagId);
-                            const indent = '&nbsp;&nbsp;&nbsp;&nbsp;'.repeat(depth);
-                            const icon = depth === 0 ? '📁 ' : '↳ 🏷️ ';
-                            let h = `<option value="${escapeHtml(nodeTag.id)}" ${isSelected ? 'selected' : ''}>${indent}${icon}${escapeHtml(nodeTag.name)}${isSelected ? ' (当前筛选)' : ''}</option>`;
-                            const children = tags.filter(t => t.parentId === nodeTag.id);
-                            children.forEach(c => {
-                                h += renderOptionTree(c, depth + 1);
-                            });
-                            return h;
-                        };
-                        rootTags.forEach(rTag => {
-                            optionsHtml += renderOptionTree(rTag, 0);
-                        });
-                    }
-
-                    // 构建多选标签树 HTML（供切换多选时使用）
-                    let multitagHtml = '';
-                    if (tags.length > 0) {
-                        if (!subtagsEnabled) {
-                            tags.forEach(t => {
-                                const isChecked = (currentActiveTagId && t.id === currentActiveTagId);
-                                multitagHtml += `
-                                    <label style="display:flex; align-items:center; gap:6px; padding:3px 4px; font-size:12px; cursor:pointer;">
-                                        <input type="checkbox" class="tm-imp-multitag-cb" value="${escapeHtml(t.id)}" ${isChecked ? 'checked' : ''}>
-                                        <span>🏷️ ${escapeHtml(t.name)}</span>
-                                    </label>
-                                `;
-                            });
-                        } else {
-                            const rootTags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
-                            const renderTreeMulti = (nodeTag, depth) => {
-                                const isChecked = (currentActiveTagId && nodeTag.id === currentActiveTagId);
-                                let h = `
-                                    <div style="margin-left:${depth > 0 ? 12 : 0}px; margin-bottom:3px;">
-                                        <label style="display:flex; align-items:center; gap:6px; font-size:${depth === 0 ? '12px' : '11px'}; font-weight:${depth === 0 ? 'bold' : 'normal'}; cursor:pointer;">
-                                            <input type="checkbox" class="tm-imp-multitag-cb" value="${escapeHtml(nodeTag.id)}" ${isChecked ? 'checked' : ''}>
-                                            <i class="${depth === 0 ? 'fa-solid fa-folder-open' : 'fa-solid fa-tag'}" style="${depth === 0 ? 'color:var(--SmartThemeQuoteColor, #4a90e2);' : 'opacity:0.7;'} font-size:11px;"></i>
-                                            <span>${escapeHtml(nodeTag.name)}</span>
-                                        </label>
-                                `;
-                                const children = tags.filter(t => t.parentId === nodeTag.id);
-                                if (children.length > 0) {
-                                    h += `<div style="display:flex; flex-direction:column; gap:3px; margin-left:14px; padding-left:4px; border-left:1px solid rgba(255,255,255,0.1);">`;
-                                    children.forEach(c => {
-                                        h += renderTreeMulti(c, depth + 1);
-                                    });
-                                    h += `</div>`;
-                                }
-                                h += `</div>`;
-                                return h;
-                            };
-                            rootTags.forEach(r => {
-                                multitagHtml += renderTreeMulti(r, 0);
-                            });
-                        }
-                    } else {
-                        multitagHtml = `<div style="font-size:11px; opacity:0.6; padding:4px;">暂无标签，可使用上方选项快速新建。</div>`;
-                    }
-
-                    const popupHtml = `
-                        <div class="tm-imp-dialog-content" style="text-align:left; font-size:13px; display:flex; flex-direction:column; gap:10px; max-height:calc(80vh - 130px); max-height:calc(80dvh - 130px); overflow-y:auto; padding-right:4px; flex:0 1 auto; min-height:0;">
-                            <!-- 文件信息卡片 -->
-                            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:8px 10px;">
-                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                                    <span style="font-weight:bold; font-size:13px;">
-                                        <i class="fa-solid fa-file-arrow-up" style="color:var(--SmartThemeQuoteColor, #4a90e2); margin-right:6px;"></i>
-                                        准备导入美化主题
-                                    </span>
-                                    <div style="display:flex; align-items:center; gap:6px;">
-                                        <span style="font-size:11.5px; opacity:0.8; background:rgba(255,255,255,0.08); padding:1px 6px; border-radius:4px;">
-                                            共 ${validFiles.length} 个
-                                        </span>
-                                        <button id="tm-imp-reselect-btn" class="menu_button" type="button" style="width:26px; height:26px; min-width:26px; padding:0; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; cursor:pointer; font-size:12px; border-radius:4px;" title="重新选择美化文件"><i class="fa-solid fa-arrows-rotate"></i></button>
-                                    </div>
-                                </div>
-                                <div style="max-height:75px; overflow-y:auto; display:flex; flex-wrap:wrap; gap:4px; padding:2px;">
-                                    ${validFiles.map(f => `
-                                        <span style="display:inline-flex; align-items:center; gap:4px; padding:2px 6px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.05); border-radius:4px; font-size:11px; font-family:monospace;">
-                                            <i class="fa-solid fa-palette" style="font-size:10px; opacity:0.7;"></i>
-                                            ${escapeHtml(f.themeObject.name)}
-                                        </span>
-                                    `).join('')}
-                                </div>
-                                ${invalidFiles.length > 0 ? `
-                                    <div style="color:#ffaa00; font-size:11px; margin-top:6px; display:flex; align-items:center; gap:4px;">
-                                        <i class="fa-solid fa-triangle-exclamation"></i>
-                                        另有 ${invalidFiles.length} 个非有效主题文件将被自动跳过
-                                    </div>
-                                ` : ''}
-                            </div>
-
-                            <!-- 目标标签卡片 -->
-                            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:10px;">
-                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                                    <label style="font-weight:bold; font-size:13px; margin:0; display:flex; align-items:center; gap:6px;">
-                                        <i class="fa-solid fa-tags" style="color:var(--SmartThemeQuoteColor, #4a90e2);"></i>
-                                        导入目标分类标签：
-                                    </label>
-                                    ${tags.length > 0 ? `
-                                        <button id="tm-imp-multitag-toggle" class="menu_button" type="button" style="width:26px; height:26px; min-width:26px; padding:0; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; cursor:pointer; font-size:12px; border-radius:4px;" title="切换多选标签模式">
-                                            <i class="fa-solid fa-list-check"></i>
-                                        </button>
-                                    ` : ''}
-                                </div>
-
-                                <!-- 单选下拉模式 -->
-                                <div id="tm-imp-singletag-wrap">
-                                    <select id="tm-imp-tag-select" class="text_pole" style="width:100%; height:32px; font-size:12.5px; padding:2px 8px; margin:0; box-sizing:border-box;">
-                                        ${optionsHtml}
-                                    </select>
-                                    <!-- 新建标签输入栏 -->
-                                    <div id="tm-imp-new-tag-wrap" style="display:none; margin-top:8px;">
-                                        <input type="text" id="tm-imp-new-tag-input" class="text_pole" placeholder="请输入要新建的标签名称..." style="width:100%; height:30px; font-size:12px; padding:2px 8px; box-sizing:border-box;">
-                                    </div>
-                                </div>
-
-                                <!-- 多选模式 (默认隐藏) -->
-                                <div id="tm-imp-multitag-wrap" style="display:none; margin-top:6px;">
-                                    <div style="font-size:11px; opacity:0.7; margin-bottom:4px;">勾选要分配的标签（可多选）：</div>
-                                    <div style="max-height:140px; overflow-y:auto; padding:6px; border:1px solid rgba(255,255,255,0.08); border-radius:6px; background:rgba(0,0,0,0.15); display:flex; flex-direction:column; gap:2px;">
-                                        ${multitagHtml}
-                                    </div>
-                                </div>
-
-                                <div style="margin-top:6px; font-size:11px; opacity:0.65; line-height:1.4;">
-                                    💡 提示：设置后，本次导入的美化将自动加入对应标签，方便在标签栏中按类快速筛选与管理。
-                                </div>
-                            </div>
-
-                            <!-- 规则选项 -->
-                            <div style="padding:0 2px;">
-                                <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; user-select:none;">
-                                    <input type="checkbox" id="tm-imp-apply-kw" checked>
-                                    <span>同时对导入的美化执行关键词规则自动映射标签</span>
-                                </label>
-                            </div>
-                        </div>
-                    `;
-
-                    return new Promise(async (resolve) => {
-                        let isResolved = false;
-                        let isMultiMode = false;
-
-                        await callGenericPopup(popupHtml, 'confirm', null, {
-                            title: `导入主题设置 (${validFiles.length} 个美化)`,
-                            okButton: '确认导入',
-                            cancelButton: '取消',
-                            wide: false,
-                            onOpen: (popup) => {
-                                const dlg = popup.dlg;
-                                if (!dlg) return;
-
-                                dlg.classList.add('tm-tag-assign-dialog');
-                                dlg.style.maxHeight = '80vh';
-                                dlg.style.maxHeight = '80dvh';
-                                dlg.style.height = 'auto';
-                                dlg.style.display = 'flex';
-                                dlg.style.flexDirection = 'column';
-                                dlg.style.width = '92vw';
-                                dlg.style.maxWidth = '500px';
-
-                                const body = dlg.querySelector('.popup-body');
-                                if (body) {
-                                    body.style.maxHeight = 'calc(80vh - 16px)';
-                                    body.style.maxHeight = 'calc(80dvh - 16px)';
-                                    body.style.height = 'auto';
-                                    body.style.minHeight = '0';
-                                    body.style.flex = '0 1 auto';
-                                    body.style.display = 'flex';
-                                    body.style.flexDirection = 'column';
-                                    body.style.overflow = 'hidden';
-                                }
-
-                                const content = dlg.querySelector('.popup-content');
-                                if (content) {
-                                    content.style.maxHeight = 'calc(80vh - 80px)';
-                                    content.style.maxHeight = 'calc(80dvh - 80px)';
-                                    content.style.height = 'auto';
-                                    content.style.minHeight = '0';
-                                    content.style.flex = '0 1 auto';
-                                    content.style.display = 'flex';
-                                    content.style.flexDirection = 'column';
-                                    content.style.overflow = 'hidden';
-                                    content.style.padding = '0 4px';
-                                    content.style.marginTop = '6px';
-                                }
-
-                                const tagSelect = dlg.querySelector('#tm-imp-tag-select');
-                                const newTagWrap = dlg.querySelector('#tm-imp-new-tag-wrap');
-                                const newTagInput = dlg.querySelector('#tm-imp-new-tag-input');
-                                const singleWrap = dlg.querySelector('#tm-imp-singletag-wrap');
-                                const multiWrap = dlg.querySelector('#tm-imp-multitag-wrap');
-                                const multiToggleBtn = dlg.querySelector('#tm-imp-multitag-toggle');
-                                const reselectBtn = dlg.querySelector('#tm-imp-reselect-btn');
-                                const applyKwCb = dlg.querySelector('#tm-imp-apply-kw');
-                                const okBtn = dlg.querySelector('.popup-button-ok');
-
-                                // 下拉选择切换
-                                if (tagSelect) {
-                                    tagSelect.addEventListener('change', () => {
-                                        if (tagSelect.value === '__new__') {
-                                            newTagWrap.style.display = 'block';
-                                            if (newTagInput) {
-                                                newTagInput.focus();
-                                            }
-                                        } else {
-                                            newTagWrap.style.display = 'none';
-                                        }
-                                    });
-                                }
-
-                                // 多选切换按钮
-                                if (multiToggleBtn) {
-                                    multiToggleBtn.addEventListener('click', () => {
-                                        isMultiMode = !isMultiMode;
-                                        if (isMultiMode) {
-                                            singleWrap.style.display = 'none';
-                                            multiWrap.style.display = 'block';
-                                            multiToggleBtn.innerHTML = '<i class="fa-solid fa-list"></i>';
-                                            multiToggleBtn.title = '切换回单选下拉';
-                                        } else {
-                                            singleWrap.style.display = 'block';
-                                            multiWrap.style.display = 'none';
-                                            multiToggleBtn.innerHTML = '<i class="fa-solid fa-list-check"></i>';
-                                            multiToggleBtn.title = '切换为多选标签模式';
-                                        }
-                                    });
-                                }
-
-                                // 重选文件按钮
-                                if (reselectBtn) {
-                                    reselectBtn.addEventListener('click', () => {
-                                        isResolved = true;
-                                        resolve(null);
-                                        const cancelBtn = dlg.querySelector('.popup-button-cancel');
-                                        if (cancelBtn) cancelBtn.click();
-                                        setTimeout(() => { fileInput.click(); }, 120);
-                                    });
-                                }
-
-                                // 确认拦截校验 (捕获阶段)
-                                if (okBtn) {
-                                    okBtn.addEventListener('click', (e) => {
-                                        let targetTagIds = [];
-                                        let newTagName = null;
-
-                                        if (isMultiMode) {
-                                            const checkedCbs = dlg.querySelectorAll('.tm-imp-multitag-cb:checked');
-                                            targetTagIds = Array.from(checkedCbs).map(cb => cb.value);
-                                        } else {
-                                            if (tagSelect.value === '__new__') {
-                                                const val = newTagInput ? newTagInput.value.trim() : '';
-                                                if (!val) {
-                                                    e.preventDefault();
-                                                    e.stopImmediatePropagation();
-                                                    toastr.warning('请输入新标签名称，或选择已有标签。');
-                                                    if (newTagInput) newTagInput.focus();
-                                                    return;
-                                                }
-                                                newTagName = val;
-                                            } else if (tagSelect.value) {
-                                                targetTagIds = [tagSelect.value];
-                                            }
-                                        }
-
-                                        isResolved = true;
-                                        resolve({
-                                            confirmed: true,
-                                            targetTagIds,
-                                            newTagName,
-                                            applyKeywords: applyKwCb ? applyKwCb.checked : true
-                                        });
-                                    }, true);
-                                }
-                            }
-                        });
-
-                        if (!isResolved) {
-                            resolve(null);
-                        }
+                try {
+                    const { initThemeImport } = await import(`${baseDir}modules/theme-import.js`);
+                    const themeImportModule = initThemeImport({
+                        loadThemeTags,
+                        saveThemeTags,
+                        isSubtagsEnabled,
+                        getActiveTagFilters: () => activeTagFilters,
+                        escapeHtml,
+                        callGenericPopup,
+                        toastr,
+                        fileInput,
+                        showLoader,
+                        hideLoader,
+                        limitConcurrency,
+                        saveTheme,
+                        suspendObserver: (fn) => {
+                            _suspendObserver = true;
+                            try { fn(); } finally { setTimeout(() => { _suspendObserver = false; }, 0); }
+                        },
+                        updateSTThemeMemory,
+                        findOptionByValue,
+                        originalSelect,
+                        stKnownThemes,
+                        syncStKnownThemes,
+                        allThemeObjectsMap,
+                        allThemeObjects,
+                        invalidateThemesCache,
+                        invalidateValidThemeNamesCache,
+                        allParsedThemesMap,
+                        softAddThemeUI,
+                        contentWrapper,
+                        applyKeywordMappings: (names) => applyKeywordMappings(names),
+                        softRefreshUI: (names) => softRefreshUI(names),
+                        filterThemeList: (pos) => filterThemeList(pos),
+                        updateActiveState: () => updateActiveState()
                     });
+                    showImportTagSelectionPopup = themeImportModule.showImportTagSelectionPopup;
+                    handleBatchThemeImport = themeImportModule.handleBatchThemeImport;
+                } catch (e) {
+                    console.error('[Theme Manager] 主题导入模块加载失败:', e);
                 }
 
                 fileInput.addEventListener('change', async (event) => {
                     const files = event.target.files;
-                    if (!files.length) return;
-
-                    showLoader();
-
                     try {
-                        // 1. 并行读取文件内容并解析 JSON
-                        const fileReadPromises = Array.from(files).map(async (file) => {
-                            try {
-                                const fileContent = await file.text();
-                                const themeObject = JSON.parse(fileContent);
-                                const filenameWithoutExt = file.name.replace(/\.json$/i, '');
-                                if (themeObject && typeof themeObject.main_text_color !== 'undefined') {
-                                    // 确保 themeObject.name 保持与导入的文件名完全一致，防止保存文件名与 UI 注册不一致
-                                    themeObject.name = filenameWithoutExt || themeObject.name;
-                                    return { file, themeObject, valid: true };
-                                }
-                                return { file, valid: false, error: '非有效的主题文件' };
-                            } catch (err) {
-                                return { file, valid: false, error: err.message };
-                            }
-                        });
-
-                        console.log(`[Theme Manager] 开始处理批量导入文件, 选择的文件数: ${files.length}`);
-
-                        const parsedFiles = await Promise.all(fileReadPromises);
-                        const validFiles = parsedFiles.filter(f => f.valid);
-                        const invalidFiles = parsedFiles.filter(f => !f.valid);
-
-                        if (invalidFiles.length > 0) {
-                            invalidFiles.forEach(f => {
-                                console.error(`[Theme Manager Error] 无效的主题文件 "${f.file.name}":`, f.error);
-                            });
-                        }
-
-                        hideLoader();
-
-                        if (validFiles.length === 0) {
-                            toastr.error('所选文件中没有包含有效的主题美化文件。');
-                            return;
-                        }
-
-                        // 弹窗让用户设置导入的目标标签
-                        const importConfig = await showImportTagSelectionPopup(validFiles, invalidFiles);
-                        if (!importConfig) {
-                            return;
-                        }
-
-                        showLoader();
-
-                        let targetTagIds = importConfig.targetTagIds || [];
-                        let allTags = loadThemeTags();
-
-                        // 如果用户在弹窗中选择新建标签
-                        if (importConfig.newTagName) {
-                            let existingTag = allTags.find(t => t.name.toLowerCase() === importConfig.newTagName.toLowerCase());
-                            if (!existingTag) {
-                                existingTag = {
-                                    id: Date.now().toString(),
-                                    name: importConfig.newTagName,
-                                    parentId: null,
-                                    themes: []
-                                };
-                                allTags.push(existingTag);
-                                saveThemeTags(allTags);
-                            }
-                            if (!targetTagIds.includes(existingTag.id)) {
-                                targetTagIds.push(existingTag.id);
-                            }
-                        }
-
-                        let successCount = 0;
-                        let errorCount = invalidFiles.length;
-                        const importedThemes = [];
-                        let needsUIUpdate = false;
-
-                        // 2. 并行发送 API 保存请求 (限制并发为 5)
-                        console.log(`[Theme Manager] 开始并发保存 ${validFiles.length} 个有效主题...`);
-                        const saveResults = await limitConcurrency(5, validFiles, async ({ themeObject }) => {
-                            try {
-                                await saveTheme(themeObject);
-                                return { success: true, themeObject };
-                            } catch (err) {
-                                return { success: false, themeObject, error: err };
-                            }
-                        });
-
-                        // 收集保存成功的主题
-                        saveResults.forEach((res, index) => {
-                            const orig = validFiles[index];
-                            if (res.status === 'fulfilled' && res.value.success) {
-                                successCount++;
-                                const themeObject = res.value.themeObject;
-                                importedThemes.push(themeObject);
-                                console.log(`[Theme Manager] 成功保存主题到服务器: "${themeObject.name}"`);
-                            } else {
-                                errorCount++;
-                                console.error(`[Theme Manager Error] 保存主题 "${orig.themeObject.name}" 失败:`, res.status === 'fulfilled' ? res.value.error : res.reason);
-                            }
-                        });
-
-                        // 3. 批量更新下拉框、内存及 UI DOM
-                        if (importedThemes.length > 0) {
-                            needsUIUpdate = true;
-
-                            // 第一步：批量更新 ST 原生下拉框 & 同步内部内存与已知合法美化名称集
-                            _suspendObserver = true;
-                            try {
-                                importedThemes.forEach(themeObject => {
-                                    updateSTThemeMemory(themeObject, 'add');
-                                    const existingOption = findOptionByValue(originalSelect, themeObject.name);
-                                    if (!existingOption) {
-                                        const option = document.createElement('option');
-                                        option.value = themeObject.name;
-                                        option.textContent = themeObject.name;
-                                        originalSelect.appendChild(option);
-                                    }
-                                    stKnownThemes.add(themeObject.name);
-                                    allThemeObjectsMap.set(themeObject.name, themeObject);
-                                });
-                                syncStKnownThemes();
-                            } finally {
-                                setTimeout(() => { _suspendObserver = false; }, 0);
-                            }
-
-                            // 立即失效主题缓存与合法美化名称缓存，确保后续标签校验认可新导入的主题
-                            invalidateThemesCache();
-                            invalidateValidThemeNamesCache();
-
-                            // 第二步：如果指定了目标标签，批量将美化关联到标签并保存（此时系统已识别新主题为合法美化，不会被过滤剔除）
-                            if (targetTagIds.length > 0) {
-                                allTags = loadThemeTags();
-                                targetTagIds.forEach(tId => {
-                                    const tag = allTags.find(t => String(t.id) === String(tId));
-                                    if (tag) {
-                                        if (!Array.isArray(tag.themes)) tag.themes = [];
-                                        importedThemes.forEach(th => {
-                                            if (!tag.themes.includes(th.name)) {
-                                                tag.themes.push(th.name);
-                                            }
-                                        });
-                                    }
-                                });
-                                saveThemeTags(allTags);
-                            }
-
-                            // 第三步：预先读取已包含目标标签的最新标签数据并构建挂载卡片 DOM
-                            const cachedTags = loadThemeTags();
-                            const listFragment = document.createDocumentFragment();
-                            const list = contentWrapper.querySelector('.theme-list');
-
-                            importedThemes.forEach(themeObject => {
-                                const themeName = themeObject.name;
-                                const existingParsed = allParsedThemesMap.get(themeName);
-                                const isNewTheme = !existingParsed;
-
-                                if (isNewTheme) {
-                                    // 批量构建并追加到 DocumentFragment
-                                    softAddThemeUI(themeObject, cachedTags, listFragment);
-                                } else {
-                                    // 覆盖现有主题：使用 Object.assign 原地更新数据，免去 findIndex 的 O(N) 搜索开销
-                                    const existingObj = allThemeObjectsMap.get(themeName);
-                                    if (existingObj) {
-                                        Object.assign(existingObj, themeObject);
-                                    } else {
-                                        allThemeObjects.push(themeObject);
-                                        allThemeObjectsMap.set(themeName, themeObject);
-                                    }
-                                }
-                            });
-
-                            // 一次性挂载到 DOM，减少 Reflow
-                            if (list && listFragment.children.length > 0) {
-                                list.appendChild(listFragment);
-                            }
-
-                            // 第四步：关键词自动映射（若启用）
-                            if (importConfig.applyKeywords && importedThemes.length > 0) {
-                                applyKeywordMappings(importedThemes.map(t => t.name));
-                            }
-
-                            // 第五步：精准刷新被导入主题的标签展示与顶部标签栏
-                            softRefreshUI(importedThemes.map(t => t.name));
-
-                            // 第六步：依照当前排序规则 (sortBy) 重新对全量美化卡片排序并定位到顶部
-                            filterThemeList(0);
-
-                            if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
-                                const ctx = SillyTavern.getContext();
-                                if (ctx.saveSettingsDebounced) ctx.saveSettingsDebounced();
-                            }
-                        }
-
-                        let summary = `批量导入完成！成功 ${successCount} 个`;
-                        if (importedThemes.length > 0 && targetTagIds.length > 0) {
-                            const finalTags = loadThemeTags();
-                            const assignedTagNames = finalTags.filter(t => targetTagIds.includes(String(t.id))).map(t => t.name).join(', ');
-                            if (assignedTagNames) {
-                                summary += `，已分配至标签「${assignedTagNames}」`;
-                            }
-                        }
-                        if (errorCount > 0) {
-                            summary += `，失败 ${errorCount} 个。`;
-                            toastr.warning(summary);
-                        } else {
-                            summary += '。';
-                            toastr.success(summary);
-                        }
-
-                        if (needsUIUpdate) {
-                            updateActiveState();
-                        }
-
-
-                    } catch (err) {
-                        console.error('[Theme Manager Error] 批量导入产生未捕获异常:', err);
-                        toastr.error('导入美化发生异常: ' + (err.message || err));
+                        await handleBatchThemeImport(files);
                     } finally {
-                        hideLoader();
                         event.target.value = '';
                     }
                 });
+
 
 
                 batchImportBtn.addEventListener('click', () => {
@@ -5881,2816 +3164,78 @@
                     openManageTagsPopup();
                 });
 
-                async function openResetSystemModal() {
-                    const popupContent = document.createElement('div');
-                    popupContent.innerHTML = `
-                        <h4><i class="fa-solid fa-triangle-exclamation" style="color:#ff8888; margin-right:6px;"></i>重置美化插件数据</h4>
-                        <p style="font-size:12px; opacity:0.8; margin-bottom:12px; text-align:left;">请勾选您需要清除的数据模块（此操作不可逆）：</p>
-                        <div style="display:flex; flex-direction:column; gap:8px; margin:10px 0; text-align:left; padding-left:10px;">
-                            <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                <input type="checkbox" id="reset-opt-tags" checked> 重置美化标签与分类设置
-                            </label>
-                            <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                <input type="checkbox" id="reset-opt-bindings" checked> 重置角色卡美化自动映射
-                            </label>
-                            <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                <input type="checkbox" id="reset-opt-avatars" checked> 重置头像高级设置（缩放/偏移/框/图库）
-                            </label>
-                        </div>
-                        <p style="font-size:11px; color:#ff8888; margin-top:10px; text-align:left;">确认重置后，网页将会自动刷新以载入默认状态。</p>
-                    `;
-
-                    await callGenericPopup(popupContent, 'confirm', null, {
-                        okButton: '确认重置',
-                        cancelButton: '取消',
-                        wide: true,
-                        onOpen: (popup) => {
-                            const dlg = popup.dlg;
-                            if (dlg) {
-                                dlg.style.width = '90%';
-                                dlg.style.maxWidth = '450px';
-                            }
-                            const okButton = dlg.querySelector('.popup-button-ok');
-                            if (okButton) {
-                                okButton.style.backgroundColor = 'rgba(220, 53, 69, 0.8)';
-                                okButton.style.color = '#fff';
-                                okButton.addEventListener('click', (e) => {
-                                    e.preventDefault();
-                                    const doTags = dlg.querySelector('#reset-opt-tags').checked;
-                                    const doBindings = dlg.querySelector('#reset-opt-bindings').checked;
-                                    const doAvatars = dlg.querySelector('#reset-opt-avatars').checked;
-
-                                    let clearedCount = 0;
-                                    if (doTags) {
-                                        localStorage.removeItem('themeManager_themeTags');
-                                        localStorage.removeItem('themeManager_activeTagsFilters');
-                                        clearedCount++;
-                                    }
-                                    if (doBindings) {
-                                        localStorage.removeItem('themeManager_characterThemeBindings');
-                                        clearedCount++;
-                                    }
-                                    if (doAvatars) {
-                                        localStorage.removeItem('themeManager_avatarAdjustments');
-                                        localStorage.removeItem('themeManager_customFrames');
-                                        localStorage.removeItem('themeManager_avatarPanelGeometry');
-                                        localStorage.removeItem('themeManager_disableAvatarZoom');
-                                        clearedCount++;
-                                    }
-
-                                    if (clearedCount > 0) {
-                                        toastr.success('选定数据已成功重置，正在重新载入页面...');
-                                        setTimeout(() => location.reload(), 1000);
-                                    } else {
-                                        toastr.info('未勾选任何重置选项。');
-                                    }
-                                    closePopup(popup);
-                                });
-                            }
-                        }
+                try {
+                    const { initAutoGroup, AUTO_GROUP_STOPWORDS, isTextMatchingCompositeSearch, sanitizeThemeTitle } = await import(`${baseDir}modules/auto-group.js`);
+                    const autoGroupModule = initAutoGroup({
+                        loadThemeTags,
+                        saveThemeTags,
+                        sanitizeSubtagThemeAssociations,
+                        getValidInstalledThemeNames,
+                        invalidateValidThemeNamesCache,
+                        getAllParsedThemes: () => allParsedThemes,
+                        getSelectedForBatch: () => selectedForBatch,
+                        getFilteredThemes: () => (typeof filteredThemes !== 'undefined' ? filteredThemes : allParsedThemes),
+                        getActiveTagAncestryPath: () => (typeof activeTagAncestryPath !== 'undefined' ? activeTagAncestryPath : []),
+                        getAllDescendantTagIds: (id, tags) => getAllDescendantTagIds(id, tags),
+                        getTagsForTheme: (tName, tags) => getTagsForTheme(tName, tags),
+                        softRefreshUI: (names) => softRefreshUI(names),
+                        renderTagsUI: () => renderTagsUI(),
+                        updateActiveState: () => updateActiveState(),
+                        callGenericPopup,
+                        closePopup,
+                        confirmAction,
+                        toastr,
+                        escapeHtml,
+                        showLoader,
+                        hideLoader
                     });
+                    applyKeywordMappings = autoGroupModule.applyKeywordMappings;
+                    openAutoGroupWizard = autoGroupModule.openAutoGroupWizard;
+                    openAutoGroupBatchMatrix = autoGroupModule.openAutoGroupBatchMatrix;
+                    runAutoGroupReviewStep = autoGroupModule.runAutoGroupReviewStep;
+                    extractCandidateThemeGroups = autoGroupModule.extractCandidateThemeGroups;
+                } catch (e) {
+                    console.error('[Theme Manager] 智能分组模块加载失败:', e);
                 }
 
-                async function openSettingsPopup() {
-                    const getPopupHtml = () => `
-                        <div class="tm-settings-popup" style="max-height: 75vh; overflow-y: auto; overflow-x: hidden; padding-right: 4px; box-sizing: border-box;">
-                            <div style="margin-bottom: 14px;">
-                                <h4 class="tm-settings-section-title">
-                                    <i class="fa-solid fa-sliders" style="margin-right: 6px;"></i> 视图与显示设置
-                                </h4>
-                                <div class="tm-settings-buttons-flex">
-                                    <button id="tm-pop-toggle-twoline" class="menu_button ${isTwoLineLayout ? 'active' : ''}"><i class="fa-solid fa-align-left"></i> 换行排版 (${isTwoLineLayout ? '开启' : '关闭'})</button>
-                                    <button id="tm-pop-toggle-usage" class="menu_button ${showUsageCount ? 'active' : ''}"><i class="fa-solid fa-chart-bar"></i> 使用统计 (${showUsageCount ? '开启' : '关闭'})</button>
-                                    <button id="tm-pop-toggle-daynight" class="menu_button ${enableDayNightBinding ? 'active' : ''}"><i class="fa-solid fa-circle-half-stroke"></i> 日夜图标 (${enableDayNightBinding ? '开启' : '关闭'})</button>
-                                    <button id="tm-pop-toggle-replace" class="menu_button ${enableReplaceAvatarBtn ? 'active' : ''}"><i class="fa-solid fa-check"></i> 详情页替换 (${enableReplaceAvatarBtn ? '开启' : '关闭'})</button>
-                                </div>
-                                <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px; padding: 8px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;">
-                                    <label for="tm-pop-select-tag-pill-mode" style="font-size: 12.5px; margin: 0; display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                        <i id="tm-pill-mode-icon" class="${tagPillDisplayMode === 'none' ? 'fa-solid fa-eye-slash' : (tagPillDisplayMode === 'l1' ? 'fa-solid fa-folder-tree' : (tagPillDisplayMode === 'leaf' ? 'fa-solid fa-tag' : 'fa-solid fa-tags'))}" style="color: var(--SmartThemeQuoteColor, #4a90e2);"></i> 标签胶囊显示范围：
-                                    </label>
-                                    <select id="tm-pop-select-tag-pill-mode" class="text_pole" style="font-size: 12px; height: 28px; padding: 2px 8px; width: 210px; margin: 0;">
-                                        <option value="all" ${tagPillDisplayMode === 'all' ? 'selected' : ''}>显示全部层级标签 (所有分类)</option>
-                                        <option value="l1" ${tagPillDisplayMode === 'l1' ? 'selected' : ''}>仅显示顶级主分类 (一级标签)</option>
-                                        <option value="l2" ${tagPillDisplayMode === 'l2' || tagPillDisplayMode === 'sub' ? 'selected' : ''}>仅显示所有子级标签 (二级及以上)</option>
-                                        <option value="leaf" ${tagPillDisplayMode === 'leaf' ? 'selected' : ''}>仅显示末级细分标签 (最深子标签)</option>
-                                        <option value="none" ${tagPillDisplayMode === 'none' ? 'selected' : ''}>完全隐藏标签胶囊</option>
-                                    </select>
-                                </div>
-                            </div>
+                // ==========================================================
+                // ========= 标签交互与管理弹窗 (模块化: modules/tag-ui.js) =========
+                // ==========================================================
+                let openTagKeywordsModal = () => {};
+                let openManageTagsPopup = () => {};
+                let openTagAssignmentPopup = () => {};
+                let openTagRemovalPopup = () => {};
 
-                            <div style="margin-bottom: 14px;">
-                                <h4 class="tm-settings-section-title">
-                                    <i class="fa-solid fa-cubes" style="margin-right: 6px;"></i> 核心扩展功能
-                                </h4>
-                                <div class="tm-settings-buttons-flex">
-                                    <button id="tm-pop-toggle-avatar" class="menu_button ${enableAvatarHelper ? 'active' : ''}"><i class="fa-solid fa-user-gear"></i> 头像管理 (${enableAvatarHelper ? '开启' : '关闭'})</button>
-                                    <button id="tm-pop-toggle-color" class="menu_button ${enableColorTransfer ? 'active' : ''}"><i class="fa-solid fa-palette"></i> 提取配色 (${enableColorTransfer ? '开启' : '关闭'})</button>
-                                </div>
-                            </div>
-
-                            <div style="margin-bottom: 14px;">
-                                <h4 class="tm-settings-section-title">
-                                    <i class="fa-solid fa-database" style="margin-right: 6px;"></i> 拓展数据管理
-                                </h4>
-                                <div style="font-size: 11.5px; opacity: 0.65; margin-bottom: 6px; padding: 0 2px;">
-                                    <i class="fa-solid fa-circle-info" style="margin-right: 4px;"></i>
-                                    <b>轻量配置导出/导入</b>：仅备份标签、收藏、绑定、显示设置等纯配置数据（不含美化文件）。
-                                </div>
-                                <div class="tm-settings-buttons-flex" style="margin-bottom: 8px;">
-                                    <button id="tm-pop-export-data" class="menu_button"><i class="fa-solid fa-file-export"></i> 导出配置</button>
-                                    <button id="tm-pop-import-data" class="menu_button"><i class="fa-solid fa-file-import"></i> 导入配置</button>
-                                </div>
-                                <div style="font-size: 11.5px; opacity: 0.65; margin-bottom: 6px; padding: 0 2px;">
-                                    <i class="fa-solid fa-box-archive" style="margin-right: 4px;"></i>
-                                    <b>自定义备份/恢复</b>：可按需自由勾选备份/恢复具体模块（主题文件、标签、日夜、头像、背景等），并支持挑选具体美化。
-                                </div>
-                                <div class="tm-settings-buttons-flex">
-                                    <button id="tm-pop-full-export" class="menu_button" style="color: var(--SmartThemeQuoteColor, #4a90e2);"><i class="fa-solid fa-box-archive"></i> 自定义备份导出</button>
-                                    <button id="tm-pop-full-import" class="menu_button" style="color: var(--SmartThemeQuoteColor, #4a90e2);"><i class="fa-solid fa-cloud-arrow-up"></i> 备份恢复导入</button>
-                                </div>
-                            </div>
-
-                            <div style="margin-bottom: 8px;">
-                                <h4 class="tm-settings-section-title">
-                                    <i class="fa-solid fa-wrench" style="margin-right: 6px;"></i> 高级与系统维保
-                                </h4>
-                                <div class="tm-settings-buttons-flex">
-                                    <button id="tm-pop-sync-disk" class="menu_button"><i class="fa-solid fa-arrows-rotate"></i> 对照磁盘</button>
-                                    <button id="tm-pop-reset-system" class="menu_button"><i class="fa-solid fa-triangle-exclamation"></i> 重置数据</button>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-
-                    await callGenericPopup(getPopupHtml(), 'confirm', null, {
-                        title: '美化插件高级设置',
-                        okButton: '关闭',
-                        cancelButton: null,
-                        wide: true,
-                        onOpen: (popup) => {
-                            const dlg = popup.dlg;
-
-                            const btnTwoLine = dlg.querySelector('#tm-pop-toggle-twoline');
-                            const btnHideTags = dlg.querySelector('#tm-pop-toggle-hidetags');
-
-                            if (btnTwoLine) {
-                                btnTwoLine.addEventListener('click', () => {
-                                    isTwoLineLayout = !isTwoLineLayout;
-                                    localStorage.setItem(TWO_LINE_LAYOUT_KEY, isTwoLineLayout ? 'true' : 'false');
-                                    btnTwoLine.classList.toggle('active', isTwoLineLayout);
-                                    btnTwoLine.innerHTML = `<i class="fa-solid fa-align-left"></i> 换行排版 (${isTwoLineLayout ? '开启' : '关闭'})`;
-                                    if (contentWrapper) contentWrapper.classList.toggle('two-line-layout', isTwoLineLayout);
-                                    toastr.info(`美化列表已切换为: ${isTwoLineLayout ? '换行排版模式' : '常规单行模式'}`);
-                                });
-                            }
-
-                            const selectPillMode = dlg.querySelector('#tm-pop-select-tag-pill-mode');
-                            if (selectPillMode) {
-                                selectPillMode.addEventListener('change', (e) => {
-                                    tagPillDisplayMode = e.target.value;
-                                    localStorage.setItem(TAG_PILL_MODE_KEY, tagPillDisplayMode);
-                                    hideTagPills = (tagPillDisplayMode === 'none');
-                                    localStorage.setItem(HIDE_TAG_PILLS_KEY, hideTagPills ? 'true' : 'false');
-                                    
-                                    if (contentWrapper) {
-                                        contentWrapper.classList.toggle('hide-tag-pills', hideTagPills);
-                                    }
-
-                                    const iconMap = {
-                                        'all': 'fa-solid fa-tags',
-                                        'l1': 'fa-solid fa-folder-tree',
-                                        'l2': 'fa-solid fa-sitemap',
-                                        'sub': 'fa-solid fa-sitemap',
-                                        'leaf': 'fa-solid fa-tag',
-                                        'none': 'fa-solid fa-eye-slash'
-                                    };
-                                    const iconEl = dlg.querySelector('#tm-pill-mode-icon');
-                                    if (iconEl) iconEl.className = iconMap[tagPillDisplayMode] || 'fa-solid fa-tags';
-
-                                    softRefreshUI();
-
-                                    const labels = {
-                                        'all': '显示全部层级标签',
-                                        'l1': '仅显示顶级主分类',
-                                        'l2': '仅显示所有子级标签',
-                                        'sub': '仅显示所有子级标签',
-                                        'leaf': '仅显示末级细分标签',
-                                        'none': '完全隐藏标签胶囊'
-                                    };
-                                    toastr.info(`标签胶囊显示模式已切换为：${labels[tagPillDisplayMode] || tagPillDisplayMode}`);
-                                });
-                            }
-
-                            const btnUsage = dlg.querySelector('#tm-pop-toggle-usage');
-                            if (btnUsage) {
-                                btnUsage.addEventListener('click', () => {
-                                    showUsageCount = !showUsageCount;
-                                    localStorage.setItem(SHOW_USAGE_COUNT_KEY, showUsageCount ? 'true' : 'false');
-                                    btnUsage.classList.toggle('active', showUsageCount);
-                                    btnUsage.innerHTML = `<i class="fa-solid fa-chart-bar"></i> 使用统计 (${showUsageCount ? '开启' : '关闭'})`;
-                                    themeItemMap.forEach((item, themeName) => {
-                                        const usageSpan = item.children[0].querySelector('.theme-usage-count');
-                                        if (usageSpan) {
-                                            if (showUsageCount && usageCount[themeName]) {
-                                                usageSpan.textContent = usageCount[themeName];
-                                                usageSpan.style.display = '';
-                                            } else {
-                                                usageSpan.style.display = 'none';
-                                            }
-                                        }
-                                    });
-                                });
-                            }
-
-                            const btnDayNight = dlg.querySelector('#tm-pop-toggle-daynight');
-                            if (btnDayNight) {
-                                btnDayNight.addEventListener('click', () => {
-                                    enableDayNightBinding = !enableDayNightBinding;
-                                    localStorage.setItem(ENABLE_DAYNIGHT_BINDING_KEY, String(enableDayNightBinding));
-                                    btnDayNight.classList.toggle('active', enableDayNightBinding);
-                                    btnDayNight.innerHTML = `<i class="fa-solid fa-circle-half-stroke"></i> 日夜图标 (${enableDayNightBinding ? '开启' : '关闭'})`;
-                                    toastr.info(`日夜绑定图标已${enableDayNightBinding ? '显示' : '隐藏'}`);
-                                    themeItemMap.forEach((item) => {
-                                        const btn = item.querySelector('.link-daynight-btn');
-                                        if (btn) btn.style.display = enableDayNightBinding ? 'inline-flex' : 'none';
-                                    });
-                                });
-                            }
-
-                            const btnReplace = dlg.querySelector('#tm-pop-toggle-replace');
-                            if (btnReplace) {
-                                btnReplace.addEventListener('click', () => {
-                                    enableReplaceAvatarBtn = !enableReplaceAvatarBtn;
-                                    localStorage.setItem(ENABLE_REPLACE_AVATAR_BTN_KEY, String(enableReplaceAvatarBtn));
-                                    btnReplace.classList.toggle('active', enableReplaceAvatarBtn);
-                                    btnReplace.innerHTML = `<i class="fa-solid fa-check"></i> 详情页替换 (${enableReplaceAvatarBtn ? '开启' : '关闭'})`;
-                                    toastr.info(`替换按键已${enableReplaceAvatarBtn ? '显示' : '隐藏'}`);
-                                    if (enableReplaceAvatarBtn) {
-                                        registerReplaceImageButtons();
-                                    } else {
-                                        removeReplaceImageButtons();
-                                    }
-                                });
-                            }
-
-                            const btnAvatar = dlg.querySelector('#tm-pop-toggle-avatar');
-                            if (btnAvatar) {
-                                btnAvatar.addEventListener('click', () => {
-                                    enableAvatarHelper = !enableAvatarHelper;
-                                    localStorage.setItem(ENABLE_AVATAR_HELPER_KEY, String(enableAvatarHelper));
-                                    btnAvatar.classList.toggle('active', enableAvatarHelper);
-                                    btnAvatar.innerHTML = `<i class="fa-solid fa-user-gear"></i> 头像管理 (${enableAvatarHelper ? '开启' : '关闭'})`;
-                                    document.dispatchEvent(new CustomEvent('themeManager:enableAvatarHelperChanged', { detail: enableAvatarHelper }));
-                                    toastr.info(`头像管理功能已${enableAvatarHelper ? '开启' : '关闭'}`);
-                                });
-                            }
-
-                            const btnColor = dlg.querySelector('#tm-pop-toggle-color');
-                            if (btnColor) {
-                                btnColor.addEventListener('click', () => {
-                                    enableColorTransfer = !enableColorTransfer;
-                                    localStorage.setItem(ENABLE_COLOR_TRANSFER_KEY, String(enableColorTransfer));
-                                    btnColor.classList.toggle('active', enableColorTransfer);
-                                    btnColor.innerHTML = `<i class="fa-solid fa-palette"></i> 提取配色 (${enableColorTransfer ? '开启' : '关闭'})`;
-                                    toastr.info(`提取配色功能已${enableColorTransfer ? '开启' : '关闭'}`);
-                                    themeItemMap.forEach((item) => {
-                                        const btn = item.querySelector('.color-transfer-btn');
-                                        if (btn) btn.style.display = enableColorTransfer ? 'inline-flex' : 'none';
-                                    });
-                                });
-                            }
-
-                            const btnExport = dlg.querySelector('#tm-pop-export-data');
-                            if (btnExport) {
-                                btnExport.addEventListener('click', exportSettings);
-                            }
-
-                            const btnImport = dlg.querySelector('#tm-pop-import-data');
-                            if (btnImport) {
-                                btnImport.addEventListener('click', () => settingsFileInput.click());
-                            }
-
-                            const btnFullExport = dlg.querySelector('#tm-pop-full-export');
-                            if (btnFullExport) {
-                                btnFullExport.addEventListener('click', () => openCustomExportModal());
-                            }
-
-                            const btnFullImport = dlg.querySelector('#tm-pop-full-import');
-                            if (btnFullImport) {
-                                btnFullImport.addEventListener('click', () => fullBackupFileInput.click());
-                            }
-
-                            const btnSync = dlg.querySelector('#tm-pop-sync-disk');
-                            if (btnSync) {
-                                btnSync.addEventListener('click', () => {
-                                    closePopup(popup);
-                                    hardResyncThemes(true);
-                                });
-                            }
-
-                            const btnReset = dlg.querySelector('#tm-pop-reset-system');
-                            if (btnReset) {
-                                btnReset.addEventListener('click', () => {
-                                    closePopup(popup);
-                                    openResetSystemModal();
-                                });
-                            }
+                try {
+                    const { initTagUI } = await import(`${baseDir}modules/tag-ui.js`);
+                    const tagUiModule = initTagUI({
+                        loadThemeTags,
+                        saveThemeTags,
+                        isSubtagsEnabled,
+                        getValidInstalledThemeNames,
+                        escapeHtml,
+                        getAdaptivePopoverBg,
+                        softRefreshUI: (names) => softRefreshUI(names),
+                        applyKeywordMappings: () => applyKeywordMappings(),
+                        openAutoGroupWizard: () => openAutoGroupWizard(),
+                        callGenericPopup,
+                        toastr,
+                        ENABLE_SUBTAGS_KEY,
+                        getIsBatchEditMode: () => isBatchEditMode,
+                        getSelectedForBatch: () => selectedForBatch,
+                        resetBatchSelection: () => {
+                            selectedForBatch.clear();
+                            lastClickedThemeName = null;
                         }
                     });
+                    openTagKeywordsModal = tagUiModule.openTagKeywordsModal;
+                    openManageTagsPopup = tagUiModule.openManageTagsPopup;
+                    openTagAssignmentPopup = tagUiModule.openTagAssignmentPopup;
+                    openTagRemovalPopup = tagUiModule.openTagRemovalPopup;
+                } catch (e) {
+                    console.error('[Theme Manager] 标签UI模块加载失败:', e);
                 }
 
-
-                // 根据已设定的关键词规则，自动对已有美化/新美化应用映射（支持直属父级作用域匹配与深度优先处理）
-                function applyKeywordMappings(themeNames) {
-                    invalidateValidThemeNamesCache();
-                    const tags = loadThemeTags();
-                    const hasKeywords = tags.some(t => t.keywords && t.keywords.length > 0);
-                    if (!hasKeywords) return false;
-
-                    const validNames = getValidInstalledThemeNames();
-                    const inputNames = themeNames ? (Array.isArray(themeNames) ? themeNames : [themeNames]).filter(Boolean) : null;
-                    if (inputNames) {
-                        inputNames.forEach(n => validNames.add(n));
-                    }
-
-                    const themesToCheck = inputNames ? inputNames.filter(n => validNames.has(n)) : Array.from(validNames);
-                    if (themesToCheck.length === 0) return false;
-                    let changed = false;
-
-
-                    const tagsById = new Map(tags.map(t => [t.id, t]));
-
-                    // 计算标签在继承树中的深度（Depth），并按深度升序排序（保证父级标签优先匹配）
-                    function getTagDepth(t) {
-                        let depth = 0;
-                        let curr = t;
-                        const visited = new Set();
-                        while (curr && curr.parentId && !visited.has(curr.parentId)) {
-                            visited.add(curr.parentId);
-                            curr = tagsById.get(curr.parentId);
-                            if (curr) depth++;
-                        }
-                        return depth;
-                    }
-
-                    const sortedTags = [...tags].sort((a, b) => getTagDepth(a) - getTagDepth(b));
-
-                    for (const tag of sortedTags) {
-                        if (!tag.keywords || tag.keywords.length === 0) continue;
-                        const kwLCs = tag.keywords.filter(Boolean).map(kw => kw.toLowerCase());
-                        if (kwLCs.length === 0) continue;
-
-                        if (!tag.themes) tag.themes = [];
-                        const existingThemesSet = new Set(tag.themes);
-
-                        // 判别搜索作用域：
-                        // 1. 未设置父级标签 (一级标签)，或显式勾选了全局匹配 (globalKeywords: true)，在全局范围搜索；
-                        // 2. 二级/多级子标签：严格仅在直属父级标签已有的美化集合 (parentTag.themes) 中匹配关键词
-                        const isGlobalSearch = !tag.parentId || tag.globalKeywords === true;
-                        let scopedThemesToCheck = themesToCheck;
-
-                        if (!isGlobalSearch) {
-                            const parentTag = tagsById.get(tag.parentId);
-                            const parentThemesSet = new Set(parentTag && Array.isArray(parentTag.themes) ? parentTag.themes : []);
-                            scopedThemesToCheck = themesToCheck.filter(n => parentThemesSet.has(n));
-                        }
-
-                        if (scopedThemesToCheck.length === 0) continue;
-
-
-
-
-                        for (let i = 0; i < scopedThemesToCheck.length; i++) {
-                            const themeName = scopedThemesToCheck[i];
-                            if (existingThemesSet.has(themeName)) continue;
-                            const nameLC = themeName.toLowerCase();
-                            for (let j = 0; j < kwLCs.length; j++) {
-                                if (nameLC.includes(kwLCs[j])) {
-                                    tag.themes.push(themeName);
-                                    existingThemesSet.add(themeName);
-                                    changed = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    if (changed) {
-                        sanitizeSubtagThemeAssociations(tags);
-                        saveThemeTags(tags);
-                        softRefreshUI(themeNames && Array.isArray(themeNames) ? themeNames : null);
-                    }
-                    return changed;
-                }
-
-
-                // === 超强分词与停止词过滤 (解决 700+ 超量美化在移动端卡顿) ===
-                // === 超强分词与停止词过滤 (解决 700+ 超量美化在移动端卡顿) ===
-                const AUTO_GROUP_STOPWORDS = new Set([
-                    'json', 'theme', 'themes', 'preset', 'presets', 'copy', 'new', 'fixed', 'final',
-                    '360px', '1080p', '720p', 'v1', 'v2', 'v3', 'v4', 'v5', 'v1.0', 'v2.0', 'v3.0',
-                    '01', '02', '03', '04', '05', '06', '07', '08', '09', '10',
-                    'mode', 'ui', 'dark', 'light', 'st', 'sillytavern', 'main', 'card', 'style', 'test', 'demo',
-                    '美化', '主题', '预设', '整合', '重置', '修改', '修复', '最终', '完整', '通用', '版本', '备份', '副本', '版', '新'
-                ]);
-
-                function extractCandidateThemeGroups(themePool, minMatch = 2, targetLevel = 'l1', parentId = null, maxCandidates = 200) {
-                    const list = themePool || allParsedThemes || [];
-                    const candidateMap = new Map(); // kw -> Set(themeValue)
-
-                    // 0. 收集同级已存在的标签名，若已存在同名标签则自动跳过
-                    const existingTags = loadThemeTags();
-                    const existingTagNamesAtLevel = new Set(
-                        existingTags
-                            .filter(t => (targetLevel === 'l2' ? t.parentId === parentId : (!t.parentId || !existingTags.some(p => p.id === t.parentId))))
-                            .map(t => t.name.trim().toLowerCase())
-                    );
-
-                    // 辅助：清洗主题名称中的版本号、各种类型括号、数字、常见后缀
-                    function sanitizeThemeTitle(rawName) {
-                        if (!rawName) return '';
-                        return rawName
-                            .replace(/[\[\]【】（）()《》<>\{\}]/g, ' ')
-                            .replace(/\bv?\d+(\.\d+)*\b/gi, ' ')
-                            .replace(/[_\-\+\/\\]+/g, ' ')
-                            .trim();
-                    }
-
-                    // 1. 策略 A: 匹配各类括号里面的独立标记词（如 【黑金】 [Cyberpunk] (莫兰迪) 《动漫》）
-                    list.forEach(t => {
-                        const name = t.display || t.value;
-                        if (!name) return;
-
-                        let match;
-                        const bRegex = /[\[【（(《<](.+?)[\]】）)》>]/g;
-                        while ((match = bRegex.exec(name)) !== null) {
-                            const kw = match[1].replace(/\bv?\d+(\.\d+)*\b/gi, '').trim();
-                            const kwLower = kw.toLowerCase();
-                            if (kw.length >= 1 && kw.length <= 20 && !AUTO_GROUP_STOPWORDS.has(kwLower) && !existingTagNamesAtLevel.has(kwLower)) {
-                                if (!candidateMap.has(kw)) candidateMap.set(kw, new Set());
-                                candidateMap.get(kw).add(t.value);
-                            }
-                        }
-                    });
-
-                    // 2. 策略 B: 分词 Token 提取 (按空格分隔)
-                    list.forEach(t => {
-                        const name = t.display || t.value;
-                        if (!name) return;
-
-                        const sanitized = sanitizeThemeTitle(name);
-                        const tokens = sanitized.split(/\s+/).filter(Boolean);
-
-                        tokens.forEach(token => {
-                            const tokenLower = token.toLowerCase();
-                            if (token.length >= 2 && token.length <= 15) {
-                                if (!/^\d+$/.test(token) && !AUTO_GROUP_STOPWORDS.has(tokenLower) && !existingTagNamesAtLevel.has(tokenLower)) {
-                                    if (!candidateMap.has(token)) candidateMap.set(token, new Set());
-                                    candidateMap.get(token).add(t.value);
-                                }
-                            }
-                        });
-                    });
-
-                    // 策略 D: 3位及以上纯数字标识/型号/ID提取 (如 "1445", "2024", "8080" 等独立编号)
-                    list.forEach(t => {
-                        const name = t.display || t.value;
-                        if (!name) return;
-
-                        const numMatches = name.match(/\b\d{3,8}\b/g);
-                        if (numMatches) {
-                            numMatches.forEach(numStr => {
-                                if (!AUTO_GROUP_STOPWORDS.has(numStr) && !existingTagNamesAtLevel.has(numStr)) {
-                                    if (!candidateMap.has(numStr)) candidateMap.set(numStr, new Set());
-                                    candidateMap.get(numStr).add(t.value);
-                                }
-                            });
-                        }
-                    });
-
-                    // 3. 策略 C: N-Gram 任意位置连续子串滑动提取 (解决无空格中文/复合词位置不同、数字后缀干扰问题，如 "播放器", "聊天框", "莫兰迪")
-                    const nGramMap = new Map(); // kw -> Set(themeValue)
-
-                    list.forEach(t => {
-                        const name = t.display || t.value;
-                        if (!name) return;
-                        
-                        // 移除非中英文字符、数字，保留纯中英字串
-                        const cleanedStr = name
-                            .replace(/[\[\]【】（）()《》<>{}\-_+/\s]/g, '')
-                            .replace(/\d+/g, '');
-
-                        if (!cleanedStr) return;
-
-                        const maxGram = Math.min(6, cleanedStr.length);
-                        for (let len = 2; len <= maxGram; len++) {
-                            for (let i = 0; i <= cleanedStr.length - len; i++) {
-                                const subStr = cleanedStr.substring(i, i + len).trim();
-                                const subLower = subStr.toLowerCase();
-
-                                if (subStr.length >= 2 && !AUTO_GROUP_STOPWORDS.has(subLower) && !existingTagNamesAtLevel.has(subLower)) {
-                                    if (!nGramMap.has(subStr)) nGramMap.set(subStr, new Set());
-                                    nGramMap.get(subStr).add(t.value);
-                                }
-                            }
-                        }
-                    });
-
-                    // 合并 N-gram 抽取结果至 candidateMap，并通过位置无关的模糊匹配检索全量美化
-                    nGramMap.forEach((themesSet, subStr) => {
-                        if (themesSet.size >= minMatch) {
-                            const subLower = subStr.toLowerCase();
-                            const fullMatchedSet = new Set();
-                            
-                            list.forEach(t => {
-                                const titleLower = (t.display || t.value).toLowerCase();
-                                if (titleLower.includes(subLower)) {
-                                    fullMatchedSet.add(t.value);
-                                }
-                            });
-
-                            if (fullMatchedSet.size >= minMatch) {
-                                if (!candidateMap.has(subStr)) {
-                                    candidateMap.set(subStr, fullMatchedSet);
-                                } else {
-                                    const existingSet = candidateMap.get(subStr);
-                                    fullMatchedSet.forEach(val => existingSet.add(val));
-                                }
-                            }
-                        }
-                    });
-
-                    // 4. 转换为数组并按门槛筛选
-                    let candidateList = [];
-                    candidateMap.forEach((themesSet, kw) => {
-                        if (themesSet.size >= minMatch) {
-                            candidateList.push({
-                                keyword: kw,
-                                themes: Array.from(themesSet)
-                            });
-                        }
-                    });
-
-                    // 5. 智能归并与去重 (Smart Subsumption & Overlap Merging)
-                    // 优先按字串长度降序排序（较长且有特异性的词优先，如 "播放器" 优于 "播放"）
-                    candidateList.sort((a, b) => b.keyword.length - a.keyword.length);
-
-                    const finalCandidates = [];
-                    
-                    for (const item of candidateList) {
-                        const kwLower = item.keyword.toLowerCase();
-                        
-                        // 检测是否有更长且美化包含率 ≥ 70% 的长词包含了当前短词
-                        const isChildOfExistingLonger = finalCandidates.some(longer => {
-                            const longerKwLower = longer.keyword.toLowerCase();
-                            if (longerKwLower.includes(kwLower)) {
-                                const itemSet = new Set(item.themes);
-                                const overlap = longer.themes.filter(t => itemSet.has(t)).length;
-                                if (overlap / longer.themes.length >= 0.7) {
-                                    return true;
-                                }
-                            }
-                            return false;
-                        });
-
-                        if (!isChildOfExistingLonger) {
-                            finalCandidates.push(item);
-                        }
-                    }
-
-                    // 6. Jaccard 相似度高度重合去重：若两个候选词的美化集合 Jaccard ≥ 0.75，保留较长（更具体）的那个
-                    const jaccardDeduped = [];
-                    for (const item of finalCandidates) {
-                        const itemSet = new Set(item.themes);
-                        const isDuplicate = jaccardDeduped.some(existing => {
-                            const existingSet = new Set(existing.themes);
-                            const intersection = item.themes.filter(t => existingSet.has(t)).length;
-                            const union = new Set([...item.themes, ...existing.themes]).size;
-                            if (union === 0) return false;
-                            const jaccard = intersection / union;
-                            if (jaccard >= 0.75) {
-                                // 保留关键词更长（更具体）的那个
-                                if (existing.keyword.length < item.keyword.length) {
-                                    existing.keyword = item.keyword;
-                                }
-                                return true;
-                            }
-                            return false;
-                        });
-                        if (!isDuplicate) jaccardDeduped.push(item);
-                    }
-
-                    // 7. 价值评分排序：优先展示「独特贡献度高」的候选词（能归类更多别处未覆盖美化的词排前）
-                    const coveredByPrev = new Set();
-                    jaccardDeduped.sort((a, b) => b.themes.length - a.themes.length);
-                    jaccardDeduped.forEach(item => {
-                        const newCount = item.themes.filter(t => !coveredByPrev.has(t)).length;
-                        item._valueScore = newCount + item.themes.length * 0.1;
-                        item.themes.forEach(t => coveredByPrev.add(t));
-                    });
-                    jaccardDeduped.sort((a, b) => b._valueScore - a._valueScore);
-
-                    // 8. 按 maxCandidates 弹性截取
-                    if (maxCandidates && maxCandidates > 0 && isFinite(maxCandidates)) {
-                        return jaccardDeduped.slice(0, maxCandidates);
-                    }
-                    return jaccardDeduped;
-                }
-
-                // === 分组向导 Step 1: 设置基数范围、目标层级与门槛 ===
-                async function openAutoGroupWizard() {
-                    if (!allParsedThemes || allParsedThemes.length === 0) {
-                        toastr.info('当前没有可供提取标签的美化主题。');
-                        return;
-                    }
-
-                    const existingTags = loadThemeTags();
-
-                    function buildTagTreeOptionsHtml(allTags, parentTagId = null, depth = 0) {
-                        let optionsHtml = '';
-                        const children = allTags.filter(t => (parentTagId ? t.parentId === parentTagId : (!t.parentId || !allTags.some(p => p.id === t.parentId))));
-                        children.forEach(c => {
-                            const indent = '&nbsp;&nbsp;'.repeat(depth);
-                            const prefix = depth > 0 ? '└ ' : '';
-                            optionsHtml += `<option value="${c.id}">${indent}${prefix}${escapeHtml(c.name)} (${c.themes ? c.themes.length : 0})</option>`;
-                            optionsHtml += buildTagTreeOptionsHtml(allTags, c.id, depth + 1);
-                        });
-                        return optionsHtml;
-                    }
-
-                    let l1SelectOptionsHtml = buildTagTreeOptionsHtml(existingTags);
-                    if (!l1SelectOptionsHtml) {
-                        l1SelectOptionsHtml = '<option value="">(尚未创建主标签分类)</option>';
-                    }
-
-                    let allTagsSelectOptionsHtml = existingTags.map(t => `<option value="${t.id}">${escapeHtml(t.name)} (${t.themes ? t.themes.length : 0})</option>`).join('');
-                    if (!allTagsSelectOptionsHtml) {
-                        allTagsSelectOptionsHtml = '<option value="">(暂无已选标签)</option>';
-                    }
-
-                    const selectedCount = selectedForBatch ? selectedForBatch.size : 0;
-                    const filteredCount = typeof filteredThemes !== 'undefined' ? filteredThemes.length : allParsedThemes.length;
-                    const scopeFilteredLabel = selectedCount > 0 ? `当前批量勾选的美化 (共 ${selectedCount} 个)` : `当前界面已筛选的美化 (共 ${filteredCount} 个)`;
-
-                    // 自动感知当前界面处于的最深层级标签
-                    const deepestActiveTagId = (typeof activeTagAncestryPath !== 'undefined' && Array.isArray(activeTagAncestryPath) && activeTagAncestryPath.length > 0)
-                        ? activeTagAncestryPath[activeTagAncestryPath.length - 1]
-                        : null;
-                    const hasDeepestTag = deepestActiveTagId && existingTags.some(t => t.id === deepestActiveTagId);
-
-                    const setupHtml = `
-                        <div style="padding:4px; height:100%; display:flex; flex-direction:column; box-sizing:border-box;">
-                            <h4 style="margin:0 0 10px 0; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
-                                <i class="fa-solid fa-wand-magic-sparkles" style="color:#ffc107;"></i> 智能美化分组向导
-                            </h4>
-                            <div style="background:rgba(255,255,255,0.04); border-radius:6px; padding:16px; flex:1; display:flex; flex-direction:column; gap:16px; overflow-y:auto;">
-                                <div>
-                                    <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
-                                        <i class="fa-solid fa-layer-group"></i> 1. 选择分析的美化基数范围：
-                                    </div>
-                                    <div style="display:flex; flex-direction:column; gap:8px; padding-left:12px;">
-                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                            <input type="radio" name="tm-auto-scope" value="filtered" checked style="margin:0;">
-                                            <span>${scopeFilteredLabel}</span>
-                                        </label>
-                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                            <input type="radio" name="tm-auto-scope" value="all" style="margin:0;">
-                                            <span>全部美化主题 (共 <b>${allParsedThemes.length}</b> 个)</span>
-                                        </label>
-                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                            <input type="radio" name="tm-auto-scope" value="tag" style="margin:0;">
-                                            <span>特定标签下的美化</span>
-                                        </label>
-                                        <div id="tm-auto-scope-tag-container" style="margin-left:24px; display:none;">
-                                            <select id="tm-auto-scope-tag-select" class="text_pole" style="font-size:12px; height:30px; padding:2px 8px; width:100%; max-width:280px;">
-                                                ${allTagsSelectOptionsHtml}
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-                                <hr style="border:0; border-top:1px solid rgba(128,128,128,0.2); margin:0;">
-                                <div>
-                                    <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
-                                        <i class="fa-solid fa-sitemap"></i> 2. 选择生成标签的目标层级：
-                                    </div>
-                                    <div style="display:flex; flex-direction:column; gap:8px; padding-left:12px;">
-                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                            <input type="radio" name="tm-auto-level" value="l1" ${!hasDeepestTag ? 'checked' : ''} style="margin:0;">
-                                            <span>创建为 <b>一级主标签/分类</b></span>
-                                        </label>
-                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                            <input type="radio" name="tm-auto-level" value="l2" ${hasDeepestTag ? 'checked' : ''} style="margin:0;">
-                                            <span>创建为 <b>二级子标签</b> (支持向归属主分类融合/合并)</span>
-                                        </label>
-                                        <div id="tm-auto-parent-container" style="margin-left:24px; display:${hasDeepestTag ? 'block' : 'none'};">
-                                            <select id="tm-auto-parent-select" class="text_pole" style="font-size:12px; height:30px; padding:2px 8px; width:100%; max-width:280px;">
-                                                ${l1SelectOptionsHtml}
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-                                <hr style="border:0; border-top:1px solid rgba(128,128,128,0.2); margin:0;">
-                                <div>
-                                    <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
-                                        <i class="fa-solid fa-filter"></i> 3. 提取门槛：
-                                    </div>
-                                    <div style="display:inline-flex; align-items:center; gap:8px; font-size:13px; padding-left:12px;">
-                                        <span>至少重合包含：</span>
-                                        <input type="number" id="tm-auto-min-match" class="text_pole" value="2" min="2" max="50" style="width:60px; text-align:center; height:28px; padding:0; margin:0;">
-                                        <span>个美化主题</span>
-                                    </div>
-                                </div>
-                                <hr style="border:0; border-top:1px solid rgba(128,128,128,0.2); margin:0;">
-                                <div>
-                                    <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
-                                        <i class="fa-solid fa-list-ol"></i> 4. 提取分类上限 (海量美化专用)：
-                                    </div>
-                                    <div style="display:inline-flex; align-items:center; gap:8px; font-size:13px; padding-left:12px; flex-wrap:wrap;">
-                                        <span>提取候选上限：</span>
-                                        <select id="tm-auto-max-candidates" class="text_pole" style="font-size:12px; height:28px; padding:2px 8px; width:170px; margin:0;">
-                                            <option value="100">100 组 (默认推荐)</option>
-                                            <option value="200" selected>200 组 (深度提取)</option>
-                                            <option value="500">500 组 (海量美化推荐)</option>
-                                            <option value="0">🚀 全量全景提取 (不限组数)</option>
-                                        </select>
-                                        <small style="opacity:0.65;">(不限组数可提取所有可能的分类组，结合全景矩阵审核一键全选清理)</small>
-                                    </div>
-                                </div>
-                                <hr style="border:0; border-top:1px solid rgba(128,128,128,0.2); margin:0;">
-                                <div>
-                                    <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
-                                        <i class="fa-solid fa-filter-circle-xmark"></i> 5. 智能过滤：
-                                    </div>
-                                    <div style="display:flex; flex-direction:column; gap:8px; padding-left:12px;">
-                                        <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                            <input type="checkbox" id="tm-auto-untagged-only" style="margin:0;">
-                                            <span>🎯 仅分析<b>未归类</b>的美化 (在该目标层级下尚无更细分子标签的美化)</span>
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-
-                    let selectedScope = 'filtered';
-                    let selectedLevel = hasDeepestTag ? 'l2' : 'l1';
-                    let parentId = hasDeepestTag ? deepestActiveTagId : null;
-                    let minMatch = 2;
-                    let maxCandidates = 200;
-                    let untaggedOnly = false;
-
-                    const popupRes = await callGenericPopup(setupHtml, 'confirm', null, {
-                        title: '分组提取设置',
-                        okButton: '▶ 开始分析提取',
-                        cancelButton: '✕ 取消',
-                        wide: true,
-                        onOpen: (popup) => {
-                            const dlg = popup.dlg;
-                            if (dlg) {
-                                dlg.style.width = '80vw';
-                                dlg.style.height = '80vh';
-                                dlg.style.maxWidth = '900px';
-                                dlg.style.maxHeight = '80vh';
-                                dlg.style.display = 'flex';
-                                dlg.style.flexDirection = 'column';
-                            }
-
-                            const parentSelect = dlg.querySelector('#tm-auto-parent-select');
-                            if (parentSelect && hasDeepestTag) {
-                                parentSelect.value = deepestActiveTagId;
-                                parentId = deepestActiveTagId;
-                            }
-
-                            const scopeRadios = dlg.querySelectorAll('input[name="tm-auto-scope"]');
-                            const scopeTagContainer = dlg.querySelector('#tm-auto-scope-tag-container');
-                            scopeRadios.forEach(r => {
-                                r.addEventListener('change', () => {
-                                    if (r.checked) selectedScope = r.value;
-                                    scopeTagContainer.style.display = (selectedScope === 'tag') ? 'block' : 'none';
-                                });
-                            });
-
-                            const levelRadios = dlg.querySelectorAll('input[name="tm-auto-level"]');
-                            const parentContainer = dlg.querySelector('#tm-auto-parent-container');
-                            levelRadios.forEach(r => {
-                                r.addEventListener('change', () => {
-                                    if (r.checked) selectedLevel = r.value;
-                                    parentContainer.style.display = (selectedLevel === 'l2') ? 'block' : 'none';
-                                });
-                            });
-
-                            const minMatchInput = dlg.querySelector('#tm-auto-min-match');
-                            const maxCandidatesSelect = dlg.querySelector('#tm-auto-max-candidates');
-
-                            dlg.addEventListener('change', () => {
-                                const checkedScope = dlg.querySelector('input[name="tm-auto-scope"]:checked');
-                                if (checkedScope) selectedScope = checkedScope.value;
-                                const checkedLevel = dlg.querySelector('input[name="tm-auto-level"]:checked');
-                                if (checkedLevel) selectedLevel = checkedLevel.value;
-                                if (parentSelect && selectedLevel === 'l2') parentId = parentSelect.value;
-                                else if (selectedLevel === 'l1') parentId = null;
-                                if (minMatchInput) minMatch = parseInt(minMatchInput.value) || 2;
-                                if (maxCandidatesSelect) maxCandidates = parseInt(maxCandidatesSelect.value);
-                                const untaggedOnlyChk = dlg.querySelector('#tm-auto-untagged-only');
-                                if (untaggedOnlyChk) untaggedOnly = untaggedOnlyChk.checked;
-                            });
-                        }
-                    });
-
-                    if (!popupRes) return;
-
-                    const maxCandidatesSelectEl = document.querySelector('#tm-auto-max-candidates');
-                    if (maxCandidatesSelectEl) maxCandidates = parseInt(maxCandidatesSelectEl.value);
-
-                    const minMatchInputEl = document.querySelector('#tm-auto-min-match');
-                    if (minMatchInputEl) minMatch = parseInt(minMatchInputEl.value) || 2;
-
-                    const untaggedOnlyChkEl = document.querySelector('#tm-auto-untagged-only');
-                    if (untaggedOnlyChkEl) untaggedOnly = untaggedOnlyChkEl.checked;
-
-                    const parentSelectEl = document.querySelector('#tm-auto-parent-select');
-                    if (selectedLevel === 'l2' && parentSelectEl) {
-                        parentId = parentSelectEl.value;
-                    } else if (selectedLevel === 'l1') {
-                        parentId = null;
-                    }
-
-                    showLoader();
-                    setTimeout(() => {
-                        try {
-                            let pool = [];
-                            if (selectedScope === 'filtered') {
-                                if (selectedForBatch && selectedForBatch.size > 0) {
-                                    const set = new Set(selectedForBatch);
-                                    pool = allParsedThemes.filter(t => set.has(t.value));
-                                } else if (typeof filteredThemes !== 'undefined' && filteredThemes.length > 0) {
-                                    pool = filteredThemes;
-                                } else {
-                                    pool = allParsedThemes;
-                                }
-                            } else if (selectedScope === 'tag') {
-                                const scopeTagId = document.querySelector('#tm-auto-scope-tag-select')?.value;
-                                const scopeTag = existingTags.find(tg => tg.id === scopeTagId);
-                                if (scopeTag && scopeTag.themes) {
-                                    const tagThemesSet = new Set(scopeTag.themes);
-                                    pool = allParsedThemes.filter(t => tagThemesSet.has(t.value));
-                                } else {
-                                    pool = allParsedThemes;
-                                }
-                            } else {
-                                pool = allParsedThemes;
-                            }
-
-                            // 5. 若勾选「仅分析未归类美化」，判定当前目标层级下是否有更深细分子标签
-                            if (untaggedOnly) {
-                                const allExistingTags = loadThemeTags();
-                                if (selectedLevel === 'l2' && parentId) {
-                                    const childTagIds = getAllDescendantTagIds(parentId, allExistingTags).filter(id => id !== parentId);
-                                    if (childTagIds.length > 0) {
-                                        const childTagIdsSet = new Set(childTagIds);
-                                        pool = pool.filter(t => {
-                                            const themeTagIds = getTagsForTheme(t.value, allExistingTags);
-                                            return !themeTagIds.some(id => childTagIdsSet.has(id));
-                                        });
-                                    }
-                                } else {
-                                    const l1TagIds = new Set(allExistingTags.filter(t => !t.parentId).map(t => t.id));
-                                    pool = pool.filter(t => {
-                                        const themeTagIds = getTagsForTheme(t.value, allExistingTags);
-                                        return !themeTagIds.some(id => l1TagIds.has(id));
-                                    });
-                                }
-
-                                if (pool.length === 0) {
-                                    hideLoader();
-                                    toastr.info('当前目标层级下所有美化均已有细分子标签归类，无需再次分组！');
-                                    return;
-                                }
-                            }
-
-
-                            const candidates = extractCandidateThemeGroups(pool, minMatch, selectedLevel, parentId, maxCandidates);
-                            hideLoader();
-
-                            if (candidates.length === 0) {
-                                toastr.info(`在选定的 ${pool.length} 个美化中，未分析到重合数 ≥ ${minMatch} 且未重复的词组分类。`);
-                                return;
-                            }
-
-                            // 启动全景批量审核矩阵
-                            openAutoGroupBatchMatrix(candidates, selectedLevel, parentId);
-                        } catch (err) {
-                            hideLoader();
-                            console.error('分组提取失败:', err);
-                            toastr.error('分组提取发生异常: ' + (err.message || err));
-                        }
-                    }, 150);
-                }
-
-                // === 方案 1: 全景批量审核矩阵 (包含响应式移动端 UI、实时重命名与一键批量应用) ===
-                async function openAutoGroupBatchMatrix(candidates, level, parentId) {
-                    if (!candidates || candidates.length === 0) {
-                        toastr.info('没有候选分组可供审核。');
-                        return;
-                    }
-
-                    const targetLevelLabel = level === 'l2' ? '二级子标签' : '一级主标签';
-                    const totalThemesCount = new Set(candidates.flatMap(c => c.themes)).size;
-
-                    const matrixHtml = `
-                        <div class="tm-matrix-container">
-                            <div class="tm-matrix-header">
-                                <span style="font-weight:bold; font-size:14px; color:var(--SmartThemeQuoteColor, #4a90e2); display:inline-flex; align-items:center; gap:6px; white-space:nowrap;">
-                                    <i class="fa-solid fa-table-cells-large" style="color:#ffc107;"></i> 自动分组全景审核矩阵
-                                </span>
-                                <span style="font-size:12px; padding:3px 10px; border-radius:12px; background:rgba(0,123,255,0.18); color:#4dabf7; font-weight:bold; white-space:nowrap;">
-                                    <i class="fa-solid fa-sitemap" style="margin-right:4px;"></i>${targetLevelLabel}
-                                </span>
-                            </div>
-
-                            <div class="tm-matrix-toolbar">
-                                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                                    <label style="display:inline-flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; user-select:none; white-space:nowrap; margin:0;">
-                                        <input type="checkbox" id="matrix-select-all-chk" checked style="margin:0;">
-                                        <span>全选/取消</span>
-                                    </label>
-                                    <input type="search" id="matrix-search-box" class="text_pole" placeholder="搜索候选分组或美化名..." style="font-size:12px; height:26px; padding:2px 8px; width:160px; margin:0; flex:1; min-width:100px;">
-                                    <select id="matrix-sort-select" class="text_pole" style="font-size:12px; height:26px; padding:2px 6px; width:130px; margin:0;">
-                                        <option value="value">按价值评分↓</option>
-                                        <option value="count-desc">美化数量 多→少</option>
-                                        <option value="count-asc">美化数量 少→多</option>
-                                        <option value="name-asc">名称 A→Z</option>
-                                    </select>
-                                    <button id="matrix-merge-btn" class="menu_button" style="font-size:11px; padding:2px 8px; margin:0; height:26px; min-height:26px; white-space:nowrap; background:rgba(74,144,226,0.2) !important;" title="将选中的多个候选词合并为一个标签"><i class="fa-solid fa-object-group"></i> 合并选中</button>
-                                </div>
-                                <div id="matrix-stats-summary" style="font-size:12px; opacity:0.85; white-space:nowrap;">
-                                    已选中 <b><span id="matrix-selected-count">${candidates.length}</span></b> / ${candidates.length} 个分组 (涉及 <b>${totalThemesCount}</b> 个美化)
-                                </div>
-                            </div>
-
-                            <div id="tm-matrix-list" class="tm-matrix-list">
-                                ${candidates.map((c, idx) => `
-                                    <div class="tm-matrix-card" data-idx="${idx}">
-                                        <div class="tm-matrix-card-header">
-                                            <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
-                                                <input type="checkbox" class="matrix-group-chk" data-idx="${idx}" checked style="margin:0; flex-shrink:0;">
-                                                <label style="display:inline-flex; align-items:center; gap:4px; font-size:12px; white-space:nowrap; flex-shrink:0; margin:0;">
-                                                    <i class="fa-solid fa-tag" style="color:#ffc107;"></i>
-                                                </label>
-                                                <input type="text" class="matrix-tag-name-input text_pole" data-idx="${idx}" value="${escapeHtml(c.keyword)}" style="flex:1; min-width:100px; max-width:260px; height:28px; padding:2px 8px; font-size:12.5px; margin:0;">
-                                            </div>
-                                            <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
-                                                <span style="font-size:11.5px; opacity:0.75; white-space:nowrap;">
-                                                    <i class="fa-solid fa-layer-group" style="margin-right:3px;"></i>${c.themes.length}个美化
-                                                </span>
-                                                <button class="menu_button matrix-toggle-themes-btn" data-idx="${idx}" style="font-size:11px; padding:2px 8px; margin:0; height:24px; min-height:24px; white-space:nowrap;" title="查看/编辑关联的美化"><i class="fa-solid fa-chevron-down"></i> 明细</button>
-                                                <button class="menu_button matrix-remove-card-btn" data-idx="${idx}" style="font-size:11px; padding:2px 6px; margin:0; height:24px; min-height:24px; background:rgba(220,53,69,0.2) !important; color:#ff8888 !important; white-space:nowrap;" title="移除此分组"><i class="fa-solid fa-trash-can"></i></button>
-                                            </div>
-                                        </div>
-                                        <div id="matrix-themes-wrapper-${idx}" class="tm-matrix-themes-wrapper">
-                                            <div style="font-size:11px; opacity:0.75; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center; white-space:nowrap;">
-                                                <span>勾选加入的美化 (${c.themes.length}):</span>
-                                                <label style="cursor:pointer; display:inline-flex; align-items:center; gap:4px; margin:0;">
-                                                    <input type="checkbox" class="matrix-sub-select-all" data-idx="${idx}" checked style="margin:0;"> 全选美化
-                                                </label>
-                                            </div>
-                                            ${c.themes.map(tName => `
-                                                <label style="display:flex; align-items:center; gap:6px; font-size:11.5px; cursor:pointer; padding:3px 6px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none; white-space:nowrap;">
-                                                    <input type="checkbox" class="matrix-theme-chk matrix-theme-chk-${idx}" value="${escapeHtml(tName)}" checked style="margin:0;">
-                                                    <span style="word-break:break-all;">${escapeHtml(tName)}</span>
-                                                </label>
-                                            `).join('')}
-                                        </div>
-                                    </div>
-                                `).join('')}
-                            </div>
-
-                            <div class="tm-matrix-footer">
-                                <button id="matrix-cancel-btn" class="menu_button" style="margin:0; font-size:12px; padding:5px 12px; background:rgba(128,128,128,0.2) !important; white-space:nowrap;"><i class="fa-solid fa-xmark"></i> 取消退出</button>
-                                <button id="matrix-apply-all-btn" class="menu_button active" style="margin:0; font-size:12.5px; font-weight:bold; padding:5px 16px; background:var(--SmartThemeQuoteColor, #007bff) !important; color:#ffffff !important; white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> 一键生成/应用已选分组 (<span id="matrix-apply-count">${candidates.length}</span>)</button>
-                            </div>
-                        </div>
-                    `;
-
-                    // 辅助函数：保存/更新/合并二级与一级标签但不重刷全量 DOM
-                    const createTagAndSaveSilent = (cItem, tagName, themesList) => {
-                        if (!themesList || themesList.length === 0) return { success: false, isNew: false };
-                        let tags = loadThemeTags();
-
-                        let isNew = false;
-                        let tagObj = tags.find(t => t.name.toLowerCase() === tagName.toLowerCase() && (parentId ? t.parentId === parentId : (!t.parentId || !tags.some(p => p.id === t.parentId))));
-                        if (!tagObj) {
-                            isNew = true;
-                            tagObj = {
-                                id: 'tag_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-                                name: tagName,
-                                parentId: parentId || null,
-                                themes: [],
-                                keywords: [tagName]
-                            };
-                            tags.push(tagObj);
-                        } else {
-                            if (parentId && !tagObj.parentId) tagObj.parentId = parentId;
-                            if (!tagObj.keywords) tagObj.keywords = [];
-                            if (!tagObj.keywords.includes(tagName)) tagObj.keywords.push(tagName);
-                        }
-
-                        if (!tagObj.themes) tagObj.themes = [];
-                        themesList.forEach(tn => {
-                            if (!tagObj.themes.includes(tn)) tagObj.themes.push(tn);
-                        });
-
-                        if (parentId) {
-                            let currPId = parentId;
-                            const visited = new Set();
-                            while (currPId && !visited.has(currPId)) {
-                                visited.add(currPId);
-                                const parentTagObj = tags.find(t => t.id === currPId);
-                                if (parentTagObj) {
-                                    if (!parentTagObj.themes) parentTagObj.themes = [];
-                                    themesList.forEach(tn => {
-                                        if (!parentTagObj.themes.includes(tn)) parentTagObj.themes.push(tn);
-                                    });
-                                    currPId = parentTagObj.parentId;
-                                } else {
-                                    break;
-                                }
-                            }
-                        }
-
-                        saveThemeTags(tags);
-                        return { success: true, isNew: isNew, tagId: tagObj.id };
-                    };
-
-                    await callGenericPopup(matrixHtml, 'confirm', null, {
-                        title: `自动分组全景矩阵 (${candidates.length} 个候选分组)`,
-                        okButton: null,
-                        cancelButton: null,
-                        wide: true,
-                        onOpen: (popup) => {
-                            const dlg = popup.dlg;
-                            if (dlg) {
-                                dlg.style.width = '85vw';
-                                dlg.style.height = '85vh';
-                                dlg.style.maxWidth = '980px';
-                                dlg.style.maxHeight = '85vh';
-                                dlg.style.display = 'flex';
-                                dlg.style.flexDirection = 'column';
-                            }
-
-                            const matrixList = dlg ? dlg.querySelector('#tm-matrix-list') : null;
-                            const selectAllChk = dlg ? dlg.querySelector('#matrix-select-all-chk') : null;
-                            const searchBox = dlg ? dlg.querySelector('#matrix-search-box') : null;
-                            const sortSelect = dlg ? dlg.querySelector('#matrix-sort-select') : null;
-                            const mergeBtn = dlg ? dlg.querySelector('#matrix-merge-btn') : null;
-                            const applyBtn = dlg ? dlg.querySelector('#matrix-apply-all-btn') : null;
-                            const cancelBtn = dlg ? dlg.querySelector('#matrix-cancel-btn') : null;
-                            const selectedCountSpan = dlg ? dlg.querySelector('#matrix-selected-count') : null;
-                            const applyCountSpan = dlg ? dlg.querySelector('#matrix-apply-count') : null;
-
-                            const updateStats = () => {
-                                if (!matrixList) return;
-                                const checkedGroupChks = matrixList.querySelectorAll('.matrix-group-chk:checked');
-                                const checkedCount = checkedGroupChks.length;
-                                if (selectedCountSpan) selectedCountSpan.textContent = checkedCount;
-                                if (applyCountSpan) applyCountSpan.textContent = checkedCount;
-                                if (applyBtn) applyBtn.disabled = (checkedCount === 0);
-                            };
-
-                             // 搜索过滤 (复合搜索)
-                            if (searchBox && matrixList) {
-                                searchBox.addEventListener('input', (e) => {
-                                    const q = e.target.value;
-                                    matrixList.querySelectorAll('.tm-matrix-card').forEach(card => {
-                                        const idx = card.dataset.idx;
-                                        const c = candidates[idx];
-                                        const nameVal = card.querySelector('.matrix-tag-name-input')?.value || '';
-                                        const themesVal = c ? c.themes.join(' ') : '';
-                                        const targetText = (nameVal + ' ' + themesVal).toLowerCase();
-                                        const match = isTextMatchingCompositeSearch(targetText, q);
-                                        card.style.display = match ? 'flex' : 'none';
-                                    });
-                                });
-                            }
-
-                            // 排序
-                            if (sortSelect && matrixList) {
-                                sortSelect.addEventListener('change', () => {
-                                    const mode = sortSelect.value;
-                                    const cards = Array.from(matrixList.querySelectorAll('.tm-matrix-card'));
-                                    cards.sort((a, b) => {
-                                        const ca = candidates[a.dataset.idx];
-                                        const cb = candidates[b.dataset.idx];
-                                        if (!ca || !cb) return 0;
-                                        if (mode === 'count-desc') return cb.themes.length - ca.themes.length;
-                                        if (mode === 'count-asc') return ca.themes.length - cb.themes.length;
-                                        if (mode === 'name-asc') return (ca.keyword || '').localeCompare(cb.keyword || '');
-                                        // 'value' = 按原始顺序（提取时已按价值评分排）
-                                        return parseInt(a.dataset.idx) - parseInt(b.dataset.idx);
-                                    });
-                                    cards.forEach(c => matrixList.appendChild(c));
-                                });
-                            }
-
-                            // 合并选中候选词
-                            if (mergeBtn && matrixList) {
-                                mergeBtn.addEventListener('click', () => {
-                                    const checkedCards = Array.from(matrixList.querySelectorAll('.tm-matrix-card')).filter(card => {
-                                        const chk = card.querySelector('.matrix-group-chk');
-                                        return chk && chk.checked;
-                                    });
-                                    if (checkedCards.length < 2) {
-                                        toastr.warning('请先勾选 2 个或以上候选分组再进行合并！');
-                                        return;
-                                    }
-                                    // 取第一个的名称作为合并后标签名
-                                    const firstCard = checkedCards[0];
-                                    const firstNameInput = firstCard.querySelector('.matrix-tag-name-input');
-                                    const mergedName = firstNameInput ? firstNameInput.value.trim() : candidates[firstCard.dataset.idx]?.keyword || '合并标签';
-                                    const newName = prompt(`将 ${checkedCards.length} 个分组合并为一个标签，请输入标签名：`, mergedName);
-                                    if (!newName || !newName.trim()) return;
-
-                                    // 合并所有美化到第一张卡片
-                                    const mergedThemes = new Set();
-                                    checkedCards.forEach(card => {
-                                        const idx = card.dataset.idx;
-                                        const c = candidates[idx];
-                                        if (c) c.themes.forEach(t => mergedThemes.add(t));
-                                    });
-
-                                    // 更新第一张卡
-                                    if (firstNameInput) firstNameInput.value = newName.trim();
-                                    const firstIdx = firstCard.dataset.idx;
-                                    if (candidates[firstIdx]) {
-                                        candidates[firstIdx].themes = Array.from(mergedThemes);
-                                        // 更新美化数量显示
-                                        const countSpan = firstCard.querySelector('.fa-layer-group')?.parentElement;
-                                        if (countSpan) countSpan.innerHTML = `<i class="fa-solid fa-layer-group" style="margin-right:3px;"></i>${mergedThemes.size}个美化`;
-                                    }
-
-                                    // 删除其余卡片
-                                    checkedCards.slice(1).forEach(card => card.remove());
-                                    updateStats();
-                                    toastr.success(`已将 ${checkedCards.length} 个候选分组合并为「${newName.trim()}」，涉及 ${mergedThemes.size} 个美化！`);
-                                });
-                            }
-
-                            if (selectAllChk && matrixList) {
-                                selectAllChk.addEventListener('change', (e) => {
-                                    const isChecked = e.target.checked;
-                                    matrixList.querySelectorAll('.matrix-group-chk').forEach(chk => {
-                                        chk.checked = isChecked;
-                                    });
-                                    updateStats();
-                                });
-                            }
-
-                            if (matrixList) {
-                                matrixList.querySelectorAll('.matrix-toggle-themes-btn').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
-                                        e.preventDefault();
-                                        const idx = btn.dataset.idx;
-                                        const wrapper = matrixList.querySelector(`#matrix-themes-wrapper-${idx}`);
-                                        if (wrapper) {
-                                            const isExpanded = wrapper.classList.toggle('expanded');
-                                            btn.innerHTML = isExpanded
-                                                ? '<i class="fa-solid fa-chevron-up"></i> 收起'
-                                                : '<i class="fa-solid fa-chevron-down"></i> 明细';
-                                        }
-                                    });
-                                });
-
-                                matrixList.querySelectorAll('.matrix-sub-select-all').forEach(subChk => {
-                                    subChk.addEventListener('change', (e) => {
-                                        const idx = subChk.dataset.idx;
-                                        const isChecked = e.target.checked;
-                                        matrixList.querySelectorAll(`.matrix-theme-chk-${idx}`).forEach(chk => {
-                                            chk.checked = isChecked;
-                                        });
-                                    });
-                                });
-
-                                matrixList.querySelectorAll('.matrix-remove-card-btn').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
-                                        e.preventDefault();
-                                        const idx = btn.dataset.idx;
-                                        const card = matrixList.querySelector(`.tm-matrix-card[data-idx="${idx}"]`);
-                                        if (card) {
-                                            card.remove();
-                                            updateStats();
-                                        }
-                                    });
-                                });
-
-                                matrixList.addEventListener('change', (e) => {
-                                    if (e.target.classList.contains('matrix-group-chk')) {
-                                        updateStats();
-                                    }
-                                });
-                            }
-
-                            if (cancelBtn) {
-                                cancelBtn.addEventListener('click', () => {
-                                    closePopup(popup);
-                                });
-                            }
-
-                            if (applyBtn) {
-                                applyBtn.addEventListener('click', () => {
-                                    let createdCount = 0;
-                                    let totalAssignedThemes = 0;
-
-                                    if (matrixList) {
-                                        matrixList.querySelectorAll('.tm-matrix-card').forEach(card => {
-                                            const groupChk = card.querySelector('.matrix-group-chk');
-                                            if (groupChk && groupChk.checked) {
-                                                const idx = card.dataset.idx;
-                                                const cItem = candidates[idx];
-                                                const nameInput = card.querySelector('.matrix-tag-name-input');
-                                                const tagName = (nameInput ? nameInput.value.trim() : cItem.keyword) || cItem.keyword;
-                                                const checkedThemeChks = card.querySelectorAll(`.matrix-theme-chk-${idx}:checked`);
-                                                const themesList = Array.from(checkedThemeChks).map(cb => cb.value);
-
-                                                if (themesList.length > 0) {
-                                                    const saveRes = createTagAndSaveSilent(cItem, tagName, themesList);
-                                                    if (saveRes.success) {
-                                                        createdCount++;
-                                                        totalAssignedThemes += themesList.length;
-                                                    }
-                                                }
-                                            }
-                                        });
-                                    }
-
-                                    renderTagsUI();
-                                    updateActiveState();
-                                    toastr.success(`🎉 批量审核完成！成功创建/合并了 ${createdCount} 个标签分类，挂载了 ${totalAssignedThemes} 个美化关联！`);
-                                    closePopup(popup);
-                                });
-                            }
-                        }
-                    });
-                }
-
-                // === 分组向导 Step 2: 逐个审核通过/不通过（支持 80% 大屏幕、最大公约数提取与子标签合并） ===
-                async function runAutoGroupReviewStep(candidates, currentIndex, level, parentId, createdTagsCount, assignedThemesCount, historyStack = []) {
-                    if (currentIndex >= candidates.length) {
-                        renderTagsUI();
-                        updateActiveState();
-                        toastr.success(`🎉 分组向导已完成！共创建/更新了 ${createdTagsCount} 个标签分类。`);
-                        return;
-                    }
-
-                    const candidate = candidates[currentIndex];
-                    const targetLevelLabel = level === 'l2' ? '二级子标签' : '一级主标签';
-                    const MAX_INITIAL_THEMES = 25;
-                    const initialThemes = candidate.themes.slice(0, MAX_INITIAL_THEMES);
-                    const remainingThemes = candidate.themes.slice(MAX_INITIAL_THEMES);
-
-                    const wizardHtml = `
-                        <div class="tm-wizard-container" style="padding:4px; height:100%; display:flex; flex-direction:column; box-sizing:border-box; writing-mode:horizontal-tb !important;">
-                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:1px solid rgba(128,128,128,0.2); padding-bottom:8px; flex-wrap:nowrap; writing-mode:horizontal-tb !important;">
-                                <span style="font-weight:bold; font-size:14px; color:var(--SmartThemeQuoteColor, #4a90e2); display:inline-flex; align-items:center; gap:6px; white-space:nowrap; writing-mode:horizontal-tb !important;">
-                                    <i class="fa-solid fa-list-check" style="color:#ffc107;"></i> 审核分组向导 (${currentIndex + 1} / ${candidates.length})
-                                </span>
-                                <span style="font-size:12px; padding:3px 10px; border-radius:12px; background:rgba(0,123,255,0.18); color:#4dabf7; font-weight:bold; white-space:nowrap; writing-mode:horizontal-tb !important;">
-                                    <i class="fa-solid fa-sitemap" style="margin-right:4px;"></i>${targetLevelLabel}
-                                </span>
-                            </div>
-                            <div style="background:rgba(255,255,255,0.04); padding:12px; border-radius:6px; margin-bottom:10px; flex:1; display:flex; flex-direction:column; min-height:0; writing-mode:horizontal-tb !important;">
-                                <div style="font-size:13px; font-weight:bold; margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; flex-wrap:nowrap; gap:10px; writing-mode:horizontal-tb !important;">
-                                    <label style="display:inline-flex; align-items:center; gap:6px; white-space:nowrap; writing-mode:horizontal-tb !important; margin:0; cursor:pointer;">
-                                        <i class="fa-solid fa-tag" style="color:#ffc107;"></i>
-                                        <span style="white-space:nowrap; writing-mode:horizontal-tb !important;">标签名称：</span>
-                                        <input type="text" id="wizard-tag-name-input" class="text_pole" value="${escapeHtml(candidate.keyword)}" style="display:inline-block; width:220px; max-width:50vw; height:28px; padding:2px 8px; font-size:13px; margin:0; writing-mode:horizontal-tb !important;">
-                                    </label>
-                                    <span style="font-size:12px; font-weight:normal; opacity:0.85; white-space:nowrap; writing-mode:horizontal-tb !important; flex-shrink:0;">
-                                        <i class="fa-solid fa-layer-group" style="margin-right:4px;"></i> 匹配 <b>${candidate.themes.length}</b> 个美化
-                                    </span>
-                                </div>
-                                <div style="font-size:12px; opacity:0.8; margin-bottom:8px; display:flex; align-items:center; gap:4px; white-space:nowrap; writing-mode:horizontal-tb !important;">
-                                    <i class="fa-solid fa-tags"></i>
-                                    <span style="white-space:nowrap; writing-mode:horizontal-tb !important;">勾选需加入该标签的美化（支持多标签与已存在同名分类合并）：</span>
-                                </div>
-                                <div id="wizard-themes-container" style="flex:1; max-height:calc(80vh - 180px); overflow-y:auto; background:rgba(0,0,0,0.15); padding:8px; border-radius:4px; display:flex; flex-direction:column; gap:4px; writing-mode:horizontal-tb !important;">
-                                    ${initialThemes.map(tName => `
-                                        <label style="display:flex; flex-direction:row; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:4px 8px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none; white-space:nowrap; writing-mode:horizontal-tb !important;">
-                                            <input type="checkbox" class="wizard-theme-chk" value="${escapeHtml(tName)}" checked style="margin:0;">
-                                            <span style="word-break:break-all; writing-mode:horizontal-tb !important;">${escapeHtml(tName)}</span>
-                                        </label>
-                                    `).join('')}
-                                    ${remainingThemes.length > 0 ? `
-                                        <button id="wizard-load-more-btn" class="menu_button" style="margin:6px 0 0 0; font-size:11px; width:100%; justify-content:center; background:rgba(255,255,255,0.06); white-space:nowrap;"><i class="fa-solid fa-chevron-down"></i> 展开余下 ${remainingThemes.length} 个美化...</button>
-                                    ` : ''}
-                                </div>
-                            </div>
-                            <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; flex-wrap:nowrap; margin-top:6px; writing-mode:horizontal-tb !important;">
-                                <div style="display:flex; gap:6px;">
-                                    ${historyStack.length > 0 ? `
-                                        <button id="wizard-undo-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px; background:rgba(255,193,7,0.2) !important; color:#ffc107 !important; white-space:nowrap;" title="撤销上一步操作并重写上个卡片"><i class="fa-solid fa-rotate-left"></i> 上一步</button>
-                                    ` : ''}
-                                    <button id="wizard-stop-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px; background:rgba(220,53,69,0.2) !important; color:#ff8888 !important; white-space:nowrap;" title="结束向导并保存当前已建立的分组"><i class="fa-solid fa-circle-stop"></i> 结束向导</button>
-                                </div>
-                                <button id="wizard-pass-all-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px; background:rgba(0,123,255,0.2) !important; color:#4dabf7 !important; white-space:nowrap;" title="将其余候选全自动通过"><i class="fa-solid fa-forward-fast"></i> 全部剩余通过</button>
-                            </div>
-                        </div>
-                    `;
-
-                    let actionTaken = 'standard';
-                    let currentTagName = candidate.keyword;
-                    let currentCheckedThemes = [...initialThemes];
-
-                    const popupRes = await callGenericPopup(wizardHtml, 'confirm', null, {
-                        title: `美化分组审核 (${currentIndex + 1}/${candidates.length})`,
-                        okButton: '✔ 通过并创建/合并',
-                        cancelButton: '✖ 不通过 / 跳过',
-                        wide: true,
-                        onOpen: (popup) => {
-                            const dlg = popup.dlg;
-                            if (dlg) {
-                                dlg.style.width = '80vw';
-                                dlg.style.height = '80vh';
-                                dlg.style.maxWidth = '900px';
-                                dlg.style.maxHeight = '80vh';
-                                dlg.style.display = 'flex';
-                                dlg.style.flexDirection = 'column';
-                            }
-
-                            const updateWizardState = () => {
-                                if (!dlg) return;
-                                const inp = dlg.querySelector('#wizard-tag-name-input');
-                                if (inp) {
-                                    const val = inp.value.trim();
-                                    if (val) currentTagName = val;
-                                }
-                                const chks = dlg.querySelectorAll('.wizard-theme-chk:checked');
-                                if (chks.length > 0) {
-                                    currentCheckedThemes = Array.from(chks).map(cb => cb.value);
-                                }
-                            };
-
-                            const nameInput = dlg ? dlg.querySelector('#wizard-tag-name-input') : null;
-                            if (nameInput) {
-                                nameInput.addEventListener('input', updateWizardState);
-                                nameInput.addEventListener('change', updateWizardState);
-                                nameInput.addEventListener('blur', updateWizardState);
-                            }
-
-                            const themesContainer = dlg ? dlg.querySelector('#wizard-themes-container') : null;
-                            if (themesContainer) {
-                                themesContainer.addEventListener('change', updateWizardState);
-                            }
-
-                            const okBtn = dlg ? dlg.querySelector('.popup-button-ok') : null;
-                            if (okBtn) {
-                                okBtn.addEventListener('click', updateWizardState);
-                            }
-
-                            const loadMoreBtn = dlg ? dlg.querySelector('#wizard-load-more-btn') : null;
-                            if (loadMoreBtn) {
-                                loadMoreBtn.addEventListener('click', (e) => {
-                                    e.preventDefault();
-                                    const container = dlg.querySelector('#wizard-themes-container');
-                                    loadMoreBtn.remove();
-                                    const frag = document.createDocumentFragment();
-                                    remainingThemes.forEach(tName => {
-                                        const lbl = document.createElement('label');
-                                        lbl.style.cssText = 'display:flex; flex-direction:row; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:4px 8px; background:rgba(255,255,255,0.02); border-radius:3px; user-select:none; white-space:nowrap; writing-mode:horizontal-tb !important;';
-                                        lbl.innerHTML = `<input type="checkbox" class="wizard-theme-chk" value="${escapeHtml(tName)}" checked style="margin:0;"><span style="word-break:break-all; writing-mode:horizontal-tb !important;">${escapeHtml(tName)}</span>`;
-                                        frag.appendChild(lbl);
-                                    });
-                                    container.appendChild(frag);
-                                    updateWizardState();
-                                });
-                            }
-
-                            const undoBtn = dlg ? dlg.querySelector('#wizard-undo-btn') : null;
-                            if (undoBtn) {
-                                undoBtn.addEventListener('click', (e) => {
-                                    e.preventDefault();
-                                    actionTaken = 'undo';
-                                    popup.close();
-                                });
-                            }
-
-                            const stopBtn = dlg ? dlg.querySelector('#wizard-stop-btn') : null;
-                            if (stopBtn) {
-                                stopBtn.addEventListener('click', (e) => {
-                                    e.preventDefault();
-                                    actionTaken = 'stop';
-                                    popup.close();
-                                });
-                            }
-
-                            const passAllBtn = dlg ? dlg.querySelector('#wizard-pass-all-btn') : null;
-                            if (passAllBtn) {
-                                passAllBtn.addEventListener('click', (e) => {
-                                    e.preventDefault();
-                                    actionTaken = 'pass_all';
-                                    popup.close();
-                                });
-                            }
-                        }
-                    });
-
-                    // 辅助函数：保存/更新/合并二级与一级标签但不重刷全量 DOM
-                    const createTagAndSaveSilent = (cItem, tagName, themesList) => {
-                        if (!themesList || themesList.length === 0) return { success: false, isNew: false };
-                        let tags = loadThemeTags();
-
-                        let isNew = false;
-                        // 支持同级标签合并：匹配同级别且同名的已有标签
-                        let tagObj = tags.find(t => t.name.toLowerCase() === tagName.toLowerCase() && (parentId ? t.parentId === parentId : (!t.parentId || !tags.some(p => p.id === t.parentId))));
-                        if (!tagObj) {
-                            isNew = true;
-                            tagObj = {
-                                id: 'tag_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
-                                name: tagName,
-                                parentId: parentId || null,
-                                themes: [],
-                                keywords: [tagName]
-                            };
-                            tags.push(tagObj);
-                        } else {
-                            if (parentId && !tagObj.parentId) tagObj.parentId = parentId;
-                            if (!tagObj.keywords) tagObj.keywords = [];
-                            if (!tagObj.keywords.includes(tagName)) tagObj.keywords.push(tagName);
-                        }
-
-                        if (!tagObj.themes) tagObj.themes = [];
-                        themesList.forEach(tn => {
-                            if (!tagObj.themes.includes(tn)) tagObj.themes.push(tn);
-                        });
-
-                        // 若为二级子标签，同步把美化追加至其归属的一级主分类 themes 中
-                        if (parentId) {
-                            let currPId = parentId;
-                            const visited = new Set();
-                            while (currPId && !visited.has(currPId)) {
-                                visited.add(currPId);
-                                const parentTagObj = tags.find(t => t.id === currPId);
-                                if (parentTagObj) {
-                                    if (!parentTagObj.themes) parentTagObj.themes = [];
-                                    themesList.forEach(tn => {
-                                        if (!parentTagObj.themes.includes(tn)) parentTagObj.themes.push(tn);
-                                    });
-                                    currPId = parentTagObj.parentId;
-                                } else {
-                                    break;
-                                }
-                            }
-                        }
-
-                        saveThemeTags(tags);
-                        return { success: true, isNew: isNew, tagId: tagObj.id };
-                    };
-
-                    // 1. 中途撤销上一步 (Rollback History)
-                    if (actionTaken === 'undo') {
-                        if (historyStack.length > 0) {
-                            const lastStep = historyStack.pop();
-                            if (lastStep.action === 'approve' && lastStep.addedThemes && lastStep.addedThemes.length > 0) {
-                                let tags = loadThemeTags();
-                                const tagObj = tags.find(t => t.name.toLowerCase() === lastStep.tagName.toLowerCase() && (parentId ? t.parentId === parentId : true));
-                                if (tagObj && tagObj.themes) {
-                                    const removeSet = new Set(lastStep.addedThemes);
-                                    tagObj.themes = tagObj.themes.filter(tn => !removeSet.has(tn));
-                                    if (tagObj.themes.length === 0 && lastStep.isNew) {
-                                        const idx = tags.indexOf(tagObj);
-                                        if (idx > -1) tags.splice(idx, 1);
-                                    }
-                                    saveThemeTags(tags);
-                                }
-                            }
-                            const newCreatedCount = Math.max(0, createdTagsCount - (lastStep.action === 'approve' ? 1 : 0));
-                            setTimeout(() => runAutoGroupReviewStep(candidates, lastStep.currentIndex, level, parentId, newCreatedCount, assignedThemesCount, historyStack), 50);
-                        } else {
-                            setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex, level, parentId, createdTagsCount, assignedThemesCount, historyStack), 50);
-                        }
-                        return;
-                    }
-
-                    // 2. 中途停止向导
-                    if (actionTaken === 'stop') {
-                        renderTagsUI();
-                        updateActiveState();
-                        toastr.info(`⏹️ 分组向导已停止。已为您生成并保存了 ${createdTagsCount} 个标签分类。`);
-                        return;
-                    }
-
-                    // 3. 全部剩余自动通过
-                    if (actionTaken === 'pass_all') {
-                        let passCount = 0;
-                        for (let i = currentIndex; i < candidates.length; i++) {
-                            const c = candidates[i];
-                            const res = createTagAndSaveSilent(c, c.keyword, c.themes);
-                            if (res.success) passCount++;
-                        }
-                        renderTagsUI();
-                        updateActiveState();
-                        toastr.success(`🎉 分组向导完成！共自动生成并挂载了 ${createdTagsCount + passCount} 个标签分类。`);
-                        return;
-                    }
-
-                    // 4. 标准用户按键分支 (通过 vs 跳过)
-                    if (popupRes) {
-                        // 用户点击了 '✅ 通过并创建/合并标签'
-                        const tagName = currentTagName.trim() || candidate.keyword;
-                        const finalThemes = (currentCheckedThemes && currentCheckedThemes.length > 0) ? currentCheckedThemes : candidate.themes;
-
-                        const saveRes = createTagAndSaveSilent(candidate, tagName, finalThemes);
-
-                        historyStack.push({
-                            currentIndex: currentIndex,
-                            action: 'approve',
-                            tagName: tagName,
-                            addedThemes: finalThemes,
-                            isNew: saveRes.isNew
-                        });
-
-                        setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount + (saveRes.success ? 1 : 0), assignedThemesCount + finalThemes.length, historyStack), 50);
-                    } else {
-                        // 用户点击了 '❌ 不通过 / 跳过'
-                        historyStack.push({
-                            currentIndex: currentIndex,
-                            action: 'skip',
-                            tagName: candidate.keyword,
-                            addedThemes: [],
-                            isNew: false
-                        });
-
-                        setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount, assignedThemesCount, historyStack), 50);
-                    }
-                }
-
-                // 高级关键词映射管理弹窗：可直观查看关键词胶囊、一键删除独立关键词、无损追加新关键词
-                async function openTagKeywordsModal(tag, onSave) {
-                    let keywords = [...(tag.keywords || [])];
-                    const allTags = loadThemeTags();
-                    const parentTag = tag.parentId ? allTags.find(t => t.id === tag.parentId) : null;
-                    const parentName = parentTag ? parentTag.name : '';
-
-                    const buildKeywordsPillsHtml = () => {
-                        if (keywords.length === 0) {
-                            return `<div style="text-align:center; padding:16px; font-size:12px; opacity:0.5; border:1px dashed rgba(128,128,128,0.3); border-radius:6px; background:rgba(0,0,0,0.1); width:100%;">暂无关键词，请在上方输入添加</div>`;
-                        }
-                        return keywords.map((kw, idx) => `
-                            <span class="tm-kw-pill" style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; background:rgba(74,144,226,0.15); border:1px solid rgba(74,144,226,0.3); border-radius:14px; font-size:12px; font-weight:500; color:var(--SmartThemeQuoteColor, #4a90e2); margin:3px; writing-mode:horizontal-tb !important; user-select:none;">
-                                <i class="fa-solid fa-key" style="font-size:10px; opacity:0.7;"></i>
-                                <span>${escapeHtml(kw)}</span>
-                                <i class="fa-solid fa-xmark btn-remove-kw" data-idx="${idx}" style="cursor:pointer; opacity:0.6; font-size:11px; margin-left:2px;" title="删除此关键词"></i>
-                            </span>
-                        `).join('');
-                    };
-
-                    let modalHtml = `
-                        <div style="display:flex; flex-direction:column; gap:12px; writing-mode:horizontal-tb !important;">
-                            <div style="font-size:12px; opacity:0.85; line-height:1.5; background:rgba(255,255,255,0.04); padding:10px 12px; border-radius:6px; border-left:3px solid var(--SmartThemeQuoteColor, #4a90e2);">
-                                <i class="fa-solid fa-circle-info" style="color:var(--SmartThemeQuoteColor, #4a90e2); margin-right:4px;"></i>
-                                ${parentTag 
-                                    ? `当导入或重命名美化主题时，如果<b>直属父级标签「${escapeHtml(parentName)}」下</b>的美化名称中包含以下任一关键词，将自动匹配归入子标签「<b>${escapeHtml(tag.name)}</b>」。`
-                                    : `当导入或重命名美化主题时，如果主题名称或文件名中包含以下任一关键词，将自动匹配归入标签「<b>${escapeHtml(tag.name)}</b>」。`}
-                            </div>
-
-                            <div style="display:flex; gap:8px; align-items:center;">
-                                <input type="text" id="tm-kw-input" class="text_pole" placeholder="输入新关键词 (按 Enter 或点添加，支持逗号分隔多个)" style="flex:1; min-width:0; height:34px; font-size:12px;">
-                                <button id="tm-btn-add-kw" class="menu_button" style="margin:0; white-space:nowrap; height:34px; padding:0 14px;"><i class="fa-solid fa-plus"></i> 添加</button>
-                            </div>
-
-                            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
-                                <span style="font-size:12px; font-weight:bold;">已绑定的关键词 (<span id="tm-kw-count">${keywords.length}</span>)</span>
-                                <button id="tm-btn-clear-kws" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; opacity:0.8;" ${keywords.length === 0 ? 'disabled' : ''}><i class="fa-solid fa-trash-can"></i> 清空全部</button>
-                            </div>
-
-                            <div id="tm-kw-pills-container" style="max-height:180px; overflow-y:auto; padding:8px; border:1px solid rgba(128,128,128,0.2); border-radius:6px; background:rgba(0,0,0,0.15); display:flex; flex-wrap:wrap; align-content:flex-start;">
-                                ${buildKeywordsPillsHtml()}
-                            </div>
-
-                            ${parentTag ? `
-                            <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:11px; opacity:0.9; margin-top:2px; user-select:none;">
-                                <input type="checkbox" id="chk-kw-global-match" ${tag.globalKeywords ? 'checked' : ''}>
-                                <span>🌐 允许在全局所有美化中匹配关键词 (打勾则忽略父级标签范围限制)</span>
-                            </label>
-                            ` : ''}
-
-                            <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:11px; opacity:0.85; margin-top:2px; user-select:none;">
-                                <input type="checkbox" id="chk-auto-apply-kw" checked>
-                                <span>保存时自动对现有所有美化重新应用此关键词映射</span>
-                            </label>
-                        </div>
-                    `;
-
-                    await callGenericPopup(modalHtml, 'confirm', null, {
-                        title: `编辑关键词映射 - ${tag.name}`,
-                        okButton: '保存生效',
-                        cancelButton: '取消',
-                        wide: true,
-                        onOpen: (popup) => {
-                            const dlg = popup.dlg;
-                            const kwInput = dlg.querySelector('#tm-kw-input');
-                            const addBtn = dlg.querySelector('#tm-btn-add-kw');
-                            const clearBtn = dlg.querySelector('#tm-btn-clear-kws');
-                            const container = dlg.querySelector('#tm-kw-pills-container');
-                            const countEl = dlg.querySelector('#tm-kw-count');
-                            const okBtn = dlg.querySelector('.popup-button-ok');
-
-                            const refreshPills = () => {
-                                if (container) container.innerHTML = buildKeywordsPillsHtml();
-                                if (countEl) countEl.textContent = keywords.length;
-                                if (clearBtn) clearBtn.disabled = keywords.length === 0;
-
-                                dlg.querySelectorAll('.btn-remove-kw').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        const idx = parseInt(btn.dataset.idx);
-                                        if (!isNaN(idx) && idx >= 0 && idx < keywords.length) {
-                                            keywords.splice(idx, 1);
-                                            refreshPills();
-                                        }
-                                    });
-                                });
-                            };
-
-                            const addKeyword = () => {
-                                if (!kwInput) return;
-                                const val = kwInput.value.trim();
-                                if (!val) return;
-
-                                const newKws = val.split(/[,，\s]/).map(k => k.trim()).filter(k => k.length > 0);
-                                let addedCount = 0;
-                                newKws.forEach(k => {
-                                    if (!keywords.includes(k)) {
-                                        keywords.push(k);
-                                        addedCount++;
-                                    }
-                                });
-
-                                if (addedCount > 0) {
-                                    kwInput.value = '';
-                                    refreshPills();
-                                } else {
-                                    toastr.warning('输入的关键词已存在');
-                                }
-                            };
-
-                            if (addBtn) addBtn.addEventListener('click', addKeyword);
-                            if (kwInput) {
-                                kwInput.addEventListener('keydown', (e) => {
-                                    if (e.key === 'Enter') {
-                                        e.preventDefault();
-                                        addKeyword();
-                                    }
-                                });
-                            }
-
-                            if (clearBtn) {
-                                clearBtn.addEventListener('click', () => {
-                                    if (confirm('确定要清空该标签的所有关键词吗？')) {
-                                        keywords = [];
-                                        refreshPills();
-                                    }
-                                });
-                            }
-
-                            if (okBtn) {
-                                okBtn.addEventListener('click', () => {
-                                    tag.keywords = keywords;
-                                    if (parentTag) {
-                                        const globalChk = dlg.querySelector('#chk-kw-global-match');
-                                        tag.globalKeywords = globalChk ? globalChk.checked : false;
-                                    }
-                                    const autoApply = dlg.querySelector('#chk-auto-apply-kw')?.checked;
-                                    if (onSave) onSave(tag, autoApply);
-                                });
-                            }
-
-                            refreshPills();
-                        }
-                    });
-                }
-
-
-                async function openManageTagsPopup() {
-                    let tags = loadThemeTags();
-                    let subtagsEnabled = isSubtagsEnabled();
-                    let isBatchDeleteMode = false;
-                    const selectedTagIds = new Set();
-                    const collapsedTagIds = new Set();
-
-                    let popupHtml = `
-                        <div style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; border-bottom:1px solid rgba(128,128,128,0.2); padding-bottom:10px;">
-                            <div style="display:flex; align-items:center; gap:12px;">
-                                <label style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; font-weight:bold; user-select:none;">
-                                    <input type="checkbox" id="chk-enable-subtags" ${subtagsEnabled ? 'checked' : ''}>
-                                    <span>开启二级目录模式</span> <small style="opacity:0.6; font-weight:normal;">(支持一级目录/二级标签)</small>
-                                </label>
-                                ${subtagsEnabled ? `<button id="tm-toggle-all-tree-fold" class="menu_button tm-btn-icon-only" style="margin:0;" title="一键折叠/展开全部父级标签"><i class="fa-solid fa-compress"></i></button>` : ''}
-                            </div>
-                            <button id="batch-delete-tags-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:4px 12px; white-space:nowrap; word-break:keep-all; flex-shrink:0; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; display:inline-flex !important; flex-direction:row !important; align-items:center !important; justify-content:center !important; writing-mode:horizontal-tb !important; width:auto !important; height:auto !important; min-height:28px !important; gap:4px;"><i class="fa-solid fa-trash-can" style="margin-right:4px;"></i> 批量删除标签</button>
-                        </div>
-                        <div id="tm-batch-delete-bar" style="display:none; background:rgba(220,53,69,0.12); padding:8px 12px; border-radius:6px; margin-bottom:10px; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; border:1px solid rgba(220,53,69,0.25); writing-mode:horizontal-tb !important;">
-                            <span style="font-size:12px; font-weight:bold; color:#ff8888; white-space:nowrap;">
-                                <i class="fa-solid fa-list-check" style="margin-right:4px;"></i> 已勾选 <b id="tm-batch-tag-count">0</b> / <span id="tm-batch-tag-total">0</span> 个标签
-                            </span>
-                            <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                                <button id="tm-batch-tag-select-all" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;"><i class="fa-solid fa-check-double"></i> 全选</button>
-                                <button id="tm-batch-tag-invert-select" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;"><i class="fa-solid fa-arrows-rotate"></i> 反选</button>
-                                <button id="tm-batch-tag-range-select" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;" title="移动端/点触连选：依次点击【起点】和【终点】标签"><i class="fa-solid fa-arrows-left-right-to-line"></i> 范围连选</button>
-                                <button id="tm-confirm-batch-delete" class="menu_button" style="margin:0; font-size:11px; padding:2px 10px; background:rgba(220,53,69,0.3) !important; color:#ff8888 !important; white-space:nowrap;" disabled><i class="fa-solid fa-trash"></i> 确认删除选中</button>
-                                <button id="tm-cancel-batch-delete" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;">退出批量</button>
-                            </div>
-                        </div>
-                        <div style="margin-bottom:15px; display:flex; gap:8px; align-items:center;">
-                            <input type="text" id="new-tag-name" class="text_pole" placeholder="${subtagsEnabled ? '新一级标签名称...' : '新标签名称...'}" style="flex-grow:1; min-width:0;">
-                            <button id="add-new-tag-btn" class="menu_button" style="margin:0; white-space:nowrap; flex-shrink:0; width:auto;"><i class="fa-solid fa-plus"></i> ${subtagsEnabled ? '添加一级标签' : '添加标签'}</button>
-                        </div>
-                        <div id="tags-management-list" style="max-height: calc(90vh - 220px); min-height: 250px; overflow-y:auto; padding-right:4px;"></div>
-                        <div style="margin-top:10px; border-top:1px solid rgba(128,128,128,0.2); padding-top:10px;">
-                            <button id="apply-keyword-mappings-btn" class="menu_button" style="width:100%; justify-content:center;"><i class="fa-solid fa-wand-magic-sparkles"></i> 对所有现有美化重新应用关键词映射</button>
-                        </div>
-                    `;
-
-                    await callGenericPopup(popupHtml, 'confirm', null, {
-                        title: '管理标签',
-                        okButton: '关闭',
-                        cancelButton: '取消',
-                        wide: true,
-                        onOpen: (popup) => {
-                            const dlg = popup.dlg;
-                            if (dlg) {
-                                dlg.style.maxHeight = '90vh';
-                                dlg.style.height = 'auto';
-                                const content = dlg.querySelector('.popup-content');
-                                if (content) {
-                                    content.style.maxHeight = 'calc(90vh - 70px)';
-                                    content.style.overflowY = 'auto';
-                                }
-                            }
-
-
-
-                            const renderList = () => {
-                                const listContainer = dlg.querySelector('#tags-management-list');
-                                if (!listContainer) return;
-
-                                const batchBar = dlg.querySelector('#tm-batch-delete-bar');
-                                if (batchBar) batchBar.style.display = isBatchDeleteMode ? 'flex' : 'none';
-
-                                const toggleAllBtn = dlg.querySelector('#tm-toggle-all-tree-fold');
-                                if (toggleAllBtn) {
-                                    toggleAllBtn.style.display = subtagsEnabled ? 'inline-flex' : 'none';
-                                    const parentTagIds = tags.filter(t => tags.some(c => c.parentId === t.id)).map(t => t.id);
-                                    const allCollapsed = parentTagIds.length > 0 && parentTagIds.every(id => collapsedTagIds.has(id));
-                                    toggleAllBtn.innerHTML = allCollapsed 
-                                        ? `<i class="fa-solid fa-expand"></i>` 
-                                        : `<i class="fa-solid fa-compress"></i>`;
-                                    toggleAllBtn.title = allCollapsed ? '一键展开全部标签' : '一键折叠全部标签';
-                                }
-
-                                const validThemeNames = getValidInstalledThemeNames();
-
-                                const filterValid = (arr) => validThemeNames.size > 0 ? (arr || []).filter(t => validThemeNames.has(t)) : (arr || []);
-
-                                if (!subtagsEnabled) {
-                                    let html = '<ul style="list-style:none; padding:0; margin:0;">';
-                                    tags.forEach((t, idx) => {
-                                        const kwCount = t.keywords ? t.keywords.length : 0;
-                                        const isChecked = selectedTagIds.has(t.id);
-                                        html += `
-                                            <li class="tm-flat-tag-item" data-id="${t.id}" data-index="${idx}" style="display:flex; justify-content:space-between; padding:6px 8px; background:rgba(255,255,255,0.04); margin-bottom:4px; border-radius:4px; align-items:center;">
-                                                <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
-                                                    ${isBatchDeleteMode ? `<input type="checkbox" class="tm-batch-tag-chk" data-id="${t.id}" ${isChecked ? 'checked' : ''} style="margin:0;">` : ''}
-                                                    <i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
-                                                    <span style="word-break: break-all; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(t.name)}</span>
-                                                    <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${filterValid(t.themes).length})</small>
-                                                    ${kwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${kwCount}词]</small>` : ''}
-                                                </div>
-                                                <div style="display:flex; gap:3px; align-items:center; flex-shrink:0; position:relative;">
-                                                    <button class="menu_button keywords-tag-inline tm-btn-icon-only" data-id="${t.id}" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
-                                                    <button class="menu_button rename-tag-inline tm-btn-icon-only" data-id="${t.id}" title="重命名"><i class="fa-solid fa-pen"></i></button>
-                                                    <button class="menu_button tm-tag-more-btn tm-btn-icon-only" data-id="${t.id}" title="更多操作"><i class="fa-solid fa-ellipsis-vertical"></i></button>
-                                                    <div class="tm-tag-more-menu" data-id="${t.id}" style="display:none; position:absolute; right:0; top:100%; margin-top:2px; z-index:99999; border:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.18)); border-radius:6px; padding:4px; box-shadow:0 6px 16px var(--SmartThemeShadowColor, rgba(0,0,0,0.6)); flex-direction:row; gap:4px; align-items:center; color:var(--SmartThemeBodyColor, #ffffff); writing-mode:horizontal-tb !important; white-space:nowrap;">
-                                                        <button class="menu_button move-flat-up tm-btn-icon-only" data-id="${t.id}" title="向上移动" ${idx === 0 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-up"></i></button>
-                                                        <button class="menu_button move-flat-down tm-btn-icon-only" data-id="${t.id}" title="向下移动" ${idx === tags.length - 1 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-down"></i></button>
-                                                        <button class="menu_button delete-tag-inline tm-btn-icon-only" data-id="${t.id}" title="删除标签" style="color:#ff8888 !important; background:rgba(220,53,69,0.2) !important;"><i class="fa-solid fa-trash"></i></button>
-                                                    </div>
-                                                </div>
-                                            </li>
-                                        `;
-                                    });
-                                    html += '</ul>';
-                                    listContainer.innerHTML = html;
-                                } else {
-                                    let html = '<div class="tm-subtags-tree">';
-                                    const rootTags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
-
-                                    const renderSubtagTreeNodeHTML = (nodeTag, depth, siblings, idx) => {
-                                        const childTags = tags.filter(t => t.parentId === nodeTag.id);
-                                        const hasChildren = childTags.length > 0;
-                                        const isChecked = selectedTagIds.has(nodeTag.id);
-                                        const isCollapsed = collapsedTagIds.has(nodeTag.id);
-                                        const kwCount = nodeTag.keywords ? nodeTag.keywords.length : 0;
-                                        const themeCount = filterValid(nodeTag.themes).length;
-                                        const iconClass = depth === 0 ? (hasChildren && isCollapsed ? 'fa-solid fa-folder' : 'fa-solid fa-folder-open') : 'fa-solid fa-tag';
-
-                                        let nodeHtml = `
-                                            <div class="tm-tree-node-card" data-id="${nodeTag.id}" data-depth="${depth}" style="margin-left:${depth * 10}px; margin-bottom:4px;">
-
-                                                <div class="tm-tree-node-header" data-id="${nodeTag.id}" style="display:flex; justify-content:space-between; padding:5px 8px; background:${depth === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)'}; border-radius:4px; align-items:center; border:1px solid rgba(128,128,128,0.15);">
-                                                    <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
-                                                        ${isBatchDeleteMode ? `<input type="checkbox" class="tm-batch-tag-chk" data-id="${nodeTag.id}" ${isChecked ? 'checked' : ''} style="margin:0;">` : ''}
-                                                        ${hasChildren ? `<i class="fa-solid ${isCollapsed ? 'fa-caret-right' : 'fa-caret-down'} tm-tag-tree-fold-toggle" data-id="${nodeTag.id}" style="cursor:pointer; padding:2px 4px; color:var(--SmartThemeQuoteColor, #4a90e2); flex-shrink:0; font-size:12px;" title="${isCollapsed ? '点击展开子标签' : '点击折叠子标签'}"></i>` : '<span style="width:14px; flex-shrink:0; display:inline-block;"></span>'}
-                                                        <i class="${iconClass}" style="${depth === 0 ? 'color:var(--SmartThemeQuoteColor, #4a90e2);' : 'opacity:0.7; font-size:11px;'} flex-shrink:0;"></i>
-                                                        <span style="font-weight:${depth === 0 ? 'bold' : 'normal'}; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(nodeTag.name)}</span>
-                                                        <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${childTags.length > 0 ? `子级:${childTags.length}/` : ''}主题:${themeCount})</small>
-                                                        ${kwCount > 0 ? `<small style="opacity:0.5; flex-shrink:0; white-space:nowrap;">[${kwCount}词]</small>` : ''}
-                                                    </div>
-
-                                                    <div style="display:flex; gap:3px; align-items:center; flex-shrink:0; position:relative;">
-                                                        <button class="menu_button add-subtag-btn tm-btn-icon-only" data-id="${nodeTag.id}" title="添加子标签"><i class="fa-solid fa-plus"></i></button>
-                                                        <button class="menu_button keywords-tag-inline tm-btn-icon-only" data-id="${nodeTag.id}" title="编辑关键词映射"><i class="fa-solid fa-key"></i></button>
-                                                        <button class="menu_button rename-tag-inline tm-btn-icon-only" data-id="${nodeTag.id}" title="重命名"><i class="fa-solid fa-pen"></i></button>
-                                                        <button class="menu_button tm-tag-more-btn tm-btn-icon-only" data-id="${nodeTag.id}" title="更多操作"><i class="fa-solid fa-ellipsis-vertical"></i></button>
-                                                        <div class="tm-tag-more-menu" data-id="${nodeTag.id}" style="display:none; position:absolute; right:0; top:100%; margin-top:2px; z-index:99999; border:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.18)); border-radius:6px; padding:4px; box-shadow:0 6px 16px var(--SmartThemeShadowColor, rgba(0,0,0,0.6)); flex-direction:row; gap:4px; align-items:center; color:var(--SmartThemeBodyColor, #ffffff); writing-mode:horizontal-tb !important; white-space:nowrap;">
-                                                            <button class="menu_button move-node-up tm-btn-icon-only" data-id="${nodeTag.id}" title="向上移动" ${idx === 0 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-up"></i></button>
-                                                            <button class="menu_button move-node-down tm-btn-icon-only" data-id="${nodeTag.id}" title="向下移动" ${idx === siblings.length - 1 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-down"></i></button>
-                                                            ${depth > 0 ? `<button class="menu_button promote-tag-inline tm-btn-icon-only" data-id="${nodeTag.id}" title="升一级 (提升给父级的父级)"><i class="fa-solid fa-turn-up"></i></button>` : ''}
-                                                            <button class="menu_button delete-tag-inline tm-btn-icon-only" data-id="${nodeTag.id}" title="删除标签" style="color:#ff8888 !important; background:rgba(220,53,69,0.2) !important;"><i class="fa-solid fa-trash"></i></button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-
-                                                <div class="tm-tree-node-children" data-parent-id="${nodeTag.id}" style="display:${isCollapsed ? 'none' : 'block'};">
-                                        `;
-
-                                        childTags.forEach((cTag, cIdx) => {
-                                            nodeHtml += renderSubtagTreeNodeHTML(cTag, depth + 1, childTags, cIdx);
-                                        });
-
-                                        nodeHtml += `</div></div>`;
-                                        return nodeHtml;
-                                    };
-
-                                    rootTags.forEach((rTag, rIdx) => {
-                                        html += renderSubtagTreeNodeHTML(rTag, 0, rootTags, rIdx);
-                                    });
-
-                                    html += '</div>';
-                                    listContainer.innerHTML = html;
-                                }
-
-                                BindEvents();
-                            };
-
-                            const toggleAllBtn = dlg.querySelector('#tm-toggle-all-tree-fold');
-                            if (toggleAllBtn) {
-                                toggleAllBtn.addEventListener('click', () => {
-                                    const parentTagIds = tags.filter(t => tags.some(child => child.parentId === t.id)).map(t => t.id);
-                                    if (collapsedTagIds.size >= parentTagIds.length) {
-                                        collapsedTagIds.clear();
-                                    } else {
-                                        parentTagIds.forEach(id => collapsedTagIds.add(id));
-                                    }
-                                    renderList();
-                                });
-                            }
-
-                            let lastCheckedIdx = -1;
-                            let isMobileRangeActive = false;
-                            let mobileRangeStartIdx = -1;
-
-                            const updateBatchCount = () => {
-                                const countEl = dlg.querySelector('#tm-batch-tag-count');
-                                const totalEl = dlg.querySelector('#tm-batch-tag-total');
-                                const confirmBtn = dlg.querySelector('#tm-confirm-batch-delete');
-                                if (countEl) countEl.textContent = selectedTagIds.size;
-                                if (totalEl) totalEl.textContent = tags.length;
-                                if (confirmBtn) {
-                                    confirmBtn.disabled = selectedTagIds.size === 0;
-                                    confirmBtn.style.opacity = selectedTagIds.size === 0 ? '0.4' : '1';
-                                }
-                            };
-
-                            const handleTagCheckClick = (chk, idx, e) => {
-                                const id = chk.dataset.id;
-                                const isChecked = chk.checked;
-                                const allChks = Array.from(dlg.querySelectorAll('.tm-batch-tag-chk'));
-                                const batchRangeBtn = dlg.querySelector('#tm-batch-tag-range-select');
-
-                                // 1. 移动端/触摸屏“起点 ➔ 终点”范围连选模式
-                                if (isMobileRangeActive) {
-                                    if (mobileRangeStartIdx === -1) {
-                                        mobileRangeStartIdx = idx;
-                                        const startTag = tags.find(t => t.id === id);
-                                        toastr.info(`📍 起点已锁定：「${startTag ? startTag.name : '未知'}」，请点选【终点标签】`);
-                                        chk.checked = true;
-                                        selectedTagIds.add(id);
-                                    } else {
-                                        const start = Math.min(mobileRangeStartIdx, idx);
-                                        const end = Math.max(mobileRangeStartIdx, idx);
-                                        let selectCount = 0;
-                                        for (let i = start; i <= end; i++) {
-                                            const targetChk = allChks[i];
-                                            if (targetChk) {
-                                                targetChk.checked = true;
-                                                selectedTagIds.add(targetChk.dataset.id);
-                                                selectCount++;
-                                            }
-                                        }
-                                        toastr.success(`🎉 范围连选完成！已自动勾选 ${selectCount} 个标签！`);
-                                        isMobileRangeActive = false;
-                                        mobileRangeStartIdx = -1;
-                                        if (batchRangeBtn) {
-                                            batchRangeBtn.style.background = '';
-                                            batchRangeBtn.style.color = '';
-                                        }
-                                    }
-                                    updateBatchCount();
-                                    return;
-                                }
-
-                                // 2. 桌面端 Shift 键连选模式
-                                if (e && e.shiftKey && lastCheckedIdx !== -1) {
-                                    const start = Math.min(lastCheckedIdx, idx);
-                                    const end = Math.max(lastCheckedIdx, idx);
-
-                                    for (let i = start; i <= end; i++) {
-                                        const targetChk = allChks[i];
-                                        if (targetChk) {
-                                            targetChk.checked = isChecked;
-                                            const tid = targetChk.dataset.id;
-                                            if (isChecked) {
-                                                selectedTagIds.add(tid);
-                                            } else {
-                                                selectedTagIds.delete(tid);
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    if (isChecked) {
-                                        selectedTagIds.add(id);
-                                    } else {
-                                        selectedTagIds.delete(id);
-                                    }
-                                }
-
-                                lastCheckedIdx = idx;
-                                updateBatchCount();
-                            };
-
-                            const BindEvents = () => {
-                                dlg.querySelectorAll('.tm-tag-tree-fold-toggle').forEach(toggleBtn => {
-                                    toggleBtn.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        const id = toggleBtn.dataset.id;
-                                        if (collapsedTagIds.has(id)) {
-                                            collapsedTagIds.delete(id);
-                                        } else {
-                                            collapsedTagIds.add(id);
-                                        }
-                                        renderList();
-                                    });
-                                });
-                                // 绑定【⋮】更多操作菜单的展开/隐藏
-                                dlg.querySelectorAll('.tm-tag-more-btn').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        const id = btn.dataset.id;
-                                        const parentEl = btn.parentElement;
-                                        const menu = parentEl ? parentEl.querySelector(`.tm-tag-more-menu[data-id="${id}"]`) : null;
-                                        if (!menu) return;
-
-                                        const isCurrentlyOpen = menu.style.display === 'flex';
-                                        dlg.querySelectorAll('.tm-tag-more-menu').forEach(m => m.style.display = 'none');
-
-                                        if (!isCurrentlyOpen) {
-                                            const bgSolid = getAdaptivePopoverBg();
-                                            menu.style.setProperty('background', bgSolid, 'important');
-                                            menu.style.setProperty('background-color', bgSolid, 'important');
-                                            menu.style.setProperty('opacity', '1', 'important');
-                                            menu.style.border = '1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.18))';
-                                            menu.style.boxShadow = '0 6px 16px var(--SmartThemeShadowColor, rgba(0,0,0,0.6))';
-                                            menu.style.color = 'var(--SmartThemeBodyColor, #ffffff)';
-                                            menu.style.display = 'flex';
-                                        }
-                                    });
-                                });
-
-
-                                dlg.querySelectorAll('.tm-tag-more-menu button').forEach(menuItemBtn => {
-                                    menuItemBtn.addEventListener('click', () => {
-                                        dlg.querySelectorAll('.tm-tag-more-menu').forEach(m => m.style.display = 'none');
-                                    });
-                                });
-
-                                dlg.addEventListener('click', (e) => {
-                                    if (!e.target.closest('.tm-tag-more-btn') && !e.target.closest('.tm-tag-more-menu')) {
-                                        dlg.querySelectorAll('.tm-tag-more-menu').forEach(m => m.style.display = 'none');
-                                    }
-                                });
-
-                                // 批量勾选与 Shift 连选逻辑
-                                const allChks = Array.from(dlg.querySelectorAll('.tm-batch-tag-chk'));
-
-                                allChks.forEach((chk, idx) => {
-                                    chk.setAttribute('data-order-idx', idx);
-
-                                    chk.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        handleTagCheckClick(chk, idx, e);
-                                    });
-                                });
-
-                                // 移动端整行大区域触控勾选辅助
-                                if (isBatchDeleteMode) {
-                                    dlg.querySelectorAll('.tm-flat-tag-item, .tm-level1-header, .tm-level2-item').forEach(row => {
-                                        row.style.cursor = 'pointer';
-                                        row.addEventListener('click', (e) => {
-                                            if (e.target.closest('.tm-btn-icon-only') || e.target.classList.contains('tm-batch-tag-chk')) return;
-                                            const chk = row.querySelector('.tm-batch-tag-chk');
-                                            if (chk) {
-                                                const idx = parseInt(chk.getAttribute('data-order-idx'));
-                                                chk.checked = !chk.checked;
-                                                handleTagCheckClick(chk, idx, e);
-                                            }
-                                        });
-                                    });
-                                }
-                                // 删除
-                                dlg.querySelectorAll('.delete-tag-inline').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        const id = e.currentTarget.dataset.id;
-                                        if (confirm('确定删除此标签吗？(不会删除主题本身)')) {
-                                            const targetTag = tags.find(t => t.id === id);
-                                            const affectedThemes = targetTag && targetTag.themes ? [...targetTag.themes] : [];
-                                            tags.forEach(t => {
-                                                if (t.parentId === id) t.parentId = null;
-                                            });
-                                            tags = tags.filter(t => t.id !== id);
-                                            saveThemeTags(tags);
-                                            renderList();
-                                            softRefreshUI(affectedThemes);
-                                        }
-                                    });
-                                });
-
-                                // 重命名
-                                dlg.querySelectorAll('.rename-tag-inline').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        const id = e.currentTarget.dataset.id;
-                                        const tag = tags.find(t => t.id === id);
-                                        if (!tag) return;
-                                        const newName = prompt('输入新名称:', tag.name);
-                                        if (newName && newName.trim() && newName.trim() !== tag.name) {
-                                            tag.name = newName.trim();
-                                            saveThemeTags(tags);
-                                            renderList();
-                                            softRefreshUI(tag.themes || []);
-                                        }
-                                    });
-                                });
-
-                                // 关键词高级管理弹窗
-                                dlg.querySelectorAll('.keywords-tag-inline').forEach(btn => {
-                                    btn.addEventListener('click', async (e) => {
-                                        e.stopPropagation();
-                                        const id = e.currentTarget.dataset.id;
-                                        const tag = tags.find(t => t.id === id);
-                                        if (!tag) return;
-
-                                        await openTagKeywordsModal(tag, (updatedTag, autoApply) => {
-                                            saveThemeTags(tags);
-                                            renderList();
-                                            if (autoApply) {
-                                                applyKeywordMappings();
-                                            }
-                                            toastr.success(`已更新标签「${updatedTag.name}」的关键词映射`);
-                                        });
-                                    });
-                                });
-
-                                // 添加二级标签
-                                dlg.querySelectorAll('.add-subtag-btn').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        const parentId = e.currentTarget.dataset.id;
-                                        const parentTag = tags.find(t => t.id === parentId);
-                                        const subName = prompt(`为一级目录「${parentTag ? parentTag.name : ''}」添加二级标签名称:`);
-                                        if (subName && subName.trim()) {
-                                            const name = subName.trim();
-                                            if (tags.some(t => t.name === name && t.parentId === parentId)) {
-                                                toastr.warning('该一级目录已存在同名二级标签');
-                                                return;
-                                            }
-                                            tags.push({ id: Date.now().toString(), name: name, parentId: parentId, themes: [], keywords: [] });
-                                            saveThemeTags(tags);
-                                            renderList();
-                                            softRefreshUI([]);
-                                        }
-                                    });
-                                });
-
-                                // 提升标签层级 (升一级)
-                                dlg.querySelectorAll('.promote-tag-inline').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        const id = e.currentTarget.dataset.id;
-                                        const tag = tags.find(t => t.id === id);
-                                        if (tag && tag.parentId) {
-                                            const parentTag = tags.find(p => p.id === tag.parentId);
-                                            tag.parentId = parentTag ? parentTag.parentId || null : null;
-                                            saveThemeTags(tags);
-                                            renderList();
-                                            softRefreshUI([]);
-                                            toastr.success(`已提升标签「${tag.name}」的层级`);
-                                        }
-                                    });
-                                });
-
-                                // 上下移动节点按钮事件 (N-Level 通用)
-                                dlg.querySelectorAll('.move-node-up').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        const id = e.currentTarget.dataset.id;
-                                        const tag = tags.find(t => t.id === id);
-                                        if (!tag) return;
-                                        const siblings = tags.filter(t => t.parentId === tag.parentId);
-                                        const sIdx = siblings.findIndex(t => t.id === id);
-                                        if (sIdx > 0) {
-                                            const srcTag = siblings[sIdx];
-                                            const tgtTag = siblings[sIdx - 1];
-                                            const posA = tags.indexOf(srcTag);
-                                            const posB = tags.indexOf(tgtTag);
-                                            if (posA > -1 && posB > -1) {
-                                                const [moved] = tags.splice(posA, 1);
-                                                tags.splice(posB, 0, moved);
-                                                saveThemeTags(tags);
-                                                renderList();
-                                                softRefreshUI();
-                                            }
-                                        }
-                                    });
-                                });
-
-                                dlg.querySelectorAll('.move-node-down').forEach(btn => {
-                                    btn.addEventListener('click', (e) => {
-                                        e.stopPropagation();
-                                        const id = e.currentTarget.dataset.id;
-                                        const tag = tags.find(t => t.id === id);
-                                        if (!tag) return;
-                                        const siblings = tags.filter(t => t.parentId === tag.parentId);
-                                        const sIdx = siblings.findIndex(t => t.id === id);
-                                        if (sIdx > -1 && sIdx < siblings.length - 1) {
-                                            const srcTag = siblings[sIdx];
-                                            const tgtTag = siblings[sIdx + 1];
-                                            const posA = tags.indexOf(srcTag);
-                                            const posB = tags.indexOf(tgtTag);
-                                            if (posA > -1 && posB > -1) {
-                                                const [moved] = tags.splice(posA, 1);
-                                                tags.splice(posB, 0, moved);
-                                                saveThemeTags(tags);
-                                                renderList();
-                                                softRefreshUI();
-                                            }
-                                        }
-                                    });
-                                });
-                            };
-
-                            const batchModeBtn = dlg.querySelector('#batch-delete-tags-mode-btn');
-                            if (batchModeBtn) {
-                                batchModeBtn.addEventListener('click', () => {
-                                    isBatchDeleteMode = !isBatchDeleteMode;
-                                    if (!isBatchDeleteMode) selectedTagIds.clear();
-                                    renderList();
-                                });
-                            }
-
-                            const batchSelectAllBtn = dlg.querySelector('#tm-batch-tag-select-all');
-                            if (batchSelectAllBtn) {
-                                batchSelectAllBtn.addEventListener('click', () => {
-                                    if (selectedTagIds.size === tags.length && tags.length > 0) {
-                                        selectedTagIds.clear();
-                                    } else {
-                                        tags.forEach(t => selectedTagIds.add(t.id));
-                                    }
-                                    renderList();
-                                    updateBatchCount();
-                                });
-                            }
-
-                            const batchInvertBtn = dlg.querySelector('#tm-batch-tag-invert-select');
-                            if (batchInvertBtn) {
-                                batchInvertBtn.addEventListener('click', () => {
-                                    tags.forEach(t => {
-                                        if (selectedTagIds.has(t.id)) {
-                                            selectedTagIds.delete(t.id);
-                                        } else {
-                                            selectedTagIds.add(t.id);
-                                        }
-                                    });
-                                    renderList();
-                                    updateBatchCount();
-                                });
-                            }
-
-                            const batchRangeBtn = dlg.querySelector('#tm-batch-tag-range-select');
-                            if (batchRangeBtn) {
-                                batchRangeBtn.addEventListener('click', () => {
-                                    isMobileRangeActive = !isMobileRangeActive;
-                                    mobileRangeStartIdx = -1;
-                                    if (isMobileRangeActive) {
-                                        batchRangeBtn.style.background = 'var(--SmartThemeQuoteColor, #007bff)';
-                                        batchRangeBtn.style.color = '#ffffff';
-                                        toastr.info('👉 范围连选模式已开启：请在列表中依次点选【起点标签】和【终点标签】');
-                                    } else {
-                                        batchRangeBtn.style.background = '';
-                                        batchRangeBtn.style.color = '';
-                                        toastr.info('已退出范围连选模式');
-                                    }
-                                });
-                            }
-
-                            const cancelBatchDeleteBtn = dlg.querySelector('#tm-cancel-batch-delete');
-                            if (cancelBatchDeleteBtn) {
-                                cancelBatchDeleteBtn.addEventListener('click', () => {
-                                    isBatchDeleteMode = false;
-                                    selectedTagIds.clear();
-                                    renderList();
-                                });
-                            }
-
-                            const confirmBatchDeleteBtn = dlg.querySelector('#tm-confirm-batch-delete');
-                            if (confirmBatchDeleteBtn) {
-                                confirmBatchDeleteBtn.addEventListener('click', () => {
-                                    if (selectedTagIds.size === 0) return;
-                                    if (confirm(`确定要批量删除选中的 ${selectedTagIds.size} 个标签吗？(删除标签不会影响美化主题本身)`)) {
-                                        const removeSet = new Set(selectedTagIds);
-                                        tags.forEach(t => {
-                                            if (removeSet.has(t.parentId)) t.parentId = null;
-                                        });
-                                        tags = tags.filter(t => !removeSet.has(t.id));
-                                        saveThemeTags(tags);
-                                        selectedTagIds.clear();
-                                        isBatchDeleteMode = false;
-                                        renderList();
-                                        softRefreshUI();
-                                        toastr.success('已成功批量删除选中的标签！');
-                                    }
-                                });
-                            }
-
-                            const chkSubtags = dlg.querySelector('#chk-enable-subtags');
-                            if (chkSubtags) {
-                                chkSubtags.addEventListener('change', () => {
-                                    subtagsEnabled = chkSubtags.checked;
-                                    localStorage.setItem(ENABLE_SUBTAGS_KEY, subtagsEnabled ? 'true' : 'false');
-                                    const input = dlg.querySelector('#new-tag-name');
-                                    const addBtn = dlg.querySelector('#add-new-tag-btn');
-                                    if (input) input.placeholder = subtagsEnabled ? '新一级标签名称...' : '新标签名称...';
-                                    if (addBtn) addBtn.innerHTML = subtagsEnabled ? '<i class="fa-solid fa-plus"></i> 添加一级标签' : '<i class="fa-solid fa-plus"></i> 添加标签';
-                                    renderList();
-                                    softRefreshUI();
-                                });
-                            }
-
-                            dlg.querySelector('#add-new-tag-btn').addEventListener('click', () => {
-                                const input = dlg.querySelector('#new-tag-name');
-                                const name = input.value.trim();
-                                if (!name) return;
-                                if (tags.some(t => t.name === name && !t.parentId)) {
-                                    toastr.warning('同名标签已存在');
-                                    return;
-                                }
-                                tags.push({ id: Date.now().toString(), name: name, parentId: null, themes: [], keywords: [] });
-                                saveThemeTags(tags);
-                                input.value = '';
-                                renderList();
-                                softRefreshUI();
-                            });
-
-                            const applyMappingsBtn = dlg.querySelector('#apply-keyword-mappings-btn');
-                            if (applyMappingsBtn) {
-                                applyMappingsBtn.addEventListener('click', () => {
-                                    const applied = applyKeywordMappings();
-                                    if (applied) {
-                                        toastr.success('关键词映射已重新应用！');
-                                    } else {
-                                        toastr.info('没有找到新的匹配，或尚未设置关键词。');
-                                    }
-                                });
-                            }
-
-                            const modalAutoGroupBtn = dlg.querySelector('#modal-auto-group-btn');
-                            if (modalAutoGroupBtn) {
-                                modalAutoGroupBtn.addEventListener('click', (e) => {
-                                    e.preventDefault();
-                                    popup.close();
-                                    openAutoGroupWizard();
-                                });
-                            }
-
-                            renderList();
-                        }
-                    });
-                }
-
-                async function openTagAssignmentPopup(themeNames) {
-                    const singleMode = typeof themeNames === 'string';
-                    const themesToAssign = singleMode ? [themeNames] : themeNames;
-
-                    let tags = loadThemeTags();
-                    if (tags.length === 0) {
-                        toastr.info('还没有创建任何标签，请先去管理标签中创建。');
-                        return;
-                    }
-
-                    const subtagsEnabled = isSubtagsEnabled();
-                    let popupHtml = `
-                        <div class="tm-tag-assign-container">
-                            <p class="tm-tag-assign-header">选择要分配的标签：</p>
-                            <div class="tm-tag-assign-list" style="display:flex; flex-direction:column; gap:6px; max-height:calc(80vh - 125px); max-height:calc(80dvh - 125px); overflow-y:auto; padding-right:6px; min-height:0; flex:0 1 auto;">
-                    `;
-
-                    if (!subtagsEnabled) {
-                        tags.forEach(t => {
-                            const isChecked = singleMode ? (t.themes && t.themes.includes(themeNames)) : false;
-                            popupHtml += `
-                                <label style="display:flex; align-items:center; gap:8px; padding:4px; cursor:pointer;">
-                                    <input type="checkbox" class="tag-assign-cb" data-id="${t.id}" ${isChecked ? 'checked' : ''}>
-                                    ${escapeHtml(t.name)}
-                                </label>
-                            `;
-                        });
-                    } else {
-                        const renderAssignTreeHtml = (nodeTag, depth) => {
-                            const childTags = tags.filter(t => t.parentId === nodeTag.id);
-                            const isChecked = singleMode ? (nodeTag.themes && nodeTag.themes.includes(themeNames)) : false;
-                            let html = `
-                                <div style="margin-left:${depth > 0 ? 14 : 0}px; margin-bottom:4px; ${depth === 0 ? 'border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:6px; background:rgba(255,255,255,0.02);' : ''}">
-                                    <label style="display:flex; align-items:center; gap:6px; font-size:${depth === 0 ? '12px' : '11px'}; font-weight:${depth === 0 ? 'bold' : 'normal'}; cursor:pointer;">
-                                        <input type="checkbox" class="tag-assign-cb" data-id="${nodeTag.id}" ${isChecked ? 'checked' : ''}>
-                                        <i class="${depth === 0 ? 'fa-solid fa-folder-open' : 'fa-solid fa-tag'}" style="${depth === 0 ? 'color:var(--SmartThemeQuoteColor, #4a90e2);' : 'opacity:0.7;'} font-size:11px;"></i>
-                                        ${escapeHtml(nodeTag.name)}
-                                    </label>
-                            `;
-                            if (childTags.length > 0) {
-                                html += `<div style="display:flex; flex-direction:column; gap:4px; margin-left:18px; margin-top:4px; padding-left:6px; border-left:2px solid rgba(255,255,255,0.1);">`;
-                                childTags.forEach(cTag => {
-                                    html += renderAssignTreeHtml(cTag, depth + 1);
-                                });
-                                html += `</div>`;
-                            }
-                            html += `</div>`;
-                            return html;
-                        };
-
-                        const rootTags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
-                        rootTags.forEach(rTag => {
-                            popupHtml += renderAssignTreeHtml(rTag, 0);
-                        });
-                    }
-                    popupHtml += `</div></div>`;
-
-                    await callGenericPopup(popupHtml, 'confirm', null, {
-                        title: singleMode ? `设置标签: ${themeNames.replace(/\[.*?\]/g, '').trim()}` : `批量设置标签 (${themesToAssign.length} 个主题)`,
-                        okButton: '保存',
-                        onOpen: (popup) => {
-                            const dlg = popup.dlg;
-                            if (dlg) {
-                                dlg.classList.add('tm-tag-assign-dialog');
-                                dlg.style.maxHeight = '80vh';
-                                dlg.style.height = 'auto';
-                                const body = dlg.querySelector('.popup-body');
-                                if (body) {
-                                    body.style.maxHeight = 'calc(80vh - 16px)';
-                                    body.style.height = 'auto';
-                                    body.style.minHeight = '0';
-                                    body.style.flex = '0 1 auto';
-                                }
-                                const content = dlg.querySelector('.popup-content');
-                                if (content) {
-                                    content.style.maxHeight = 'calc(80vh - 80px)';
-                                    content.style.display = 'flex';
-                                    content.style.flexDirection = 'column';
-                                    content.style.overflow = 'hidden';
-                                    content.style.minHeight = '0';
-                                    content.style.flex = '0 1 auto';
-                                }
-                            }
-
-                            popup.dlg.querySelector('.popup-button-ok').addEventListener('click', () => {
-                                const checkboxes = popup.dlg.querySelectorAll('.tag-assign-cb');
-                                const tagsById = new Map(tags.map(t => [t.id, t]));
-                                checkboxes.forEach(cb => {
-                                    const tagId = cb.dataset.id;
-                                    const tag = tagsById.get(tagId);
-                                    if (!tag) return;
-                                    if (!tag.themes) tag.themes = [];
-
-                                    if (cb.checked) {
-                                        themesToAssign.forEach(th => {
-                                            if (!tag.themes.includes(th)) tag.themes.push(th);
-                                        });
-                                    } else {
-                                        if (singleMode) {
-                                            const idx = tag.themes.indexOf(themeNames);
-                                            if (idx > -1) tag.themes.splice(idx, 1);
-                                        }
-                                    }
-                                });
-                                saveThemeTags(tags);
-                                toastr.success('标签分配已保存');
-                                if (!singleMode && isBatchEditMode) {
-                                    selectedForBatch.clear();
-                                    lastClickedThemeName = null;
-                                }
-                                softRefreshUI(themesToAssign);
-                            });
-                        }
-                    });
-                }
-
-                async function openTagRemovalPopup(themeNames) {
-                    const themesToAssign = themeNames;
-
-                    let tags = loadThemeTags();
-                    if (tags.length === 0) {
-                        toastr.info('还没有创建任何标签，无法移除。');
-                        return;
-                    }
-
-                    const subtagsEnabled = isSubtagsEnabled();
-                    let popupHtml = `
-                        <div class="tm-tag-assign-container">
-                            <p class="tm-tag-assign-header">选择要从所选主题中移除的标签：</p>
-                            <div class="tm-tag-assign-list" style="display:flex; flex-direction:column; gap:6px; max-height:calc(80vh - 125px); max-height:calc(80dvh - 125px); overflow-y:auto; padding-right:6px; min-height:0; flex:0 1 auto;">
-                    `;
-
-                    if (!subtagsEnabled) {
-                        tags.forEach(t => {
-                            popupHtml += `
-                                <label style="display:flex; align-items:center; gap:8px; padding:4px; cursor:pointer;">
-                                    <input type="checkbox" class="tag-remove-cb" data-id="${t.id}">
-                                    ${escapeHtml(t.name)}
-                                </label>
-                            `;
-                        });
-                    } else {
-                        const renderRemoveTreeHtml = (nodeTag, depth) => {
-                            const childTags = tags.filter(t => t.parentId === nodeTag.id);
-                            let html = `
-                                <div style="margin-left:${depth > 0 ? 14 : 0}px; margin-bottom:4px; ${depth === 0 ? 'border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:6px; background:rgba(255,255,255,0.02);' : ''}">
-                                    <label style="display:flex; align-items:center; gap:6px; font-size:${depth === 0 ? '12px' : '11px'}; font-weight:${depth === 0 ? 'bold' : 'normal'}; cursor:pointer;">
-                                        <input type="checkbox" class="tag-remove-cb" data-id="${nodeTag.id}">
-                                        <i class="${depth === 0 ? 'fa-solid fa-folder-open' : 'fa-solid fa-tag'}" style="${depth === 0 ? 'color:var(--SmartThemeQuoteColor, #4a90e2);' : 'opacity:0.7;'} font-size:11px;"></i>
-                                        ${escapeHtml(nodeTag.name)}
-                                    </label>
-                            `;
-                            if (childTags.length > 0) {
-                                html += `<div style="display:flex; flex-direction:column; gap:4px; margin-left:18px; margin-top:4px; padding-left:6px; border-left:2px solid rgba(255,255,255,0.1);">`;
-                                childTags.forEach(cTag => {
-                                    html += renderRemoveTreeHtml(cTag, depth + 1);
-                                });
-                                html += `</div>`;
-                            }
-                            html += `</div>`;
-                            return html;
-                        };
-
-                        const rootTags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
-                        rootTags.forEach(rTag => {
-                            popupHtml += renderRemoveTreeHtml(rTag, 0);
-                        });
-                    }
-                    popupHtml += `</div></div>`;
-
-                    await callGenericPopup(popupHtml, 'confirm', null, {
-                        title: `批量移除标签 (${themesToAssign.length} 个主题)`,
-                        okButton: '移除',
-                        cancelButton: '取消',
-                        onOpen: (popup) => {
-                            const dlg = popup.dlg;
-                            if (dlg) {
-                                dlg.classList.add('tm-tag-assign-dialog');
-                                dlg.style.maxHeight = '80vh';
-                                dlg.style.height = 'auto';
-                                const body = dlg.querySelector('.popup-body');
-                                if (body) {
-                                    body.style.maxHeight = 'calc(80vh - 16px)';
-                                    body.style.height = 'auto';
-                                    body.style.minHeight = '0';
-                                    body.style.flex = '0 1 auto';
-                                }
-                                const content = dlg.querySelector('.popup-content');
-                                if (content) {
-                                    content.style.maxHeight = 'calc(80vh - 80px)';
-                                    content.style.display = 'flex';
-                                    content.style.flexDirection = 'column';
-                                    content.style.overflow = 'hidden';
-                                    content.style.minHeight = '0';
-                                    content.style.flex = '0 1 auto';
-                                }
-                            }
-
-                            popup.dlg.querySelector('.popup-button-ok').addEventListener('click', () => {
-                                const checkboxes = popup.dlg.querySelectorAll('.tag-remove-cb');
-                                let removedAnything = false;
-                                checkboxes.forEach(cb => {
-                                    if (cb.checked) {
-                                        const tagId = cb.dataset.id;
-                                        const tag = tags.find(t => t.id === tagId);
-                                        if (tag && tag.themes) {
-                                            themesToAssign.forEach(th => {
-                                                const idx = tag.themes.indexOf(th);
-                                                if (idx > -1) {
-                                                    tag.themes.splice(idx, 1);
-                                                    removedAnything = true;
-                                                }
-                                            });
-                                        }
-                                    }
-                                });
-                                if (removedAnything) {
-                                    saveThemeTags(tags);
-                                    toastr.success('已成功移除标签');
-                                }
-                                if (isBatchEditMode) {
-                                    selectedForBatch.clear();
-                                    lastClickedThemeName = null;
-                                }
-                                softRefreshUI();
-                            });
-                        }
-                    });
-                }
-
-                async function openBatchRenamePopup(themeNames) {
-                    if (!themeNames || themeNames.length === 0) return;
-
-                    const popupHtml = `
-                        <div id="tm-batch-rename-dialog" style="display:flex; flex-direction:column; gap:12px; max-width:550px; text-align:left;">
-                            <p style="margin:0; font-size:13px; opacity:0.9;">
-                                为已选中的 <strong>${themeNames.length}</strong> 个主题批量修改名称。选择重命名规则并输入相关参数：
-                            </p>
-
-                            <div style="display:flex; flex-wrap:wrap; gap:6px; border-bottom:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.1)); padding-bottom:8px;">
-                                <button type="button" class="menu_button tm-rename-tab active" data-tab="prefix" style="display:inline-flex; flex-direction:row; align-items:center; justify-content:center; white-space:nowrap; font-size:12px; padding:4px 10px; margin:0;"><i class="fa-solid fa-heading"></i> 前缀</button>
-                                <button type="button" class="menu_button tm-rename-tab" data-tab="suffix" style="display:inline-flex; flex-direction:row; align-items:center; justify-content:center; white-space:nowrap; font-size:12px; padding:4px 10px; margin:0;"><i class="fa-solid fa-align-left"></i> 后缀</button>
-                                <button type="button" class="menu_button tm-rename-tab" data-tab="phrase" style="display:inline-flex; flex-direction:row; align-items:center; justify-content:center; white-space:nowrap; font-size:12px; padding:4px 10px; margin:0;"><i class="fa-solid fa-cube"></i> 固定词组</button>
-                                <button type="button" class="menu_button tm-rename-tab" data-tab="combo" style="display:inline-flex; flex-direction:row; align-items:center; justify-content:center; white-space:nowrap; font-size:12px; padding:4px 10px; margin:0;"><i class="fa-solid fa-layer-group"></i> 综合设置</button>
-                            </div>
-
-                            <!-- Panel 1: 前缀设置 -->
-                            <div class="tm-rename-panel" data-panel="prefix" style="display:flex; flex-direction:column; gap:8px;">
-                                <div style="display:flex; gap:16px; align-items:center;">
-                                    <label style="font-size:13px; display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
-                                        <input type="radio" name="tm-prefix-action" value="add" checked> 增加前缀
-                                    </label>
-                                    <label style="font-size:13px; display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
-                                        <input type="radio" name="tm-prefix-action" value="remove"> 删除前缀
-                                    </label>
-                                </div>
-                                <div>
-                                    <input type="text" id="tm-rename-prefix-input" class="text_pole" placeholder="请输入前缀文本 (如: [Cyber] )" style="width:100%; box-sizing:border-box;">
-                                </div>
-                            </div>
-
-                            <!-- Panel 2: 后缀设置 -->
-                            <div class="tm-rename-panel" data-panel="suffix" style="display:none; flex-direction:column; gap:8px;">
-                                <div style="display:flex; gap:16px; align-items:center;">
-                                    <label style="font-size:13px; display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
-                                        <input type="radio" name="tm-suffix-action" value="add" checked> 增加后缀
-                                    </label>
-                                    <label style="font-size:13px; display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
-                                        <input type="radio" name="tm-suffix-action" value="remove"> 删除后缀
-                                    </label>
-                                </div>
-                                <div>
-                                    <input type="text" id="tm-rename-suffix-input" class="text_pole" placeholder="请输入后缀文本 (如: _v2)" style="width:100%; box-sizing:border-box;">
-                                </div>
-                            </div>
-
-                            <!-- Panel 3: 固定词组设置 -->
-                            <div class="tm-rename-panel" data-panel="phrase" style="display:none; flex-direction:column; gap:8px;">
-                                <div style="display:flex; gap:16px; align-items:center;">
-                                    <label style="font-size:13px; display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
-                                        <input type="radio" name="tm-phrase-action" value="delete" checked> 删除固定词组
-                                    </label>
-                                    <label style="font-size:13px; display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
-                                        <input type="radio" name="tm-phrase-action" value="replace"> 替换固定词组
-                                    </label>
-                                </div>
-                                <div style="display:flex; flex-direction:column; gap:6px;">
-                                    <input type="text" id="tm-rename-find-phrase" class="text_pole" placeholder="要查找/删除的固定词组" style="width:100%; box-sizing:border-box;">
-                                    <input type="text" id="tm-rename-replace-phrase" class="text_pole" placeholder="替换为 (留空代表直接删除该词组)" style="width:100%; box-sizing:border-box; display:none;">
-                                </div>
-                            </div>
-
-                            <!-- Panel 4: 综合设置 -->
-                            <div class="tm-rename-panel" data-panel="combo" style="display:none; flex-direction:column; gap:8px;">
-                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                                    <div>
-                                        <span style="font-size:11px; opacity:0.8;">增加前缀：</span>
-                                        <input type="text" id="tm-combo-add-prefix" class="text_pole" placeholder="前缀" style="width:100%; box-sizing:border-box; height:28px;">
-                                    </div>
-                                    <div>
-                                        <span style="font-size:11px; opacity:0.8;">匹配删除前缀：</span>
-                                        <input type="text" id="tm-combo-del-prefix" class="text_pole" placeholder="前缀" style="width:100%; box-sizing:border-box; height:28px;">
-                                    </div>
-                                    <div>
-                                        <span style="font-size:11px; opacity:0.8;">增加后缀：</span>
-                                        <input type="text" id="tm-combo-add-suffix" class="text_pole" placeholder="后缀" style="width:100%; box-sizing:border-box; height:28px;">
-                                    </div>
-                                    <div>
-                                        <span style="font-size:11px; opacity:0.8;">匹配删除后缀：</span>
-                                        <input type="text" id="tm-combo-del-suffix" class="text_pole" placeholder="后缀" style="width:100%; box-sizing:border-box; height:28px;">
-                                    </div>
-                                </div>
-                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                                    <div>
-                                        <span style="font-size:11px; opacity:0.8;">查找固定词组：</span>
-                                        <input type="text" id="tm-combo-find-phrase" class="text_pole" placeholder="词组" style="width:100%; box-sizing:border-box; height:28px;">
-                                    </div>
-                                    <div>
-                                        <span style="font-size:11px; opacity:0.8;">替换为：</span>
-                                        <input type="text" id="tm-combo-replace-phrase" class="text_pole" placeholder="替换文本 (留空即删)" style="width:100%; box-sizing:border-box; height:28px;">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- 实时预览区 -->
-                            <div style="margin-top:4px;">
-                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                                    <span style="font-size:12px; font-weight:bold; opacity:0.9;"><i class="fa-solid fa-eye"></i> 重命名效果预览：</span>
-                                    <span id="tm-preview-count-label" style="font-size:11px; opacity:0.6;"></span>
-                                </div>
-                                <div id="tm-rename-preview-list" style="max-height:160px; overflow-y:auto; background:rgba(0,0,0,0.15); border:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.1)); border-radius:4px; padding:6px; font-size:12px; font-family:monospace;">
-                                </div>
-                            </div>
-                        </div>
-                    `;
-
-                    await callGenericPopup(popupHtml, 'confirm', null, {
-                        title: `批量重命名主题 (${themeNames.length} 个)`,
-                        okButton: '开始重命名',
-                        cancelButton: '取消',
-                        onOpen: (popup) => {
-                            const container = popup.dlg.querySelector('#tm-batch-rename-dialog');
-                            if (!container) return;
-
-                            let activeTab = 'prefix';
-
-                            const tabs = container.querySelectorAll('.tm-rename-tab');
-                            const panels = container.querySelectorAll('.tm-rename-panel');
-
-                            tabs.forEach(tab => {
-                                tab.addEventListener('click', () => {
-                                    tabs.forEach(t => t.classList.remove('active'));
-                                    tab.classList.add('active');
-                                    activeTab = tab.dataset.tab;
-                                    panels.forEach(p => {
-                                        p.style.display = p.dataset.panel === activeTab ? 'flex' : 'none';
-                                    });
-                                    updatePreview();
-                                });
-                            });
-
-                            const phraseRadios = container.querySelectorAll('input[name="tm-phrase-action"]');
-                            const replaceInput = container.querySelector('#tm-rename-replace-phrase');
-                            phraseRadios.forEach(radio => {
-                                radio.addEventListener('change', () => {
-                                    if (replaceInput) {
-                                        replaceInput.style.display = radio.value === 'replace' ? 'block' : 'none';
-                                    }
-                                    updatePreview();
-                                });
-                            });
-
-                            container.querySelectorAll('input').forEach(input => {
-                                input.addEventListener('input', updatePreview);
-                                input.addEventListener('change', updatePreview);
-                            });
-
-                            function sanitizeThemeName(str) {
-                                if (!str) return '';
-                                return str.replace(/[\\/:*?"<>|]/g, '').trim();
-                            }
-
-                            function getRenameLogic() {
-                                if (activeTab === 'prefix') {
-                                    const action = container.querySelector('input[name="tm-prefix-action"]:checked')?.value || 'add';
-                                    const prefix = container.querySelector('#tm-rename-prefix-input').value;
-                                    if (!prefix) return (name) => name;
-                                    if (action === 'add') return (name) => sanitizeThemeName(prefix + name);
-                                    if (action === 'remove') return (name) => sanitizeThemeName(name.startsWith(prefix) ? name.slice(prefix.length) : name);
-                                } else if (activeTab === 'suffix') {
-                                    const action = container.querySelector('input[name="tm-suffix-action"]:checked')?.value || 'add';
-                                    const suffix = container.querySelector('#tm-rename-suffix-input').value;
-                                    if (!suffix) return (name) => name;
-                                    if (action === 'add') return (name) => sanitizeThemeName(name + suffix);
-                                    if (action === 'remove') return (name) => sanitizeThemeName(name.endsWith(suffix) ? name.slice(0, name.length - suffix.length) : name);
-                                } else if (activeTab === 'phrase') {
-                                    const action = container.querySelector('input[name="tm-phrase-action"]:checked')?.value || 'delete';
-                                    const findPhrase = container.querySelector('#tm-rename-find-phrase').value;
-                                    const replacePhrase = action === 'replace' ? container.querySelector('#tm-rename-replace-phrase').value : '';
-                                    if (!findPhrase) return (name) => name;
-                                    return (name) => sanitizeThemeName(name.split(findPhrase).join(replacePhrase));
-                                } else if (activeTab === 'combo') {
-                                    const addPrefix = container.querySelector('#tm-combo-add-prefix').value;
-                                    const delPrefix = container.querySelector('#tm-combo-del-prefix').value;
-                                    const addSuffix = container.querySelector('#tm-combo-add-suffix').value;
-                                    const delSuffix = container.querySelector('#tm-combo-del-suffix').value;
-                                    const findPhrase = container.querySelector('#tm-combo-find-phrase').value;
-                                    const replacePhrase = container.querySelector('#tm-combo-replace-phrase').value || '';
-
-                                    return function(name) {
-                                        let res = name;
-                                        if (delPrefix && res.startsWith(delPrefix)) res = res.slice(delPrefix.length);
-                                        if (addPrefix) res = addPrefix + res;
-                                        if (findPhrase) res = res.split(findPhrase).join(replacePhrase);
-                                        if (delSuffix && res.endsWith(delSuffix)) res = res.slice(0, res.length - delSuffix.length);
-                                        if (addSuffix) res = res + addSuffix;
-                                        return sanitizeThemeName(res);
-                                    };
-                                }
-                                return (name) => name;
-                            }
-
-                            function updatePreview() {
-                                const logic = getRenameLogic();
-                                const previewContainer = container.querySelector('#tm-rename-preview-list');
-                                const countLabel = container.querySelector('#tm-preview-count-label');
-                                if (!previewContainer) return;
-
-                                let changedCount = 0;
-                                let html = '';
-
-                                themeNames.forEach((oldName) => {
-                                    const newName = logic(oldName);
-                                    const isChanged = oldName !== newName;
-                                    if (isChanged) changedCount++;
-
-                                    let statusClass = isChanged ? 'color:#4caf50;' : 'opacity:0.6;';
-                                    let changeSymbol = isChanged ? '<i class="fa-solid fa-arrow-right" style="margin:0 4px; font-size:10px;"></i>' : ' (未变)';
-
-                                    let newDisplay = escapeHtml(newName);
-                                    if (!newName.trim()) {
-                                        newDisplay = '<span style="color:#ff5252;">[空名称 - 无效]</span>';
-                                    }
-
-                                    html += `
-                                        <div style="display:flex; align-items:center; justify-content:space-between; padding:2px 0; border-bottom:1px dashed rgba(255,255,255,0.05);">
-                                            <span style="opacity:0.8; word-break:break-all;">${escapeHtml(oldName)}</span>
-                                            <span style="${statusClass} font-weight:bold; white-space:nowrap; margin-left:8px;">${changeSymbol} ${newDisplay}</span>
-                                        </div>
-                                    `;
-                                });
-
-                                previewContainer.innerHTML = html || '<div style="opacity:0.5;">暂无所选主题</div>';
-                                if (countLabel) {
-                                    countLabel.textContent = `共 ${themeNames.length} 项，其中 ${changedCount} 项将发生改变`;
-                                }
-                            }
-
-                            updatePreview();
-
-                            const okBtn = popup.dlg.querySelector('.popup-button-ok');
-                            if (okBtn) {
-                                okBtn.addEventListener('click', async () => {
-                                    const logic = getRenameLogic();
-                                    let hasChanges = false;
-                                    let hasEmpty = false;
-
-                                    for (const name of themeNames) {
-                                        const newName = logic(name);
-                                        if (!newName.trim()) {
-                                            hasEmpty = true;
-                                        }
-                                        if (newName !== name) {
-                                            hasChanges = true;
-                                        }
-                                    }
-
-                                    if (hasEmpty) {
-                                        toastr.error('无法重命名：存在重命名后名称为空的主题。');
-                                        return;
-                                    }
-
-                                    if (!hasChanges) {
-                                        toastr.info('没有名称发生变化，已取消操作。');
-                                        return;
-                                    }
-
-                                    await performBatchRename(logic);
-                                });
-                            }
-                        }
-                    });
-                }
 
                 document.querySelector('#batch-delete-btn').addEventListener('click', performBatchDelete);
 
@@ -8912,11 +3457,11 @@
                                     }
 
                                     const isActive = originalSelect.value === oldName;
-                                    const { mtime: _mtime, ...cleanObj } = fullThemeObj;
-                                    const objectToSave = { ...cleanObj, name: finalNewName };
+                                    const cleanObj = normalizeThemeObject(fullThemeObj, finalNewName);
+                                    const { mtime: _mtime, ...objectToSave } = { ...cleanObj, name: finalNewName, value: finalNewName };
 
                                     // 2. 写入新文件到磁盘
-                                    await apiRequest('themes/save', 'POST', objectToSave, true);
+                                    await saveTheme(objectToSave);
                                     console.log(`[Theme Manager Rename] ✅ Step 1 新文件保存落盘成功: "${finalNewName}.json"`);
 
                                     // 3. 擦除旧物理文件
@@ -8968,27 +3513,8 @@
                                     }
 
                                     // 同步更新自动切换主题设置
-                                    let autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || {};
-                                    let autoThemeChanged = false;
-                                    if (autoThemeSettings.dayTarget === oldName) {
-                                        autoThemeSettings.dayTarget = finalNewName;
-                                        autoThemeChanged = true;
-                                    }
-                                    if (autoThemeSettings.nightTarget === oldName) {
-                                        autoThemeSettings.nightTarget = finalNewName;
-                                        autoThemeChanged = true;
-                                    }
-                                    if (autoThemeChanged) {
-                                        localStorage.setItem(AUTO_THEME_KEY, JSON.stringify(autoThemeSettings));
-                                    }
-
-                                    if (Array.isArray(themeDayNightPairs)) {
-                                        let pairsChanged = false;
-                                        themeDayNightPairs.forEach(p => {
-                                            if (p.dayTheme === oldName) { p.dayTheme = finalNewName; pairsChanged = true; }
-                                            if (p.nightTheme === oldName) { p.nightTheme = finalNewName; pairsChanged = true; }
-                                        });
-                                        if (pairsChanged) saveThemeDayNightPairs(themeDayNightPairs);
+                                    if (typeof handleAutoThemeRenamed === 'function') {
+                                        handleAutoThemeRenamed(oldName, finalNewName);
                                     }
 
                                     // 增量更新 UI
@@ -9059,23 +3585,8 @@
                                     }
 
                                     // 清理自动切换主题设置的选中主题与独立日夜对
-                                    let autoThemeSettings = JSON.parse(localStorage.getItem(AUTO_THEME_KEY)) || {};
-                                    let autoThemeChanged = false;
-                                    if (autoThemeSettings.dayTarget === themeName) {
-                                        autoThemeSettings.dayTarget = '';
-                                        autoThemeChanged = true;
-                                    }
-                                    if (autoThemeSettings.nightTarget === themeName) {
-                                        autoThemeSettings.nightTarget = '';
-                                        autoThemeChanged = true;
-                                    }
-                                    if (autoThemeChanged) {
-                                        localStorage.setItem(AUTO_THEME_KEY, JSON.stringify(autoThemeSettings));
-                                    }
-
-                                    if (Array.isArray(themeDayNightPairs)) {
-                                        themeDayNightPairs = themeDayNightPairs.filter(p => p && p.dayTheme !== themeName && p.nightTheme !== themeName);
-                                        saveThemeDayNightPairs(themeDayNightPairs);
+                                    if (typeof handleAutoThemeDeleted === 'function') {
+                                        handleAutoThemeDeleted(themeName);
                                     }
 
                                     if (isCurrentlyActive) {
@@ -9199,8 +3710,16 @@
                 }, { passive: true });
 
                 originalSelect.addEventListener('change', (event) => {
-                    updateActiveState();
                     const newThemeName = event.target.value;
+                    if (!newThemeName) return;
+
+                    // 若是由外部/用户在原生下拉框直接选择主题（非 applyThemeDirect 程序内触发），统一走纯净切换引擎
+                    if (!_isSwitchingTheme) {
+                        applyThemeDirect(newThemeName);
+                        return;
+                    }
+
+                    updateActiveState();
                     // 使用次数统计
                     if (newThemeName) {
                         usageCount[newThemeName] = (usageCount[newThemeName] || 0) + 1;
@@ -9352,801 +3871,78 @@
                 }, true);
 
                 // ==========================================================
-                // ========= 新增功能：角色卡绑定美化 (Character Theme Binding) =========
+                // ========= 角色卡绑定美化 (模块化解耦引入 modules/character-binding.js) =========
                 // ==========================================================
+                let getThemeForTarget = null;
+                let applyBoundThemeForCharacter = null;
+                let getAvatarFilename = null;
 
-                // 绑定美化 UI 配置已迁移到 avatar-settings.js 高级设置面板中
-
-                // 核心工具：解析目标（主题名或 [Tag] 格式）并返回最终要应用的主题名
-                function getThemeForTarget(target) {
-                    if (!target) return null;
-                    if (target.startsWith('[Tag] ')) {
-                        const tagId = target.replace('[Tag] ', '');
-                        const tags = loadThemeTags();
-                        const tag = tags.find(t => t.id === tagId);
-                        if (!tag || !tag.themes || tag.themes.length === 0) return null;
-
-                        const pool = allParsedThemes.filter(t => tag.themes.includes(t.value));
-                        if (pool.length > 0) {
-                            return pool[Math.floor(Math.random() * pool.length)].value;
-                        }
-                    } else {
-                        const raw = String(target).trim();
-                        const clean = raw.replace(/\s*\(\d+\)$/, '').trim();
-                        // 检查主题是否仍然存在 (支持精确匹配、去除 (1) 副本后缀、或大小写匹配)
-                        if (stKnownThemes.has(raw)) return raw;
-                        if (clean && stKnownThemes.has(clean)) return clean;
-                        for (const name of stKnownThemes) {
-                            if (name && (name.toLowerCase() === raw.toLowerCase() || name.toLowerCase() === clean.toLowerCase())) {
-                                return name;
-                            }
-                        }
-                        if (allParsedThemes.some(t => t.value === raw || t.value === clean)) {
-                            return raw;
-                        }
-                    }
-                    return null;
+                try {
+                    const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
+                    const { initCharacterBinding } = await import(`${baseDir}modules/character-binding.js`);
+                    const cbModule = initCharacterBinding({
+                        CHARACTER_THEME_BINDINGS_KEY,
+                        loadThemeTags,
+                        allParsedThemes,
+                        stKnownThemes,
+                        themeBackgroundBindings,
+                        applyThemeDirect,
+                        updateActiveState,
+                        applyBackgroundDirectly,
+                        escapeHtml
+                    });
+                    getThemeForTarget = cbModule.getThemeForTarget;
+                    applyBoundThemeForCharacter = cbModule.applyBoundThemeForCharacter;
+                    getAvatarFilename = cbModule.getAvatarFilename;
+                } catch (e) {
+                    console.error('[Theme Manager] 角色绑定模块加载失败:', e);
                 }
 
-                // 从 URL 或路径中提取纯文件名（兼容处理以保持与保存端键名一致）
-                function getAvatarFilename(url) {
-                    if (!url) return '';
-                    let cleanUrl = url.split('?')[0].split('#')[0];
-                    const lastSlash = cleanUrl.lastIndexOf('/');
-                    if (lastSlash !== -1) {
-                        cleanUrl = cleanUrl.substring(lastSlash + 1);
-                    }
+                // ==========================================================
+                // ======= 日夜自动随动与配对 (模块化: modules/auto-theme.js) =======
+                // ==========================================================
+                let autoModule = null;
+                try {
+                    const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
+                    const { initAutoTheme } = await import(`${baseDir}modules/auto-theme.js`);
+                    autoModule = initAutoTheme({
+                        AUTO_THEME_KEY,
+                        THEME_DAY_NIGHT_PAIRS_KEY,
+                        managerPanel,
+                        originalSelect,
+                        allParsedThemes,
+                        themeItemMap,
+                        loadThemeTags,
+                        getThemeForTarget,
+                        applyThemeDirect,
+                        applyBackgroundDirectly,
+                        themeBackgroundBindings,
+                        escapeHtml
+                    });
+                    executeManualThemeToggle = autoModule.executeManualThemeToggle;
+                    updateThemeItemDayNightState = autoModule.updateThemeItemDayNightState;
+                    openDayNightPairModal = autoModule.openDayNightPairModal;
+                    applyAutoThemeLoop = autoModule.applyAutoThemeLoop;
+                    updateManualToggleBtnVisibility = autoModule.updateManualToggleBtnVisibility;
+                    handleAutoThemeRenamed = autoModule.handleThemeRenamed;
+                    handleAutoThemeDeleted = autoModule.handleThemeDeleted;
+                    getPairForTheme = autoModule.getPairForTheme;
+                    saveThemeDayNightPairs = autoModule.saveThemeDayNightPairs;
+                    loadThemeDayNightPairs = autoModule.loadThemeDayNightPairs;
+                } catch (e) {
+                    console.error('[Theme Manager] 自动主题切换模块加载失败:', e);
+                }
+
+                async function initBackgroundEnhancements() {
                     try {
-                        return decodeURIComponent(cleanUrl);
+                        const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
+                        const { initBackgroundEnhancements: initBg } = await import(`${baseDir}modules/background-batch.js`);
+                        if (typeof initBg === 'function') {
+                            initBg({ getRequestHeaders, showLoader, hideLoader, limitConcurrency });
+                        }
                     } catch (e) {
-                        return cleanUrl;
+                        console.error('[Theme Manager] 加载背景批量增强模块失败:', e);
                     }
-                }
-
-                // 核心功能：为特定头像名应用绑定的值（可能是具体主题，也可能是标签随机）
-                function applyBoundThemeForCharacter(avatarName) {
-                    console.log(`[Theme Manager Debug] applyBoundThemeForCharacter called with:`, avatarName);
-                    if (!avatarName) return;
-                    const cleanName = getAvatarFilename(avatarName);
-                    console.log(`[Theme Manager Debug] cleanName:`, cleanName);
-                    if (!cleanName) return;
-
-                    const bindings = JSON.parse(localStorage.getItem(CHARACTER_THEME_BINDINGS_KEY)) || {};
-                    console.log(`[Theme Manager Debug] bindings loaded:`, bindings);
-                    const target = bindings[cleanName];
-                    console.log(`[Theme Manager Debug] target found:`, target);
-
-                    if (target) {
-                        const themeToApply = getThemeForTarget(target);
-                        console.log(`[Theme Manager Debug] themeToApply:`, themeToApply);
-                        if (themeToApply) {
-                            const themeSelect = document.querySelector('#themes');
-                            console.log(`[Theme Manager Debug] themeSelect:`, themeSelect ? themeSelect.value : 'not found');
-                            if (themeSelect) {
-                                // 1. 如果解析出的具体主题与当前不同，则切换
-                                if (themeSelect.value !== themeToApply) {
-                                    console.log(`[Theme Manager] 角色绑定触发切换: ${themeToApply} (来源: ${target})`);
-                                    applyThemeDirect(themeToApply);
-                                    updateActiveState();
-                                    toastr.info(`已应用角色绑定的美化：<b>${escapeHtml(themeToApply)}</b>`, '', { timeOut: 2000, escapeHtml: false });
-                                } else {
-                                    console.log(`[Theme Manager Debug] Theme is already active:`, themeToApply);
-                                }
-                            }
-
-                            // 2. 强制同步背景图
-                            const boundBg = themeBackgroundBindings[themeToApply];
-                            if (boundBg) {
-                                applyBackgroundDirectly(boundBg);
-                            }
-                        }
-                    }
-                }
-
-                // 监听角色卡片的点击事件以自动应用美化 (增加容错判断)
-                const rightNavPanel = document.getElementById('right-nav-panel');
-                if (rightNavPanel) {
-                    rightNavPanel.addEventListener('click', (event) => {
-                        const characterBlock = event.target.closest('.character_select');
-                        if (!characterBlock) return;
-
-                        setTimeout(() => {
-                            const characters = SillyTavern.getContext().characters;
-                            const chid = characterBlock.dataset.chid;
-                            const character = characters[chid];
-                            if (character && character.avatar) {
-                                applyBoundThemeForCharacter(character.avatar);
-                            }
-                        }, 50);
-                    });
-                }
-
-                // 监听欢迎页面“最近的聊天”列表的点击事件，以自动应用美化 (增加容错判断)
-                const chatArea = document.getElementById('chat');
-                if (chatArea) {
-                    chatArea.addEventListener('click', (event) => {
-                        const recentChatBlock = event.target.closest('.recentChat');
-                        if (!recentChatBlock) return;
-
-                        const characterAvatar = recentChatBlock.dataset.avatar;
-                        if (characterAvatar) {
-                            setTimeout(() => {
-                                applyBoundThemeForCharacter(characterAvatar);
-                            }, 50);
-                        }
-                    });
-                }
-
-                // ==========================================================
-                // ======================= Auto Theme Switcher =========================
-                // ==========================================================
-                let autoThemeCheckInterval = null;
-
-                function executeManualThemeToggle() {
-                    const currentTheme = originalSelect.value;
-                    const pair = getPairForTheme(currentTheme);
-                    let target = null;
-                    let nextState = 'night';
-
-                    if (pair && (pair.dayTheme || pair.nightTheme)) {
-                        if (currentTheme === pair.dayTheme) {
-                            nextState = 'night';
-                            target = pair.nightTheme || pair.dayTheme;
-                        } else if (currentTheme === pair.nightTheme) {
-                            nextState = 'day';
-                            target = pair.dayTheme || pair.nightTheme;
-                        } else {
-                            nextState = (currentAutoThemeState === 'day') ? 'night' : 'day';
-                            target = nextState === 'night' ? (pair.nightTheme || pair.dayTheme) : (pair.dayTheme || pair.nightTheme);
-                        }
-                    } else {
-                        const globalDayTheme = getThemeForTarget(autoThemeSettings.dayTarget);
-                        const globalNightTheme = getThemeForTarget(autoThemeSettings.nightTarget);
-
-                        if (currentTheme === globalDayTheme) {
-                            nextState = 'night';
-                            target = autoThemeSettings.nightTarget;
-                        } else if (currentTheme === globalNightTheme) {
-                            nextState = 'day';
-                            target = autoThemeSettings.dayTarget;
-                        } else {
-                            nextState = (currentAutoThemeState === 'day') ? 'night' : 'day';
-                            target = nextState === 'day' ? autoThemeSettings.dayTarget : autoThemeSettings.nightTarget;
-                        }
-                    }
-
-                    if (!target) {
-                        toastr.warning('未配置对应的日/夜间主题或全局目标。', '快捷切换');
-                        return;
-                    }
-
-                    const themeToApply = getThemeForTarget(target);
-                    if (!themeToApply) {
-                        toastr.warning(`找不到目标主题: ${target}`, '快捷切换');
-                        return;
-                    }
-
-                    if (originalSelect.value !== themeToApply) {
-                        // [BUG FIX] 使用 applyThemeDirect 代替裸 triggerSelectChange，
-                        // 确保 custom_css 守护逻辑生效，防止 ST 原生 loadTheme 将 CSS 覆盖为空
-                        applyThemeDirect(themeToApply);
-                        toastr.success(`手动切换至 ${nextState === 'day' ? '日间' : '夜间'} 主题: <b>${escapeHtml(themeToApply)}</b>`, '快捷切换', { escapeHtml: false });
-                    } else {
-                        toastr.info(`当前已是 ${nextState === 'day' ? '日间' : '夜间'} 主题: <b>${escapeHtml(themeToApply)}</b>`, '快捷切换', { escapeHtml: false });
-                    }
-
-                    const boundBg = themeBackgroundBindings[themeToApply];
-                    if (boundBg) {
-                        applyBackgroundDirectly(boundBg);
-                    }
-
-                    currentAutoThemeState = nextState;
-                }
-
-
-
-                function getSystemThemeMode() {
-                    if (document.documentElement.classList.contains('dark') || document.body.classList.contains('dark')) {
-                        return 'night';
-                    }
-                    if (document.documentElement.classList.contains('light') || document.body.classList.contains('light')) {
-                        return 'day';
-                    }
-                    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-                        return 'night';
-                    }
-                    return 'day';
-                }
-
-                function performAutoThemeSwitch(newState) {
-                    if (currentAutoThemeState === newState) return;
-
-                    let target = null;
-                    const currentTheme = originalSelect.value;
-                    const pair = getPairForTheme(currentTheme);
-                    if (pair) {
-                        if (newState === 'night') {
-                            target = pair.nightTheme || pair.dayTheme;
-                        } else if (newState === 'day') {
-                            target = pair.dayTheme || pair.nightTheme;
-                        }
-                    }
-
-                    if (!target) {
-                        target = newState === 'day' ? autoThemeSettings.dayTarget : autoThemeSettings.nightTarget;
-                    }
-
-                    const themeToApply = getThemeForTarget(target);
-
-                    if (themeToApply) {
-                        const themeChanged = originalSelect.value !== themeToApply;
-                        if (themeChanged) {
-                            // [BUG FIX] 使用 applyThemeDirect 代替裸 triggerSelectChange，
-                            // 确保 custom_css 守护逻辑生效，防止 ST 原生 loadTheme 将 CSS 覆盖为空
-                            applyThemeDirect(themeToApply);
-                            toastr.info(`自动切换至 ${newState === 'day' ? '日间' : '夜间'} 主题: <b>${escapeHtml(themeToApply)}</b>`, '主题随动', { escapeHtml: false });
-                        }
-                        // 无论主题是否变化，都主动应用绑定的背景图
-                        const boundBg = themeBackgroundBindings[themeToApply];
-                        if (boundBg) {
-                            applyBackgroundDirectly(boundBg);
-                        }
-                    }
-                    currentAutoThemeState = newState;
-                }
-
-                function checkAutoTheme() {
-                    if (!autoThemeSettings.enabled) return;
-
-                    let newState = null;
-                    if (autoThemeSettings.mode === 'system') {
-                        newState = getSystemThemeMode();
-                    } else if (autoThemeSettings.mode === 'time') {
-                        const now = new Date();
-                        const currentTime = now.getHours() * 60 + now.getMinutes();
-                        const [dayH, dayM] = autoThemeSettings.dayStart.split(':').map(Number);
-                        const [nightH, nightM] = autoThemeSettings.nightStart.split(':').map(Number);
-                        const dayTime = dayH * 60 + dayM;
-                        const nightTime = nightH * 60 + nightM;
-
-                        if (dayTime < nightTime) {
-                            newState = (currentTime >= dayTime && currentTime < nightTime) ? 'day' : 'night';
-                        } else {
-                            newState = (currentTime >= nightTime && currentTime < dayTime) ? 'night' : 'day';
-                        }
-                    }
-                    if (newState) performAutoThemeSwitch(newState);
-                }
-
-                window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-                    if (autoThemeSettings.enabled && autoThemeSettings.mode === 'system') {
-                        // 系统深色模式实际发生了变化，重置状态以确保强制重新应用主题和背景
-                        currentAutoThemeState = null;
-                        performAutoThemeSwitch(e.matches ? 'night' : 'day');
-                    }
-                });
-
-                // 针对 Tauri / TauriTavern 宿主环境的 IPC 主题监听
-                const setupTauriThemeListener = () => {
-                    const tauri = window.__TAURI__ || window.parent?.__TAURI__ || window.top?.__TAURI__;
-                    if (tauri && tauri.event && typeof tauri.event.listen === 'function') {
-                        try {
-                            tauri.event.listen('tauri://theme-changed', (event) => {
-                                if (autoThemeSettings.enabled && autoThemeSettings.mode === 'system') {
-                                    const themePayload = typeof event.payload === 'string' ? event.payload : (event.payload?.theme || '');
-                                    const newState = themePayload.includes('dark') ? 'night' : 'day';
-                                    currentAutoThemeState = null;
-                                    performAutoThemeSwitch(newState);
-                                }
-                            });
-                            console.log('[Theme Manager] 已成功注册 Tauri 原生主题监听事件 (tauri://theme-changed)');
-                        } catch (e) {
-                            console.warn('[Theme Manager] 注册 Tauri 主题监听事件失败:', e);
-                        }
-                    }
-                };
-                setupTauriThemeListener();
-
-                // 监听窗口恢复焦点与可见性变化，解决桌面 App 最小化/休眠恢复后的同步滞后问题
-                window.addEventListener('focus', () => {
-                    if (autoThemeSettings.enabled) {
-                        checkAutoTheme();
-                    }
-                });
-                document.addEventListener('visibilitychange', () => {
-                    if (!document.hidden && autoThemeSettings.enabled) {
-                        checkAutoTheme();
-                    }
-                });
-
-                function applyAutoThemeLoop() {
-                    if (autoThemeCheckInterval) clearInterval(autoThemeCheckInterval);
-                    if (autoThemeSettings.enabled) {
-                        checkAutoTheme();
-                        autoThemeCheckInterval = setInterval(checkAutoTheme, 60000);
-                    }
-                }
-
-                const autoThemeBtn = managerPanel.querySelector('#auto-theme-settings-btn');
-                const autoThemeModal = managerPanel.querySelector('#auto-theme-modal');
-                const closeAutoThemeModalBtn = autoThemeModal ? autoThemeModal.querySelector('#close-auto-theme-modal') : null;
-                const saveAutoThemeBtn = autoThemeModal ? autoThemeModal.querySelector('#save-auto-theme-btn') : null;
-
-                // 将 autoThemeModal 挂载到 document.body 顶层，彻底脱离父级 transform 包含块，确保 position: fixed 绝对相对于浏览器视口居中
-                if (autoThemeModal) {
-                    autoThemeModal.style.display = 'none';
-                    document.body.appendChild(autoThemeModal);
-                }
-
-                let currentTargetThemeForPair = null;
-
-                function updateThemeItemDayNightState(themeName) {
-                    const item = themeItemMap.get(themeName);
-                    if (!item) return;
-                    const buttonsDiv = item.querySelector('.theme-item-buttons') || item.children[1];
-                    const linkDaynightBtn = buttonsDiv.children[2];
-                    const pair = getPairForTheme(themeName);
-                    if (pair) {
-                        linkDaynightBtn.classList.add('daynight-linked');
-                        const otherTheme = pair.dayTheme === themeName ? pair.nightTheme : pair.dayTheme;
-                        linkDaynightBtn.title = `已绑定日夜组合 (对应美化: ${otherTheme || '未指定'})`;
-                    } else {
-                        linkDaynightBtn.classList.remove('daynight-linked');
-                        linkDaynightBtn.title = '绑定日夜美化';
-                    }
-                }
-
-                const daynightModal = managerPanel.querySelector('#tm-daynight-pair-modal');
-                const closeTmDaynightBtn = daynightModal ? daynightModal.querySelector('#close-tm-daynight-modal') : null;
-                const saveTmDaynightBtn = daynightModal ? daynightModal.querySelector('#save-tm-daynight-btn') : null;
-                const clearTmDaynightBtn = daynightModal ? daynightModal.querySelector('#clear-tm-daynight-btn') : null;
-
-                // 将 daynightModal 挂载到 document.body 顶层
-                if (daynightModal) {
-                    daynightModal.style.display = 'none';
-                    document.body.appendChild(daynightModal);
-                }
-
-                function openDayNightPairModal(themeName) {
-                    currentTargetThemeForPair = themeName;
-                    if (!daynightModal) return;
-
-                    const titleSpan = daynightModal.querySelector('#tm-daynight-current-name');
-                    const nightSelect = daynightModal.querySelector('#tm-daynight-night-select');
-                    const daySelect = daynightModal.querySelector('#tm-daynight-day-select');
-
-                    if (titleSpan) titleSpan.textContent = themeName;
-
-                    if ($(nightSelect).data('select2')) $(nightSelect).select2('destroy');
-                    if ($(daySelect).data('select2')) $(daySelect).select2('destroy');
-
-                    let optionsHtml = '<option value="">(未指定/不关联)</option>';
-                    allParsedThemes.forEach(t => {
-                        optionsHtml += `<option value="${escapeHtml(t.value)}">${escapeHtml(t.display)}</option>`;
-                    });
-                    if (nightSelect) nightSelect.innerHTML = optionsHtml;
-                    if (daySelect) daySelect.innerHTML = optionsHtml;
-
-                    const existingPair = getPairForTheme(themeName);
-                    if (existingPair) {
-                        if (daySelect) daySelect.value = existingPair.dayTheme || '';
-                        if (nightSelect) nightSelect.value = existingPair.nightTheme || '';
-                    } else {
-                        const isNightName = /(深色|暗色|黑色|Dark|Night|黑)/i.test(themeName);
-                        if (isNightName) {
-                            if (nightSelect) nightSelect.value = themeName;
-                            if (daySelect) daySelect.value = '';
-                        } else {
-                            if (daySelect) daySelect.value = themeName;
-                            if (nightSelect) nightSelect.value = '';
-                        }
-                    }
-
-                    daynightModal.style.display = 'flex';
-
-                    // 初始化 Select2 增加可搜索能力
-                    setTimeout(() => {
-                        $([nightSelect, daySelect]).select2({
-                            dropdownParent: $(daynightModal).find('.tm-modal-content'),
-                            width: '100%'
-                        });
-                    }, 0);
-                }
-
-                function populateAutoThemePairsList() {
-                    if (!autoThemeModal) return;
-                    const pairsContainer = autoThemeModal.querySelector('#tm-pairs-list-container');
-                    if (!pairsContainer) return;
-
-                    if (!Array.isArray(themeDayNightPairs) || themeDayNightPairs.length === 0) {
-                        pairsContainer.innerHTML = '<div style="opacity:0.7; font-style:italic; text-align:center; padding:10px;">暂无独立日夜组（可在各个美化卡片上点击 <i class="fa-solid fa-circle-half-stroke"></i> 进行关联绑定）</div>';
-                        return;
-                    }
-
-                    let html = '<div style="display:flex; flex-direction:column; gap:6px;">';
-                    themeDayNightPairs.forEach((pair, index) => {
-                        html += `<div style="display:flex; align-items:center; justify-content:space-between; background:rgba(0,0,0,0.15); padding:6px 10px; border-radius:4px;">
-                            <div style="font-size:12px;">
-                                <span style="color:#fadb14;"><i class="fa-solid fa-sun"></i> ${escapeHtml(pair.dayTheme || '未指定')}</span>
-                                <span style="margin: 0 8px; opacity:0.7;">⇄</span>
-                                <span style="color:#fa8c16;"><i class="fa-solid fa-moon"></i> ${escapeHtml(pair.nightTheme || '未指定')}</span>
-                            </div>
-                            <button class="tm-remove-pair-btn menu_button" data-index="${index}" style="padding:1px 6px; font-size:11px; margin:0; width:auto;"><i class="fa-solid fa-xmark"></i></button>
-                        </div>`;
-                    });
-                    html += '</div>';
-                    pairsContainer.innerHTML = html;
-
-                    pairsContainer.querySelectorAll('.tm-remove-pair-btn').forEach(btn => {
-                        btn.addEventListener('click', (e) => {
-                            const idx = parseInt(e.currentTarget.dataset.index);
-                            if (!isNaN(idx) && themeDayNightPairs[idx]) {
-                                const removed = themeDayNightPairs.splice(idx, 1)[0];
-                                saveThemeDayNightPairs(themeDayNightPairs);
-                                if (removed?.dayTheme) updateThemeItemDayNightState(removed.dayTheme);
-                                if (removed?.nightTheme) updateThemeItemDayNightState(removed.nightTheme);
-                                populateAutoThemePairsList();
-                            }
-                        });
-                    });
-                }
-
-                if (closeTmDaynightBtn) {
-                    closeTmDaynightBtn.addEventListener('click', () => {
-                        if (daynightModal) daynightModal.style.display = 'none';
-                    });
-                }
-
-                if (saveTmDaynightBtn) {
-                    saveTmDaynightBtn.addEventListener('click', () => {
-                        if (!currentTargetThemeForPair || !daynightModal) return;
-                        const nightVal = daynightModal.querySelector('#tm-daynight-night-select')?.value || '';
-                        const dayVal = daynightModal.querySelector('#tm-daynight-day-select')?.value || '';
-
-                        // 移除包含涉及美化的旧组合
-                        themeDayNightPairs = themeDayNightPairs.filter(p => {
-                            if (!p) return false;
-                            if (p.dayTheme === currentTargetThemeForPair || p.nightTheme === currentTargetThemeForPair) return false;
-                            if (dayVal && (p.dayTheme === dayVal || p.nightTheme === dayVal)) return false;
-                            if (nightVal && (p.dayTheme === nightVal || p.nightTheme === nightVal)) return false;
-                            return true;
-                        });
-
-                        if (dayVal || nightVal) {
-                            const finalDay = dayVal || currentTargetThemeForPair;
-                            const finalNight = nightVal || currentTargetThemeForPair;
-                            themeDayNightPairs.push({
-                                dayTheme: finalDay,
-                                nightTheme: finalNight
-                            });
-                        }
-
-                        saveThemeDayNightPairs(themeDayNightPairs);
-                        
-                        if (dayVal) updateThemeItemDayNightState(dayVal);
-                        if (nightVal) updateThemeItemDayNightState(nightVal);
-                        updateThemeItemDayNightState(currentTargetThemeForPair);
-
-                        toastr.success(`已更新美化日夜组合绑定！`);
-                        daynightModal.style.display = 'none';
-                    });
-                }
-
-                if (clearTmDaynightBtn) {
-                    clearTmDaynightBtn.addEventListener('click', () => {
-                        if (!currentTargetThemeForPair || !daynightModal) return;
-                        const pair = getPairForTheme(currentTargetThemeForPair);
-                        if (pair) {
-                            themeDayNightPairs = themeDayNightPairs.filter(p => p !== pair);
-                            saveThemeDayNightPairs(themeDayNightPairs);
-                            if (pair.dayTheme) updateThemeItemDayNightState(pair.dayTheme);
-                            if (pair.nightTheme) updateThemeItemDayNightState(pair.nightTheme);
-                            toastr.info(`已解除该美化的日夜组合关联。`);
-                        }
-                        daynightModal.style.display = 'none';
-                    });
-                }
-
-                function populateAutoThemeDropdowns() {
-                    if (!autoThemeModal) return;
-                    const dayTarget = autoThemeModal.querySelector('#auto-theme-day-target');
-                    const nightTarget = autoThemeModal.querySelector('#auto-theme-night-target');
-                    const tags = loadThemeTags();
-
-                    if (!dayTarget || !nightTarget) return;
-
-                    if ($(dayTarget).data('select2')) $(dayTarget).select2('destroy');
-                    if ($(nightTarget).data('select2')) $(nightTarget).select2('destroy');
-
-                    let optionsHtml = '<option value="">(不改变)</option>';
-                    if (tags.length > 0) {
-                        optionsHtml += '<optgroup label="[随机] 从标签中选择">';
-                        tags.forEach(t => {
-                            optionsHtml += `<option value="[Tag] ${t.id}">随机标签: ${escapeHtml(t.name)}</option>`;
-                        });
-                        optionsHtml += '</optgroup>';
-                    }
-                    optionsHtml += '<optgroup label="[指定] 特定主题">';
-                    allParsedThemes.forEach(t => {
-                        optionsHtml += `<option value="${escapeHtml(t.value)}">${escapeHtml(t.display)}</option>`;
-                    });
-                    optionsHtml += '</optgroup>';
-
-                    dayTarget.innerHTML = optionsHtml;
-                    nightTarget.innerHTML = optionsHtml;
-                    dayTarget.value = autoThemeSettings.dayTarget;
-                    nightTarget.value = autoThemeSettings.nightTarget;
-
-                    populateAutoThemePairsList();
-
-                    // 初始化 Select2 提高检索效率
-                    setTimeout(() => {
-                        $([dayTarget, nightTarget]).select2({
-                            dropdownParent: $(autoThemeModal).find('.tm-modal-content'),
-                            width: '100%'
-                        });
-                    }, 0);
-                }
-
-                if (autoThemeBtn && autoThemeModal) {
-                    autoThemeBtn.addEventListener('click', () => {
-                        const enableChk = autoThemeModal.querySelector('#auto-theme-enable');
-                        const manualChk = autoThemeModal.querySelector('#auto-theme-enable-manual');
-                        const modeRadio = autoThemeModal.querySelector(`input[name="auto-theme-mode"][value="${autoThemeSettings.mode}"]`);
-                        const dayStartInput = autoThemeModal.querySelector('#auto-theme-day-start');
-                        const nightStartInput = autoThemeModal.querySelector('#auto-theme-night-start');
-                        const timeSettings = autoThemeModal.querySelector('#auto-theme-time-settings');
-
-                        if (enableChk) enableChk.checked = autoThemeSettings.enabled;
-                        if (manualChk) manualChk.checked = !!autoThemeSettings.enableManualToggle;
-                        if (modeRadio) modeRadio.checked = true;
-                        if (dayStartInput) dayStartInput.value = autoThemeSettings.dayStart;
-                        if (nightStartInput) nightStartInput.value = autoThemeSettings.nightStart;
-                        if (timeSettings) timeSettings.style.display = autoThemeSettings.mode === 'time' ? 'block' : 'none';
-
-                        populateAutoThemeDropdowns();
-                        autoThemeModal.style.display = 'flex';
-                    });
-
-                    autoThemeModal.querySelectorAll('input[name="auto-theme-mode"]').forEach(radio => {
-                        radio.addEventListener('change', (e) => {
-                            const timeSettings = autoThemeModal.querySelector('#auto-theme-time-settings');
-                            if (timeSettings) timeSettings.style.display = e.target.value === 'time' ? 'block' : 'none';
-                        });
-                    });
-                }
-
-                if (closeAutoThemeModalBtn) {
-                    closeAutoThemeModalBtn.addEventListener('click', () => {
-                        if (autoThemeModal) autoThemeModal.style.display = 'none';
-                    });
-                }
-
-                if (saveAutoThemeBtn && autoThemeModal) {
-                    saveAutoThemeBtn.addEventListener('click', () => {
-                        const enableChk = autoThemeModal.querySelector('#auto-theme-enable');
-                        const manualChk = autoThemeModal.querySelector('#auto-theme-enable-manual');
-                        const modeRadio = autoThemeModal.querySelector('input[name="auto-theme-mode"]:checked');
-                        const dayStartInput = autoThemeModal.querySelector('#auto-theme-day-start');
-                        const nightStartInput = autoThemeModal.querySelector('#auto-theme-night-start');
-                        const dayTargetSelect = autoThemeModal.querySelector('#auto-theme-day-target');
-                        const nightTargetSelect = autoThemeModal.querySelector('#auto-theme-night-target');
-
-                        autoThemeSettings.enabled = enableChk ? enableChk.checked : false;
-                        autoThemeSettings.enableManualToggle = manualChk ? manualChk.checked : false;
-                        autoThemeSettings.mode = modeRadio ? modeRadio.value : 'system';
-                        autoThemeSettings.dayStart = dayStartInput ? dayStartInput.value || '06:00' : '06:00';
-                        autoThemeSettings.nightStart = nightStartInput ? nightStartInput.value || '18:00' : '18:00';
-                        autoThemeSettings.dayTarget = dayTargetSelect ? dayTargetSelect.value : '';
-                        autoThemeSettings.nightTarget = nightTargetSelect ? nightTargetSelect.value : '';
-
-                        localStorage.setItem(AUTO_THEME_KEY, JSON.stringify(autoThemeSettings));
-                        updateManualToggleBtnVisibility();
-                        toastr.success('自动切换主题设置已保存！');
-                        autoThemeModal.style.display = 'none';
-
-                        currentAutoThemeState = null;
-                        applyAutoThemeLoop();
-                    });
-                }
-
-                // ==========================================================
-                // ===== 注入原生背景面板 - 批量删除功能 (Background Batch Delete) =====
-                // ==========================================================
-
-                function initBackgroundEnhancements() {
-                    const bgDrawer = document.getElementById('Backgrounds');
-                    if (!bgDrawer) return;
-
-                    // 查找背景面板的 header 区域
-                    const headerRow = bgDrawer.querySelector('.bg-header-row-1');
-                    if (!headerRow || document.getElementById('tm-bg-batch-toggle-btn')) return;
-
-                    let isBatchMode = false;
-                    const selectedBgs = new Set();
-
-                    // --- 创建批量管理按钮 ---
-                    const batchToggleBtn = document.createElement('div');
-                    batchToggleBtn.id = 'tm-bg-batch-toggle-btn';
-                    batchToggleBtn.className = 'menu_button menu_button_icon';
-                    batchToggleBtn.title = '批量删除背景';
-                    batchToggleBtn.innerHTML = '<i class="fa-solid fa-list-check"></i>';
-                    headerRow.appendChild(batchToggleBtn);
-
-                    // --- 创建操作栏 ---
-                    const actionsBar = document.createElement('div');
-                    actionsBar.id = 'tm-bg-batch-actions-bar';
-                    actionsBar.style.display = 'none';
-                    actionsBar.innerHTML = `
-                        <button id="tm-bg-select-all-btn" class="menu_button menu_button_icon"><i class="fa-solid fa-check-double"></i>全选</button>
-                        <button id="tm-bg-batch-delete-btn" class="menu_button menu_button_icon" disabled><i class="fa-solid fa-trash-can"></i>删除选中</button>
-                        <span class="tm-bg-count"></span>
-                    `;
-                    // 插入到 #bg_tabs 之前
-                    const bgTabs = bgDrawer.querySelector('#bg_tabs');
-                    if (bgTabs) {
-                        bgTabs.parentNode.insertBefore(actionsBar, bgTabs);
-                    }
-
-                    const selectAllBtn = actionsBar.querySelector('#tm-bg-select-all-btn');
-                    const deleteBtn = actionsBar.querySelector('#tm-bg-batch-delete-btn');
-                    const countSpan = actionsBar.querySelector('.tm-bg-count');
-
-                    function updateCount() {
-                        countSpan.textContent = selectedBgs.size > 0 ? `已选 ${selectedBgs.size} 项` : '';
-                        deleteBtn.disabled = selectedBgs.size === 0;
-                    }
-
-                    // 给所有 .bg_example 添加 checkbox
-                    function injectCheckboxes(container) {
-                        if (!container) return;
-                        container.querySelectorAll('.bg_example').forEach(bgEl => {
-                            if (bgEl.querySelector('.tm-bg-batch-checkbox')) return;
-                            const bgFile = bgEl.getAttribute('bgfile');
-                            if (!bgFile) return;
-
-                            const cb = document.createElement('input');
-                            cb.type = 'checkbox';
-                            cb.className = 'tm-bg-batch-checkbox';
-                            cb.dataset.bgfile = bgFile;
-                            cb.checked = selectedBgs.has(bgFile);
-
-                            cb.addEventListener('change', (e) => {
-                                e.stopPropagation();
-                                if (cb.checked) {
-                                    selectedBgs.add(bgFile);
-                                    bgEl.classList.add('tm-bg-selected');
-                                } else {
-                                    selectedBgs.delete(bgFile);
-                                    bgEl.classList.remove('tm-bg-selected');
-                                }
-                                updateCount();
-                            });
-
-                            cb.addEventListener('click', (e) => { e.stopPropagation(); });
-                            bgEl.style.position = 'relative';
-                            bgEl.prepend(cb);
-                        });
-                    }
-
-                    // 初始注入
-                    const bgMenuContent = document.getElementById('bg_menu_content');
-                    const bgCustomContent = document.getElementById('bg_custom_content');
-                    injectCheckboxes(bgMenuContent);
-                    injectCheckboxes(bgCustomContent);
-
-                    // 监听背景列表变化，自动注入 checkbox 并在执行前防抖 (Debounce)
-                    let bgMutTimer = null;
-                    const bgMutObs = new MutationObserver(() => {
-                        if (bgMutTimer) clearTimeout(bgMutTimer);
-                        bgMutTimer = setTimeout(() => {
-                            injectCheckboxes(bgMenuContent);
-                            injectCheckboxes(bgCustomContent);
-                        }, 200);
-                    });
-                    if (bgMenuContent) bgMutObs.observe(bgMenuContent, { childList: true });
-                    if (bgCustomContent) bgMutObs.observe(bgCustomContent, { childList: true });
-
-                    // --- 切换批量模式 ---
-                    batchToggleBtn.addEventListener('click', () => {
-                        isBatchMode = !isBatchMode;
-                        batchToggleBtn.classList.toggle('active', isBatchMode);
-
-                        // 给 bg_menu_content 和 bg_custom_content 的父容器添加模式 class
-                        const bgTabsPanel = bgDrawer.querySelector('#bg_tabs');
-                        if (bgTabsPanel) bgTabsPanel.classList.toggle('tm-bg-batch-mode', isBatchMode);
-
-                        actionsBar.style.display = isBatchMode ? 'flex' : 'none';
-
-                        if (!isBatchMode) {
-                            selectedBgs.clear();
-                            bgDrawer.querySelectorAll('.tm-bg-selected').forEach(el => el.classList.remove('tm-bg-selected'));
-                            bgDrawer.querySelectorAll('.tm-bg-batch-checkbox').forEach(cb => cb.checked = false);
-                            updateCount();
-                        }
-                    });
-
-                    // --- 全选 ---
-                    selectAllBtn.addEventListener('click', () => {
-                        const activeTab = document.querySelector('#bg_tabs .ui-tabs-panel[aria-hidden="false"]') ||
-                            document.querySelector('#bg_tabs .ui-tabs-panel:not([hidden])') ||
-                            bgMenuContent;
-                        if (!activeTab) return;
-
-                        const allBgEls = activeTab.querySelectorAll('.bg_example[bgfile]');
-                        const allSelected = [...allBgEls].every(el => selectedBgs.has(el.getAttribute('bgfile')));
-
-                        allBgEls.forEach(el => {
-                            const bgFile = el.getAttribute('bgfile');
-                            const cb = el.querySelector('.tm-bg-batch-checkbox');
-                            if (allSelected) {
-                                selectedBgs.delete(bgFile);
-                                el.classList.remove('tm-bg-selected');
-                                if (cb) cb.checked = false;
-                            } else {
-                                selectedBgs.add(bgFile);
-                                el.classList.add('tm-bg-selected');
-                                if (cb) cb.checked = true;
-                            }
-                        });
-                        updateCount();
-                    });
-
-                    // --- 批量删除 ---
-                    deleteBtn.addEventListener('click', async () => {
-                        if (selectedBgs.size === 0) return;
-                        if (!confirm(`确定要删除选中的 ${selectedBgs.size} 个背景图吗？此操作不可撤销。`)) return;
-
-                        showLoader();
-                        const headers = getRequestHeaders();
-                        const bgsToDelete = Array.from(selectedBgs);
-
-                        // 并发发送 API 请求 (限制并发为 5)
-                        const results = await limitConcurrency(5, bgsToDelete, async (bgFile) => {
-                            const response = await fetch('/api/backgrounds/delete', {
-                                method: 'POST',
-                                headers: headers,
-                                body: JSON.stringify({ bg: bgFile })
-                            });
-                            if (!response.ok) throw new Error(await response.text());
-                            return bgFile;
-                        });
-
-                        let successCount = 0;
-                        let errorCount = 0;
-                        const successfullyDeleted = [];
-
-                        results.forEach((res, index) => {
-                            const bgFile = bgsToDelete[index];
-                            if (res.status === 'fulfilled') {
-                                successCount++;
-                                successfullyDeleted.push(bgFile);
-                            } else {
-                                console.error(`删除背景 "${bgFile}" 失败:`, res.reason);
-                                errorCount++;
-                            }
-                        });
-
-                        // 批量从 DOM 中移除已删除的背景元素
-                        successfullyDeleted.forEach(bgFile => {
-                            const elements = document.querySelectorAll(`.bg_example[bgfile="${bgFile}"]`);
-                            elements.forEach(el => el.remove());
-                            selectedBgs.delete(bgFile);
-                        });
-
-                        hideLoader();
-
-                        let message = `删除完成！成功 ${successCount} 个`;
-                        if (errorCount > 0) {
-                            message += `，失败 ${errorCount} 个。`;
-                            toastr.warning(message);
-                        } else {
-                            message += '。';
-                            toastr.success(message);
-                        }
-
-                        updateCount();
-                    });
                 }
 
                 // ==========================================================
