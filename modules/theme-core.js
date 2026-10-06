@@ -763,13 +763,26 @@ export function initThemeCore(options) {
                 pu.theme = cleanTheme.name;
             }
 
+            // 1. 水合酒馆原生内部 themes 闭包与上下文内存，确保原生 applyTheme 能 100% 命中该主题对象
+            if (typeof window !== 'undefined' && typeof window.baibaokuHydrateTheme === 'function') {
+                try {
+                    window.baibaokuHydrateTheme(cleanTheme);
+                } catch (e) {}
+            }
+
+            // 2. 调用原生 applyTheme 引擎（原生会自动同步 10项主题色、custom_css、宽度、模糊、阴影、各类界面开关与CSS变量）
+            let nativeApplied = false;
             if (typeof window !== 'undefined' && typeof window.baibaokuApplyNativeTheme === 'function') {
                 try {
                     window.baibaokuApplyNativeTheme(cleanTheme.name);
+                    nativeApplied = true;
                 } catch (e) {
-                    console.warn('[Theme Manager] 原生主题应用异常:', e);
+                    console.warn('[Theme Manager] 原生主题应用异常, 准备降级执行:', e);
                 }
-            } else if (select) {
+            }
+            
+            // 3. 降级方案：若宿主环境未挂载 baibaokuApplyNativeTheme，则通过触发原生下拉框 change 事件驱动原生
+            if (!nativeApplied && select) {
                 onObserverSuspendChange(true);
                 try {
                     triggerSelectChange(select);
@@ -778,160 +791,15 @@ export function initThemeCore(options) {
                 }
             }
 
-            // 【核心修复】显式双重保障：自定义 CSS (custom_css) 100% 同步生效至 DOM (<style id="custom-style">)、编辑器与内存
-            const customCss = (typeof cleanTheme.custom_css === 'string') ? cleanTheme.custom_css : '';
-            if (pu) {
-                pu.custom_css = customCss;
-            }
-            const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style');
-            if (editorEl) {
-                editorEl.value = customCss;
-                if (typeof $ !== 'undefined') {
-                    try { $(editorEl).trigger('input').trigger('change'); } catch (e) {}
-                }
-            }
-            let customStyleTag = document.getElementById('custom-style');
-            if (!customStyleTag) {
-                customStyleTag = document.createElement('style');
-                customStyleTag.setAttribute('type', 'text/css');
-                customStyleTag.setAttribute('id', 'custom-style');
-                document.head.appendChild(customStyleTag);
-            }
-            customStyleTag.innerHTML = customCss;
-
-            // 【核心修复】显式同步高级布尔开关与样式类
-            if (cleanTheme.fast_ui_mode !== undefined) {
-                const fastUi = Boolean(cleanTheme.fast_ui_mode);
-                if (pu) pu.fast_ui_mode = fastUi;
-                const fastUiEl = document.querySelector('#fast_ui_mode');
-                if (fastUiEl) fastUiEl.checked = fastUi;
-                if (fastUi) document.body.classList.add('fast-ui');
-                else document.body.classList.remove('fast-ui');
-            }
-            if (cleanTheme.waifuMode !== undefined) {
-                const waifu = Boolean(cleanTheme.waifuMode);
-                if (pu) pu.waifuMode = waifu;
-                const waifuEl = document.querySelector('#waifuMode');
-                if (waifuEl) waifuEl.checked = waifu;
-                if (waifu) document.body.classList.add('waifuMode');
-                else document.body.classList.remove('waifuMode');
-            }
-            if (cleanTheme.noShadows !== undefined) {
-                const noShadows = Boolean(cleanTheme.noShadows);
-                if (pu) pu.noShadows = noShadows;
-                const noShadowsEl = document.querySelector('#noShadows');
-                if (noShadowsEl) noShadowsEl.checked = noShadows;
-                if (noShadows) document.body.classList.add('noShadows');
-                else document.body.classList.remove('noShadows');
-            }
-            if (cleanTheme.reduced_motion !== undefined) {
-                const redMotion = Boolean(cleanTheme.reduced_motion);
-                if (pu) pu.reduced_motion = redMotion;
-                const redMotionEl = document.querySelector('#reduced_motion');
-                if (redMotionEl) redMotionEl.checked = redMotion;
-                if (redMotion) document.body.classList.add('reduced-motion');
-                else document.body.classList.remove('reduced-motion');
-            }
-            if (cleanTheme.compact_input_area !== undefined) {
-                const compactInput = Boolean(cleanTheme.compact_input_area);
-                if (pu) pu.compact_input_area = compactInput;
-                const compactInputEl = document.querySelector('#compact_input_area');
-                if (compactInputEl) compactInputEl.checked = compactInput;
-                if (compactInput) document.body.classList.add('compact-input');
-                else document.body.classList.remove('compact-input');
-            }
-            const extraKeys = [
-                'avatar_style', 'chat_display', 'toastr_position',
-                'timer_enabled', 'timestamps_enabled', 'timestamp_model_icon',
-                'mesIDDisplay_enabled', 'hideChatAvatars_enabled', 'message_token_count_enabled',
-                'expand_message_actions', 'enableZenSliders', 'enableLabMode', 'hotswap_enabled',
-                'bogus_folders', 'zoomed_avatar_magnification', 'show_swipe_num_all_messages',
-                'click_to_edit', 'media_display'
-            ];
-            if (pu) {
-                extraKeys.forEach(k => {
-                    if (cleanTheme[k] !== undefined) {
-                        pu[k] = cleanTheme[k];
-                    }
-                });
-            }
-
-            // 【关键强化】显式双重保障：10 项主题色 100% 同步还原并生效至 DOM、CSS 变量、取色器与内存
-            THEME_COLOR_KEYS.forEach(({ key, pickerId, cssVar }) => {
-                const col = cleanTheme[key] || DEFAULT_THEME_PROPS[key];
-                if (col) {
-                    if (pu) pu[key] = col;
-                    try {
-                        document.documentElement.style.setProperty(cssVar, col);
-                    } catch (e) {}
-
-                    const picker = document.querySelector(pickerId);
-                    if (picker) {
-                        try {
-                            picker.setAttribute('color', col);
-                            if ('rgba' in picker) picker.rgba = col;
-                        } catch (e) {}
-                    }
-
-                    if (key === 'main_text_color' && typeof col === 'string' && col.includes('(')) {
-                        try {
-                            const parts = col.split('(')[1].split(')')[0].split(',');
-                            if (parts.length >= 4) {
-                                document.documentElement.style.setProperty('--SmartThemeCheckboxBgColorR', parts[0].trim());
-                                document.documentElement.style.setProperty('--SmartThemeCheckboxBgColorG', parts[1].trim());
-                                document.documentElement.style.setProperty('--SmartThemeCheckboxBgColorB', parts[2].trim());
-                                document.documentElement.style.setProperty('--SmartThemeCheckboxBgColorA', parts[3].trim());
-                            }
-                        } catch (e) {}
-                    }
-
-                    if (key === 'blur_tint_color') {
-                        try {
-                            const metaThemeColor = document.querySelector('meta[name=theme-color]');
-                            if (metaThemeColor) metaThemeColor.setAttribute('content', col);
-                        } catch (e) {}
-                    }
-                }
-            });
-
-            // 【关键强化】确保切换回该主题时，页面宽度、字体大小、模糊度等样式与控件 100% 同步还原并生效
+            // 4. 轻量兼容补丁：若环境存在历史残留的 --sheld* 变量别名，同步其值
             if (cleanTheme.chat_width !== undefined) {
-                const widthVal = Number(cleanTheme.chat_width) || 50;
-                if (pu) pu.chat_width = widthVal;
-                document.documentElement.style.setProperty('--sheldWidth', `${widthVal}vw`);
-                const slider = document.querySelector('#chat_width_slider');
-                if (slider) slider.value = widthVal;
-                const counter = document.querySelector('#chat_width_slider_counter');
-                if (counter) counter.value = widthVal;
+                document.documentElement.style.setProperty('--sheldWidth', `${Number(cleanTheme.chat_width) || 50}vw`);
             }
             if (cleanTheme.font_scale !== undefined) {
-                const fontVal = Number(cleanTheme.font_scale) || 1;
-                if (pu) pu.font_scale = fontVal;
-                document.documentElement.style.setProperty('--sheldFontScale', `${fontVal}`);
-                document.documentElement.style.setProperty('--fontScale', String(fontVal));
-                const slider = document.querySelector('#font_scale');
-                if (slider) slider.value = fontVal;
-                const counter = document.querySelector('#font_scale_counter');
-                if (counter) counter.value = fontVal;
+                document.documentElement.style.setProperty('--sheldFontScale', `${Number(cleanTheme.font_scale) || 1}`);
             }
             if (cleanTheme.blur_strength !== undefined) {
-                const blurVal = Number(cleanTheme.blur_strength) || 10;
-                if (pu) pu.blur_strength = blurVal;
-                document.documentElement.style.setProperty('--sheldBlur', `${blurVal}px`);
-                document.documentElement.style.setProperty('--blurStrength', String(blurVal));
-                const slider = document.querySelector('#blur_strength');
-                if (slider) slider.value = blurVal;
-                const counter = document.querySelector('#blur_strength_counter');
-                if (counter) counter.value = blurVal;
-            }
-            if (cleanTheme.shadow_width !== undefined) {
-                const shadowVal = Number(cleanTheme.shadow_width) || 2;
-                if (pu) pu.shadow_width = shadowVal;
-                document.documentElement.style.setProperty('--shadowWidth', String(shadowVal));
-                const slider = document.querySelector('#shadow_width');
-                if (slider) slider.value = shadowVal;
-                const counter = document.querySelector('#shadow_width_counter');
-                if (counter) counter.value = shadowVal;
+                document.documentElement.style.setProperty('--sheldBlur', `${Number(cleanTheme.blur_strength) || 10}px`);
             }
 
             try {
