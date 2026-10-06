@@ -75,6 +75,24 @@ export function initThemeImport(config) {
             });
         }
 
+        let parentOptionsHtml = `<option value="">📁 作为根标签 (一级目录)</option>`;
+        if (subtagsEnabled && tags.length > 0) {
+            const rootTags = tags.filter(t => !t.parentId || !tags.some(p => p.id === t.parentId));
+            const renderParentOptionTree = (nodeTag, depth) => {
+                const indent = '&nbsp;&nbsp;&nbsp;&nbsp;'.repeat(depth);
+                const icon = depth === 0 ? '📁 ' : '↳ 🏷️ ';
+                let h = `<option value="${escapeHtml(nodeTag.id)}">${indent}${icon}放入「${escapeHtml(nodeTag.name)}」下 (${depth + 2}级标签)</option>`;
+                const children = tags.filter(t => t.parentId === nodeTag.id);
+                children.forEach(c => {
+                    h += renderParentOptionTree(c, depth + 1);
+                });
+                return h;
+            };
+            rootTags.forEach(rTag => {
+                parentOptionsHtml += renderParentOptionTree(rTag, 0);
+            });
+        }
+
         // 构建多选标签树 HTML（供切换多选时使用）
         let multitagHtml = '';
         if (tags.length > 0) {
@@ -170,9 +188,22 @@ export function initThemeImport(config) {
                         <select id="tm-imp-tag-select" class="text_pole" style="width:100%; height:32px; font-size:12.5px; padding:2px 8px; margin:0; box-sizing:border-box;">
                             ${optionsHtml}
                         </select>
-                        <!-- 新建标签输入栏 -->
-                        <div id="tm-imp-new-tag-wrap" style="display:none; margin-top:8px;">
-                            <input type="text" id="tm-imp-new-tag-input" class="text_pole" placeholder="请输入要新建的标签名称..." style="width:100%; height:30px; font-size:12px; padding:2px 8px; box-sizing:border-box;">
+                        <!-- 新建标签输入栏与层级选择 -->
+                        <div id="tm-imp-new-tag-wrap" style="display:none; margin-top:8px; padding:8px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.08); border-radius:6px;">
+                            <div style="font-size:11.5px; opacity:0.8; margin-bottom:4px; font-weight:bold;">
+                                <i class="fa-solid fa-plus" style="margin-right:4px;"></i>新建标签设置：
+                            </div>
+                            <input type="text" id="tm-imp-new-tag-input" class="text_pole" placeholder="请输入要新建的标签名称..." style="width:100%; height:30px; font-size:12px; padding:2px 8px; box-sizing:border-box; margin-bottom:6px;">
+                            ${subtagsEnabled ? `
+                                <div style="display:flex; flex-direction:column; gap:4px;">
+                                    <label style="font-size:11px; opacity:0.75; display:flex; align-items:center; gap:4px;">
+                                        <i class="fa-solid fa-sitemap" style="font-size:10px;"></i> 标签所属层级 / 父级目录：
+                                    </label>
+                                    <select id="tm-imp-new-tag-parent-select" class="text_pole" style="width:100%; height:28px; font-size:11.5px; padding:1px 6px; margin:0; box-sizing:border-box;">
+                                        ${parentOptionsHtml}
+                                    </select>
+                                </div>
+                            ` : ''}
                         </div>
                     </div>
 
@@ -305,6 +336,7 @@ export function initThemeImport(config) {
                         okBtn.addEventListener('click', (e) => {
                             let targetTagIds = [];
                             let newTagName = null;
+                            let newTagParentId = null;
 
                             if (isMultiMode) {
                                 const checkedCbs = dlg.querySelectorAll('.tm-imp-multitag-cb:checked');
@@ -320,6 +352,8 @@ export function initThemeImport(config) {
                                         return;
                                     }
                                     newTagName = val;
+                                    const parentSel = dlg.querySelector('#tm-imp-new-tag-parent-select');
+                                    newTagParentId = (parentSel && parentSel.value) ? parentSel.value : null;
                                 } else if (tagSelect.value) {
                                     targetTagIds = [tagSelect.value];
                                 }
@@ -330,6 +364,7 @@ export function initThemeImport(config) {
                                 confirmed: true,
                                 targetTagIds,
                                 newTagName,
+                                newTagParentId,
                                 applyKeywords: applyKwCb ? applyKwCb.checked : true
                             });
                         }, true);
@@ -403,13 +438,18 @@ export function initThemeImport(config) {
 
             // 如果用户在弹窗中选择新建标签
             if (importConfig.newTagName) {
-                let existingTag = allTags.find(t => t.name.toLowerCase() === importConfig.newTagName.toLowerCase());
+                const targetParentId = importConfig.newTagParentId || null;
+                let existingTag = allTags.find(t => 
+                    t.name.toLowerCase() === importConfig.newTagName.toLowerCase() && 
+                    (t.parentId || null) === targetParentId
+                );
                 if (!existingTag) {
                     existingTag = {
                         id: Date.now().toString(),
                         name: importConfig.newTagName,
-                        parentId: null,
-                        themes: []
+                        parentId: targetParentId,
+                        themes: [],
+                        keywords: []
                     };
                     allTags.push(existingTag);
                     saveThemeTags(allTags);
