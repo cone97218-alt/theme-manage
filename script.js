@@ -317,6 +317,8 @@
                 let loadThemeDayNightPairs = () => [];
                 let saveThemeDayNightPairs = () => {};
                 let getPairForTheme = () => null;
+                let removeReplaceImageButtons = () => {};
+                let registerReplaceImageButtons = () => {};
 
                 const THEME_MTIMES_KEY = 'theme_manager_theme_mtimes';
 
@@ -2683,8 +2685,8 @@
                         updateActiveState: () => updateActiveState(),
                         checkAutoTheme: () => { if (typeof checkAutoTheme === 'function') checkAutoTheme(); },
                         updateManualToggleBtnVisibility: () => updateManualToggleBtnVisibility(),
-                        registerReplaceImageButtons,
-                        removeReplaceImageButtons,
+                        registerReplaceImageButtons: () => registerReplaceImageButtons(),
+                        removeReplaceImageButtons: () => removeReplaceImageButtons(),
                         openCustomExportModal: () => openCustomExportModal(),
                         getSettingsFileInput: () => settingsFileInput,
                         getFullBackupFileInput: () => fullBackupFileInput,
@@ -2883,9 +2885,6 @@
                 // ==========================================================
                 // ========= 替换卡图/头像按钮注入 (模块化: modules/avatar-replace.js) =========
                 // ==========================================================
-                let removeReplaceImageButtons = () => {};
-                let registerReplaceImageButtons = () => {};
-
                 try {
                     const { initAvatarReplace } = await import(`${baseDir}modules/avatar-replace.js`);
                     const avatarReplaceModule = initAvatarReplace({
