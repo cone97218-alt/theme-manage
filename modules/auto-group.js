@@ -297,13 +297,28 @@ export function initAutoGroup(config = {}) {
             if (!tag.themes) tag.themes = [];
             const existingThemesSet = new Set(tag.themes);
 
-            const isGlobalSearch = !tag.parentId || tag.globalKeywords === true;
+            const isGlobalSearch = tag.globalKeywords === true;
             let scopedThemesToCheck = themesToCheck;
 
             if (!isGlobalSearch) {
-                const parentTag = tagsById.get(tag.parentId);
-                const parentThemesSet = new Set(parentTag && Array.isArray(parentTag.themes) ? parentTag.themes : []);
-                scopedThemesToCheck = themesToCheck.filter(n => parentThemesSet.has(n));
+                if (tag.parentId) {
+                    // 有直属父级标签：限定仅在直属父标签包含的美化内匹配（智能在本分组下映射）
+                    const parentTag = tagsById.get(tag.parentId);
+                    const parentThemesSet = new Set(parentTag && Array.isArray(parentTag.themes) ? parentTag.themes : []);
+                    scopedThemesToCheck = themesToCheck.filter(n => parentThemesSet.has(n));
+                } else if (tag.scopeTagId) {
+                    // 绑定了分组作用域的标签：限定仅在作用域标签的美化内匹配
+                    const scopeTag = tagsById.get(tag.scopeTagId);
+                    const scopeThemesSet = new Set(scopeTag && Array.isArray(scopeTag.themes) ? scopeTag.themes : []);
+                    scopedThemesToCheck = themesToCheck.filter(n => scopeThemesSet.has(n));
+                } else {
+                    // 独立一级分组标签：非全局模式下，绝不可跨组抢夺属于其他独立一级分组的美化
+                    scopedThemesToCheck = themesToCheck.filter(n => {
+                        if (existingThemesSet.has(n)) return true;
+                        const otherL1HasIt = tags.some(other => !other.parentId && other.id !== tag.id && Array.isArray(other.themes) && other.themes.includes(n));
+                        return !otherL1HasIt;
+                    });
+                }
             }
 
             if (scopedThemesToCheck.length === 0) continue;
@@ -513,6 +528,10 @@ export function initAutoGroup(config = {}) {
                 }
 
                 const parentSelect = dlg.querySelector('#tm-auto-parent-select');
+                const scopeSelect = dlg.querySelector('#tm-auto-scope-tag-select');
+                if (scopeSelect && scopeSelect.value) {
+                    scopeTagId = scopeSelect.value;
+                }
                 if (parentSelect && hasDeepestTag) {
                     parentSelect.value = deepestActiveTagId;
                     parentId = deepestActiveTagId;
@@ -520,35 +539,67 @@ export function initAutoGroup(config = {}) {
 
                 const scopeRadios = dlg.querySelectorAll('input[name="tm-auto-scope"]');
                 const scopeTagContainer = dlg.querySelector('#tm-auto-scope-tag-container');
+                const levelRadios = dlg.querySelectorAll('input[name="tm-auto-level"]');
+                const parentContainer = dlg.querySelector('#tm-auto-parent-container');
+
                 scopeRadios.forEach(r => {
                     r.addEventListener('change', () => {
                         if (r.checked) selectedScope = r.value;
                         scopeTagContainer.style.display = (selectedScope === 'tag') ? 'block' : 'none';
+                        if (selectedScope === 'tag') {
+                            if (scopeSelect && scopeSelect.value) {
+                                scopeTagId = scopeSelect.value;
+                                // 自动联动：选择特定分组时，默认推荐在该分组下创建二级子标签
+                                selectedLevel = 'l2';
+                                const l2Radio = dlg.querySelector('input[name="tm-auto-level"][value="l2"]');
+                                if (l2Radio) l2Radio.checked = true;
+                                parentContainer.style.display = 'block';
+                                if (parentSelect) parentSelect.value = scopeTagId;
+                                parentId = scopeTagId;
+                            }
+                        } else if (selectedScope === 'filtered' && hasDeepestTag) {
+                            if (parentSelect) parentSelect.value = deepestActiveTagId;
+                            parentId = deepestActiveTagId;
+                        }
                     });
                 });
 
-                const levelRadios = dlg.querySelectorAll('input[name="tm-auto-level"]');
-                const parentContainer = dlg.querySelector('#tm-auto-parent-container');
+                if (scopeSelect) {
+                    scopeSelect.addEventListener('change', () => {
+                        scopeTagId = scopeSelect.value;
+                        if (selectedLevel === 'l2' && parentSelect) {
+                            parentSelect.value = scopeTagId;
+                            parentId = scopeTagId;
+                        }
+                    });
+                }
+
                 levelRadios.forEach(r => {
                     r.addEventListener('change', () => {
                         if (r.checked) selectedLevel = r.value;
                         parentContainer.style.display = (selectedLevel === 'l2') ? 'block' : 'none';
+                        if (selectedLevel === 'l2' && parentSelect) {
+                            parentId = parentSelect.value;
+                        } else if (selectedLevel === 'l1') {
+                            parentId = null;
+                        }
                     });
                 });
 
                 const minMatchInput = dlg.querySelector('#tm-auto-min-match');
                 const maxCandidatesSelect = dlg.querySelector('#tm-auto-max-candidates');
+                const untaggedOnlyChk = dlg.querySelector('#tm-auto-untagged-only');
 
                 dlg.addEventListener('change', () => {
                     const checkedScope = dlg.querySelector('input[name="tm-auto-scope"]:checked');
                     if (checkedScope) selectedScope = checkedScope.value;
+                    if (scopeSelect) scopeTagId = scopeSelect.value;
                     const checkedLevel = dlg.querySelector('input[name="tm-auto-level"]:checked');
                     if (checkedLevel) selectedLevel = checkedLevel.value;
                     if (parentSelect && selectedLevel === 'l2') parentId = parentSelect.value;
                     else if (selectedLevel === 'l1') parentId = null;
                     if (minMatchInput) minMatch = parseInt(minMatchInput.value) || 2;
                     if (maxCandidatesSelect) maxCandidates = parseInt(maxCandidatesSelect.value);
-                    const untaggedOnlyChk = dlg.querySelector('#tm-auto-untagged-only');
                     if (untaggedOnlyChk) untaggedOnly = untaggedOnlyChk.checked;
                 });
             }
@@ -556,21 +607,8 @@ export function initAutoGroup(config = {}) {
 
         if (!popupRes) return;
 
-        const maxCandidatesSelectEl = document.querySelector('#tm-auto-max-candidates');
-        if (maxCandidatesSelectEl) maxCandidates = parseInt(maxCandidatesSelectEl.value);
-
-        const minMatchInputEl = document.querySelector('#tm-auto-min-match');
-        if (minMatchInputEl) minMatch = parseInt(minMatchInputEl.value) || 2;
-
-        const untaggedOnlyChkEl = document.querySelector('#tm-auto-untagged-only');
-        if (untaggedOnlyChkEl) untaggedOnly = untaggedOnlyChkEl.checked;
-
-        const parentSelectEl = document.querySelector('#tm-auto-parent-select');
-        if (selectedLevel === 'l2' && parentSelectEl) {
-            parentId = parentSelectEl.value;
-        } else if (selectedLevel === 'l1') {
-            parentId = null;
-        }
+        // 计算当前分析的分组归属标识，严格锁定智能映射范围（本分组）
+        const effectiveGroupScopeId = (selectedLevel === 'l2' && parentId) ? parentId : (selectedScope === 'tag' ? scopeTagId : (hasDeepestTag ? deepestActiveTagId : null));
 
         showLoader();
         setTimeout(() => {
@@ -586,7 +624,6 @@ export function initAutoGroup(config = {}) {
                         pool = allParsedThemes;
                     }
                 } else if (selectedScope === 'tag') {
-                    const scopeTagId = document.querySelector('#tm-auto-scope-tag-select')?.value;
                     const scopeTag = existingTags.find(tg => tg.id === scopeTagId);
                     if (scopeTag && scopeTag.themes) {
                         const tagThemesSet = new Set(scopeTag.themes);
@@ -632,7 +669,7 @@ export function initAutoGroup(config = {}) {
                     return;
                 }
 
-                openAutoGroupBatchMatrix(candidates, selectedLevel, parentId);
+                openAutoGroupBatchMatrix(candidates, selectedLevel, parentId, effectiveGroupScopeId);
             } catch (err) {
                 hideLoader();
                 console.error('分组提取失败:', err);
@@ -644,7 +681,7 @@ export function initAutoGroup(config = {}) {
     /**
      * 全景批量审核矩阵
      */
-    async function openAutoGroupBatchMatrix(candidates, level, parentId) {
+    async function openAutoGroupBatchMatrix(candidates, level, parentId, scopeGroupId = null) {
         if (!candidates || candidates.length === 0) {
             toastr.info('没有候选分组可供审核。');
             return;
@@ -716,20 +753,26 @@ export function initAutoGroup(config = {}) {
                                         <input type="checkbox" class="matrix-theme-chk matrix-theme-chk-${idx}" value="${escapeHtml(tName)}" checked style="margin:0;">
                                         <span style="word-break:break-all;">${escapeHtml(tName)}</span>
                                     </label>
-                                `).join('')}
+                                `)}
                             </div>
                         </div>
                     `).join('')}
                 </div>
 
-                <div class="tm-matrix-footer" style="flex-shrink:0;">
-                    <button id="matrix-cancel-btn" class="menu_button" style="margin:0; font-size:12px; padding:5px 12px; background:rgba(128,128,128,0.2) !important; white-space:nowrap;"><i class="fa-solid fa-xmark"></i> 取消退出</button>
-                    <button id="matrix-apply-all-btn" class="menu_button active" style="margin:0; font-size:12.5px; font-weight:bold; padding:5px 16px; background:var(--SmartThemeQuoteColor, #007bff) !important; color:#ffffff !important; white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> 一键生成/应用已选分组 (<span id="matrix-apply-count">${candidates.length}</span>)</button>
+                <div class="tm-matrix-footer" style="flex-shrink:0; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                    <label style="display:inline-flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; opacity:0.9; margin:0; user-select:none;" title="勾选后将把标签名保留为关键词，后续导入或匹配时仅限定在本分组内生效，绝不向外扩散">
+                        <input type="checkbox" id="matrix-save-keywords-chk" checked style="margin:0;">
+                        <span>保留关键词映射 (限定在本分组内生效)</span>
+                    </label>
+                    <div style="display:inline-flex; align-items:center; gap:8px;">
+                        <button id="matrix-cancel-btn" class="menu_button" style="margin:0; font-size:12px; padding:5px 12px; background:rgba(128,128,128,0.2) !important; white-space:nowrap;"><i class="fa-solid fa-xmark"></i> 取消退出</button>
+                        <button id="matrix-apply-all-btn" class="menu_button active" style="margin:0; font-size:12.5px; font-weight:bold; padding:5px 16px; background:var(--SmartThemeQuoteColor, #007bff) !important; color:#ffffff !important; white-space:nowrap;"><i class="fa-solid fa-circle-check"></i> 一键生成/应用已选分组 (<span id="matrix-apply-count">${candidates.length}</span>)</button>
+                    </div>
                 </div>
             </div>
         `;
 
-        const createTagAndSaveSilent = (cItem, tagName, themesList) => {
+        const createTagAndSaveSilent = (cItem, tagName, themesList, saveKeywords = true) => {
             if (!themesList || themesList.length === 0) return { success: false, isNew: false };
             let tags = loadThemeTags();
 
@@ -741,14 +784,20 @@ export function initAutoGroup(config = {}) {
                     id: 'tag_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
                     name: tagName,
                     parentId: parentId || null,
+                    scopeTagId: (!parentId && scopeGroupId) ? scopeGroupId : null,
                     themes: [],
-                    keywords: [tagName]
+                    keywords: saveKeywords ? [tagName] : [],
+                    globalKeywords: false // 关键：智能分组关键词绝不全局扩散，限定在本分组内
                 };
                 tags.push(tagObj);
             } else {
                 if (parentId && !tagObj.parentId) tagObj.parentId = parentId;
-                if (!tagObj.keywords) tagObj.keywords = [];
-                if (!tagObj.keywords.includes(tagName)) tagObj.keywords.push(tagName);
+                if (!tagObj.parentId && scopeGroupId && !tagObj.scopeTagId) tagObj.scopeTagId = scopeGroupId;
+                if (saveKeywords) {
+                    if (!tagObj.keywords) tagObj.keywords = [];
+                    if (!tagObj.keywords.includes(tagName)) tagObj.keywords.push(tagName);
+                }
+                tagObj.globalKeywords = false;
             }
 
             if (!tagObj.themes) tagObj.themes = [];
@@ -989,6 +1038,7 @@ export function initAutoGroup(config = {}) {
                     applyBtn.addEventListener('click', () => {
                         let createdCount = 0;
                         let totalAssignedThemes = 0;
+                        const saveKeywords = dlg ? (dlg.querySelector('#matrix-save-keywords-chk')?.checked ?? true) : true;
 
                         if (matrixList) {
                             matrixList.querySelectorAll('.tm-matrix-card').forEach(card => {
@@ -1002,7 +1052,7 @@ export function initAutoGroup(config = {}) {
                                     const themesList = Array.from(checkedThemeChks).map(cb => cb.value);
 
                                     if (themesList.length > 0) {
-                                        const saveRes = createTagAndSaveSilent(cItem, tagName, themesList);
+                                        const saveRes = createTagAndSaveSilent(cItem, tagName, themesList, saveKeywords);
                                         if (saveRes.success) {
                                             createdCount++;
                                             totalAssignedThemes += themesList.length;
@@ -1025,7 +1075,7 @@ export function initAutoGroup(config = {}) {
     /**
      * 智能美化分组向导 Step 2: 逐个审核通过/不通过
      */
-    async function runAutoGroupReviewStep(candidates, currentIndex, level, parentId, createdTagsCount, assignedThemesCount, historyStack = []) {
+    async function runAutoGroupReviewStep(candidates, currentIndex, level, parentId, createdTagsCount, assignedThemesCount, historyStack = [], scopeGroupId = null) {
         if (currentIndex >= candidates.length) {
             renderTagsUI();
             updateActiveState();
@@ -1083,6 +1133,10 @@ export function initAutoGroup(config = {}) {
                         ` : ''}
                         <button id="wizard-stop-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px; background:rgba(220,53,69,0.2) !important; color:#ff8888 !important; white-space:nowrap;" title="结束向导并保存当前已建立的分组"><i class="fa-solid fa-circle-stop"></i> 结束向导</button>
                     </div>
+                    <label style="display:inline-flex; align-items:center; gap:6px; font-size:11.5px; cursor:pointer; opacity:0.85; user-select:none;" title="勾选后将把标签名保留为关键词，后续导入或匹配时仅限定在本分组内生效">
+                        <input type="checkbox" id="wizard-save-keywords-chk" checked style="margin:0;">
+                        <span>保留关键词 (限定本分组内生效)</span>
+                    </label>
                     <button id="wizard-pass-all-btn" class="menu_button" style="margin:0; font-size:11px; padding:4px 8px; background:rgba(0,123,255,0.2) !important; color:#4dabf7 !important; white-space:nowrap;" title="将其余候选全自动通过"><i class="fa-solid fa-forward-fast"></i> 全部剩余通过</button>
                 </div>
             </div>
@@ -1196,13 +1250,23 @@ export function initAutoGroup(config = {}) {
                     passAllBtn.addEventListener('click', (e) => {
                         e.preventDefault();
                         actionTaken = 'pass_all';
+                        if (dlg) {
+                            saveKeywords = dlg.querySelector('#wizard-save-keywords-chk')?.checked ?? true;
+                        }
                         popup.close();
+                    });
+                }
+
+                const saveKwChk = dlg ? dlg.querySelector('#wizard-save-keywords-chk') : null;
+                if (saveKwChk) {
+                    saveKwChk.addEventListener('change', () => {
+                        saveKeywords = saveKwChk.checked;
                     });
                 }
             }
         });
 
-        const createTagAndSaveSilent = (cItem, tagName, themesList) => {
+        const createTagAndSaveSilent = (cItem, tagName, themesList, shouldSaveKeywords = true) => {
             if (!themesList || themesList.length === 0) return { success: false, isNew: false };
             let tags = loadThemeTags();
 
@@ -1214,14 +1278,20 @@ export function initAutoGroup(config = {}) {
                     id: 'tag_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
                     name: tagName,
                     parentId: parentId || null,
+                    scopeTagId: (!parentId && scopeGroupId) ? scopeGroupId : null,
                     themes: [],
-                    keywords: [tagName]
+                    keywords: shouldSaveKeywords ? [tagName] : [],
+                    globalKeywords: false // 关键：智能分组关键词绝不全局扩散，限定在本分组内
                 };
                 tags.push(tagObj);
             } else {
                 if (parentId && !tagObj.parentId) tagObj.parentId = parentId;
-                if (!tagObj.keywords) tagObj.keywords = [];
-                if (!tagObj.keywords.includes(tagName)) tagObj.keywords.push(tagName);
+                if (!tagObj.parentId && scopeGroupId && !tagObj.scopeTagId) tagObj.scopeTagId = scopeGroupId;
+                if (shouldSaveKeywords) {
+                    if (!tagObj.keywords) tagObj.keywords = [];
+                    if (!tagObj.keywords.includes(tagName)) tagObj.keywords.push(tagName);
+                }
+                tagObj.globalKeywords = false;
             }
 
             if (!tagObj.themes) tagObj.themes = [];
@@ -1268,9 +1338,9 @@ export function initAutoGroup(config = {}) {
                     }
                 }
                 const newCreatedCount = Math.max(0, createdTagsCount - (lastStep.action === 'approve' ? 1 : 0));
-                setTimeout(() => runAutoGroupReviewStep(candidates, lastStep.currentIndex, level, parentId, newCreatedCount, assignedThemesCount, historyStack), 50);
+                setTimeout(() => runAutoGroupReviewStep(candidates, lastStep.currentIndex, level, parentId, newCreatedCount, assignedThemesCount, historyStack, scopeGroupId), 50);
             } else {
-                setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex, level, parentId, createdTagsCount, assignedThemesCount, historyStack), 50);
+                setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex, level, parentId, createdTagsCount, assignedThemesCount, historyStack, scopeGroupId), 50);
             }
             return;
         }
@@ -1286,7 +1356,7 @@ export function initAutoGroup(config = {}) {
             let passCount = 0;
             for (let i = currentIndex; i < candidates.length; i++) {
                 const c = candidates[i];
-                const res = createTagAndSaveSilent(c, c.keyword, c.themes);
+                const res = createTagAndSaveSilent(c, c.keyword, c.themes, saveKeywords);
                 if (res.success) passCount++;
             }
             renderTagsUI();
@@ -1299,7 +1369,7 @@ export function initAutoGroup(config = {}) {
             const tagName = currentTagName.trim() || candidate.keyword;
             const finalThemes = (currentCheckedThemes && currentCheckedThemes.length > 0) ? currentCheckedThemes : candidate.themes;
 
-            const saveRes = createTagAndSaveSilent(candidate, tagName, finalThemes);
+            const saveRes = createTagAndSaveSilent(candidate, tagName, finalThemes, saveKeywords);
 
             historyStack.push({
                 currentIndex: currentIndex,
@@ -1309,7 +1379,7 @@ export function initAutoGroup(config = {}) {
                 isNew: saveRes.isNew
             });
 
-            setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount + (saveRes.success ? 1 : 0), assignedThemesCount + finalThemes.length, historyStack), 50);
+            setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount + (saveRes.success ? 1 : 0), assignedThemesCount + finalThemes.length, historyStack, scopeGroupId), 50);
         } else {
             historyStack.push({
                 currentIndex: currentIndex,
@@ -1319,7 +1389,7 @@ export function initAutoGroup(config = {}) {
                 isNew: false
             });
 
-            setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount, assignedThemesCount, historyStack), 50);
+            setTimeout(() => runAutoGroupReviewStep(candidates, currentIndex + 1, level, parentId, createdTagsCount, assignedThemesCount, historyStack, scopeGroupId), 50);
         }
     }
 

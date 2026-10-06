@@ -73,22 +73,65 @@ export function createTagManager(config = {}) {
                 t.themes = t.themes.filter(themeName => validThemeNames.has(themeName));
             });
 
-            // 2. 重新扫描本机美化，自动匹配已定义的关键词 (极致循环优化)
+            // 2. 重新扫描本机美化，自动匹配已定义的关键词 (严格遵循本分组作用域限制，禁止跨分组扩散)
+            const tagMap = new Map(tags.map(t => [t.id, t]));
             const allThemes = Array.from(validThemeNames);
+
+            // 预先建立每个主题归属的顶层标签集合，防止无父标签的关键词跨分组抢夺已有主题
+            const themeToL1TagsMap = new Map();
+            tags.forEach(t => {
+                if (!t.parentId) {
+                    (t.themes || []).forEach(th => {
+                        if (!themeToL1TagsMap.has(th)) themeToL1TagsMap.set(th, new Set());
+                        themeToL1TagsMap.get(th).add(t.id);
+                    });
+                }
+            });
+
             tags.forEach(tag => {
                 if (!tag.keywords || tag.keywords.length === 0) return;
                 const kwLCs = tag.keywords.filter(Boolean).map(kw => kw.toLowerCase());
                 if (kwLCs.length === 0) return;
 
                 const existingThemesSet = new Set(tag.themes);
-                for (let i = 0; i < allThemes.length; i++) {
-                    const themeName = allThemes[i];
+
+                // 核心：确定本标签允许匹配的候选美化池（严格限定在本分组内）
+                let candidateThemes = allThemes;
+                const isGlobal = tag.globalKeywords === true;
+
+                if (!isGlobal) {
+                    if (tag.parentId) {
+                        // 有直属父级标签：限定仅在直属父标签包含的美化内匹配（本分组映射）
+                        const parentTag = tagMap.get(tag.parentId);
+                        const parentThemesSet = new Set(parentTag && Array.isArray(parentTag.themes) ? parentTag.themes : []);
+                        candidateThemes = allThemes.filter(th => parentThemesSet.has(th));
+                    } else if (tag.scopeTagId) {
+                        // 绑定了分组作用域的标签：限定仅在作用域标签的美化内匹配
+                        const scopeTag = tagMap.get(tag.scopeTagId);
+                        const scopeThemesSet = new Set(scopeTag && Array.isArray(scopeTag.themes) ? scopeTag.themes : []);
+                        candidateThemes = allThemes.filter(th => scopeThemesSet.has(th));
+                    } else {
+                        // 一级独立标签：只能匹配本标签已有美化，或尚未归类到任何其他一级分组的美化，绝不抢夺其他分组的美化
+                        candidateThemes = allThemes.filter(th => {
+                            if (existingThemesSet.has(th)) return true;
+                            const owners = themeToL1TagsMap.get(th);
+                            return !owners || owners.size === 0 || (owners.size === 1 && owners.has(tag.id));
+                        });
+                    }
+                }
+
+                for (let i = 0; i < candidateThemes.length; i++) {
+                    const themeName = candidateThemes[i];
                     if (existingThemesSet.has(themeName)) continue;
                     const nameLC = themeName.toLowerCase();
                     for (let j = 0; j < kwLCs.length; j++) {
                         if (nameLC.includes(kwLCs[j])) {
                             tag.themes.push(themeName);
                             existingThemesSet.add(themeName);
+                            if (!tag.parentId) {
+                                if (!themeToL1TagsMap.has(themeName)) themeToL1TagsMap.set(themeName, new Set());
+                                themeToL1TagsMap.get(themeName).add(tag.id);
+                            }
                             break;
                         }
                     }
