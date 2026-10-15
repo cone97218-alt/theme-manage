@@ -6,6 +6,7 @@ export function initCharacterBinding({
     CHARACTER_THEME_BINDINGS_KEY,
     loadThemeTags,
     allParsedThemes,
+    getAllParsedThemes,
     stKnownThemes,
     themeBackgroundBindings,
     applyThemeDirect,
@@ -13,6 +14,15 @@ export function initCharacterBinding({
     applyBackgroundDirectly,
     escapeHtml
 }) {
+    function getParsedThemes() {
+        if (typeof getAllParsedThemes === 'function') {
+            const list = getAllParsedThemes();
+            if (Array.isArray(list) && list.length > 0) return list;
+        }
+        if (Array.isArray(allParsedThemes)) return allParsedThemes;
+        return [];
+    }
+
     // 核心工具：解析目标（主题名或 [Tag] 格式）并返回最终要应用的主题名
     function getThemeForTarget(target) {
         if (!target) return null;
@@ -22,7 +32,7 @@ export function initCharacterBinding({
             const tag = tags.find(t => t.id === tagId);
             if (!tag || !tag.themes || tag.themes.length === 0) return null;
 
-            const pool = allParsedThemes.filter(t => tag.themes.includes(t.value));
+            const pool = getParsedThemes().filter(t => tag.themes.includes(t.value));
             if (pool.length > 0) {
                 return pool[Math.floor(Math.random() * pool.length)].value;
             }
@@ -39,7 +49,8 @@ export function initCharacterBinding({
                     }
                 }
             }
-            if (Array.isArray(allParsedThemes) && allParsedThemes.some(t => t.value === raw || t.value === clean)) {
+            const currentThemes = getParsedThemes();
+            if (Array.isArray(currentThemes) && currentThemes.some(t => t.value === raw || t.value === clean)) {
                 return raw;
             }
         }

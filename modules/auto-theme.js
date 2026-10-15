@@ -7,7 +7,8 @@ export function initAutoTheme(options) {
         THEME_DAY_NIGHT_PAIRS_KEY,
         managerPanel,
         originalSelect,
-        allParsedThemes,
+        allParsedThemes: initialThemes,
+        getAllParsedThemes,
         themeItemMap,
         loadThemeTags,
         getThemeForTarget,
@@ -16,6 +17,32 @@ export function initAutoTheme(options) {
         themeBackgroundBindings,
         escapeHtml
     } = options;
+
+    function getParsedThemes() {
+        if (typeof getAllParsedThemes === 'function') {
+            const list = getAllParsedThemes();
+            if (Array.isArray(list) && list.length > 0) return list;
+        }
+        if (typeof options.getAllParsedThemes === 'function') {
+            const list = options.getAllParsedThemes();
+            if (Array.isArray(list) && list.length > 0) return list;
+        }
+        if (Array.isArray(options.allParsedThemes) && options.allParsedThemes.length > 0) {
+            return options.allParsedThemes;
+        }
+        if (Array.isArray(initialThemes) && initialThemes.length > 0) {
+            return initialThemes;
+        }
+        if (originalSelect && originalSelect.options && originalSelect.options.length > 0) {
+            return Array.from(originalSelect.options)
+                .filter(opt => opt && opt.value)
+                .map(opt => ({
+                    value: opt.value,
+                    display: (opt.textContent || opt.value).trim()
+                }));
+        }
+        return [];
+    }
 
     let currentAutoThemeState = null;
     let autoThemeCheckInterval = null;
@@ -260,9 +287,7 @@ export function initAutoTheme(options) {
         if (!themeItemMap) return;
         const item = themeItemMap.get(themeName);
         if (!item) return;
-        const buttonsDiv = item.querySelector('.theme-item-buttons') || item.children[1];
-        if (!buttonsDiv) return;
-        const linkDaynightBtn = buttonsDiv.children[2];
+        const linkDaynightBtn = item.querySelector('.link-daynight-btn') || (item.children[1] && item.children[1].children[2]);
         if (!linkDaynightBtn) return;
         const pair = getPairForTheme(themeName);
         if (pair) {
@@ -296,42 +321,55 @@ export function initAutoTheme(options) {
 
         if (titleSpan) titleSpan.textContent = themeName;
 
-        if (window.jQuery && $(nightSelect).data('select2')) $(nightSelect).select2('destroy');
-        if (window.jQuery && $(daySelect).data('select2')) $(daySelect).select2('destroy');
+        if (window.jQuery) {
+            try { $(nightSelect).select2('destroy'); } catch (e) {}
+            try { $(daySelect).select2('destroy'); } catch (e) {}
+        }
 
         let optionsHtml = '<option value="">(未指定/不关联)</option>';
-        if (Array.isArray(allParsedThemes)) {
-            allParsedThemes.forEach(t => {
-                optionsHtml += `<option value="${escapeHtml(t.value)}">${escapeHtml(t.display)}</option>`;
+        const themesList = getParsedThemes();
+        if (Array.isArray(themesList)) {
+            themesList.forEach(t => {
+                const val = t.value || t.name;
+                const disp = t.display || t.name || t.value;
+                if (val) {
+                    optionsHtml += `<option value="${escapeHtml(val)}">${escapeHtml(disp)}</option>`;
+                }
             });
         }
         if (nightSelect) nightSelect.innerHTML = optionsHtml;
         if (daySelect) daySelect.innerHTML = optionsHtml;
 
         const existingPair = getPairForTheme(themeName);
+        let targetDay = '';
+        let targetNight = '';
+
         if (existingPair) {
-            if (daySelect) daySelect.value = existingPair.dayTheme || '';
-            if (nightSelect) nightSelect.value = existingPair.nightTheme || '';
+            targetDay = existingPair.dayTheme || '';
+            targetNight = existingPair.nightTheme || '';
         } else {
             const isNightName = /(深色|暗色|黑色|Dark|Night|黑)/i.test(themeName);
             if (isNightName) {
-                if (nightSelect) nightSelect.value = themeName;
-                if (daySelect) daySelect.value = '';
+                targetNight = themeName;
+                targetDay = '';
             } else {
-                if (daySelect) daySelect.value = themeName;
-                if (nightSelect) nightSelect.value = '';
+                targetDay = themeName;
+                targetNight = '';
             }
         }
+
+        if (daySelect) daySelect.value = targetDay;
+        if (nightSelect) nightSelect.value = targetNight;
 
         daynightModal.style.display = 'flex';
 
         if (window.jQuery) {
-            setTimeout(() => {
-                $([nightSelect, daySelect]).select2({
-                    dropdownParent: $(daynightModal).find('.tm-modal-content'),
-                    width: '100%'
-                });
-            }, 0);
+            $([nightSelect, daySelect]).select2({
+                dropdownParent: $(daynightModal).find('.tm-modal-content'),
+                width: '100%'
+            });
+            if (targetDay) $(daySelect).val(targetDay).trigger('change.select2');
+            if (targetNight) $(nightSelect).val(targetNight).trigger('change.select2');
         }
     }
 
@@ -344,33 +382,44 @@ export function initAutoTheme(options) {
     if (saveTmDaynightBtn) {
         saveTmDaynightBtn.addEventListener('click', () => {
             if (!currentTargetThemeForPair || !daynightModal) return;
-            const nightVal = daynightModal.querySelector('#tm-daynight-night-select')?.value || '';
-            const dayVal = daynightModal.querySelector('#tm-daynight-day-select')?.value || '';
+            const nightSelect = daynightModal.querySelector('#tm-daynight-night-select');
+            const daySelect = daynightModal.querySelector('#tm-daynight-day-select');
+            const nightVal = (window.jQuery ? $(nightSelect).val() : nightSelect?.value) || nightSelect?.value || '';
+            const dayVal = (window.jQuery ? $(daySelect).val() : daySelect?.value) || daySelect?.value || '';
+
+            if (!dayVal && !nightVal) {
+                toastr.warning('请至少选择一个日间或夜间美化进行绑定！');
+                return;
+            }
+
+            const finalDay = dayVal || currentTargetThemeForPair;
+            const finalNight = nightVal || currentTargetThemeForPair;
+
+            if (finalDay === finalNight) {
+                toastr.warning('日间美化与夜间美化不能相同，请选择另一个美化进行配对！');
+                return;
+            }
 
             themeDayNightPairs = themeDayNightPairs.filter(p => {
                 if (!p) return false;
                 if (p.dayTheme === currentTargetThemeForPair || p.nightTheme === currentTargetThemeForPair) return false;
-                if (dayVal && (p.dayTheme === dayVal || p.nightTheme === dayVal)) return false;
-                if (nightVal && (p.dayTheme === nightVal || p.nightTheme === nightVal)) return false;
+                if (finalDay && (p.dayTheme === finalDay || p.nightTheme === finalDay)) return false;
+                if (finalNight && (p.dayTheme === finalNight || p.nightTheme === finalNight)) return false;
                 return true;
             });
 
-            if (dayVal || nightVal) {
-                const finalDay = dayVal || currentTargetThemeForPair;
-                const finalNight = nightVal || currentTargetThemeForPair;
-                themeDayNightPairs.push({
-                    dayTheme: finalDay,
-                    nightTheme: finalNight
-                });
-            }
+            themeDayNightPairs.push({
+                dayTheme: finalDay,
+                nightTheme: finalNight
+            });
 
             saveThemeDayNightPairs(themeDayNightPairs);
 
-            if (dayVal) updateThemeItemDayNightState(dayVal);
-            if (nightVal) updateThemeItemDayNightState(nightVal);
+            if (finalDay) updateThemeItemDayNightState(finalDay);
+            if (finalNight) updateThemeItemDayNightState(finalNight);
             updateThemeItemDayNightState(currentTargetThemeForPair);
 
-            toastr.success(`已更新美化日夜组合绑定！`);
+            toastr.success(`已更新美化日夜组合绑定！\n日间: ${finalDay} ⇄ 夜间: ${finalNight}`);
             daynightModal.style.display = 'none';
         });
     }
@@ -385,6 +434,8 @@ export function initAutoTheme(options) {
                 if (pair.dayTheme) updateThemeItemDayNightState(pair.dayTheme);
                 if (pair.nightTheme) updateThemeItemDayNightState(pair.nightTheme);
                 toastr.info(`已解除该美化的日夜组合关联。`);
+            } else {
+                toastr.info(`该美化尚未绑定日夜组合。`);
             }
             daynightModal.style.display = 'none';
         });
@@ -447,8 +498,10 @@ export function initAutoTheme(options) {
 
         if (!dayTarget || !nightTarget) return;
 
-        if (window.jQuery && $(dayTarget).data('select2')) $(dayTarget).select2('destroy');
-        if (window.jQuery && $(nightTarget).data('select2')) $(nightTarget).select2('destroy');
+        if (window.jQuery) {
+            try { $(dayTarget).select2('destroy'); } catch (e) {}
+            try { $(nightTarget).select2('destroy'); } catch (e) {}
+        }
 
         let optionsHtml = '<option value="">(不改变)</option>';
         if (tags.length > 0) {
@@ -459,9 +512,14 @@ export function initAutoTheme(options) {
             optionsHtml += '</optgroup>';
         }
         optionsHtml += '<optgroup label="[指定] 特定主题">';
-        if (Array.isArray(allParsedThemes)) {
-            allParsedThemes.forEach(t => {
-                optionsHtml += `<option value="${escapeHtml(t.value)}">${escapeHtml(t.display)}</option>`;
+        const themesList = getParsedThemes();
+        if (Array.isArray(themesList)) {
+            themesList.forEach(t => {
+                const val = t.value || t.name;
+                const disp = t.display || t.name || t.value;
+                if (val) {
+                    optionsHtml += `<option value="${escapeHtml(val)}">${escapeHtml(disp)}</option>`;
+                }
             });
         }
         optionsHtml += '</optgroup>';
@@ -474,12 +532,12 @@ export function initAutoTheme(options) {
         populateAutoThemePairsList();
 
         if (window.jQuery) {
-            setTimeout(() => {
-                $([dayTarget, nightTarget]).select2({
-                    dropdownParent: $(autoThemeModal).find('.tm-modal-content'),
-                    width: '100%'
-                });
-            }, 0);
+            $([dayTarget, nightTarget]).select2({
+                dropdownParent: $(autoThemeModal).find('.tm-modal-content'),
+                width: '100%'
+            });
+            if (autoThemeSettings.dayTarget) $(dayTarget).val(autoThemeSettings.dayTarget).trigger('change.select2');
+            if (autoThemeSettings.nightTarget) $(nightTarget).val(autoThemeSettings.nightTarget).trigger('change.select2');
         }
     }
 
@@ -527,13 +585,16 @@ export function initAutoTheme(options) {
             const dayTargetSelect = autoThemeModal.querySelector('#auto-theme-day-target');
             const nightTargetSelect = autoThemeModal.querySelector('#auto-theme-night-target');
 
+            const dayVal = (window.jQuery ? $(dayTargetSelect).val() : dayTargetSelect?.value) || dayTargetSelect?.value || '';
+            const nightVal = (window.jQuery ? $(nightTargetSelect).val() : nightTargetSelect?.value) || nightTargetSelect?.value || '';
+
             autoThemeSettings.enabled = enableChk ? enableChk.checked : false;
             autoThemeSettings.enableManualToggle = manualChk ? manualChk.checked : false;
             autoThemeSettings.mode = modeRadio ? modeRadio.value : 'system';
             autoThemeSettings.dayStart = dayStartInput ? dayStartInput.value || '06:00' : '06:00';
             autoThemeSettings.nightStart = nightStartInput ? nightStartInput.value || '18:00' : '18:00';
-            autoThemeSettings.dayTarget = dayTargetSelect ? dayTargetSelect.value : '';
-            autoThemeSettings.nightTarget = nightTargetSelect ? nightTargetSelect.value : '';
+            autoThemeSettings.dayTarget = dayVal;
+            autoThemeSettings.nightTarget = nightVal;
 
             localStorage.setItem(AUTO_THEME_KEY, JSON.stringify(autoThemeSettings));
             updateManualToggleBtnVisibility();

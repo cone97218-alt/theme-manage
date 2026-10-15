@@ -484,15 +484,12 @@ export function initThemeCore(options) {
                 }
             }
 
-            // 深度同步至酒馆原生 power-user 模块闭包的 themes 数组
-            loadNativePowerUserModule().then(mod => {
-                if (mod && typeof mod.loadPowerUserSettings === 'function') {
-                    const currentAllThemes = Array.from(allThemeObjectsMap.values());
-                    if (currentAllThemes.length > 0) {
-                        mod.loadPowerUserSettings({}, { themes: currentAllThemes }).catch(() => {});
-                    }
-                }
-            }).catch(() => {});
+            // 深度同步至酒馆原生 power-user 模块闭包的 themes 数组 (使用安全的轻量级注入函数，杜绝反复调用 loadPowerUserSettings 破坏 DOM 与触发死循环)
+            if (typeof window !== 'undefined' && typeof window.baibaokuHydrateTheme === 'function' && normalizedObj) {
+                try {
+                    window.baibaokuHydrateTheme(normalizedObj);
+                } catch (e) {}
+            }
 
             if (action === 'delete') {
                 allThemeObjectsMap.delete(targetName);
@@ -513,7 +510,6 @@ export function initThemeCore(options) {
                 if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
                     const ctx = SillyTavern.getContext();
                     if (ctx.saveSettingsDebounced) ctx.saveSettingsDebounced();
-                    else if (ctx.saveSettings) ctx.saveSettings();
                 }
             }
         } catch (e) {
@@ -521,17 +517,22 @@ export function initThemeCore(options) {
         }
     }
 
-    async function saveTheme(themeObject) {
+    async function saveTheme(themeObject, options = {}) {
         if (!themeObject || (!themeObject.name && !themeObject.value)) {
             console.error('[Theme Manager] saveTheme: 传入的对象无效或缺少 name', themeObject);
             return false;
         }
+        const { isBatch = false } = options;
         const normalized = normalizeThemeObject(themeObject);
-        console.log(`[Theme Manager] saveTheme → 写入 "${normalized.name}.json" (CSS长度: ${normalized.custom_css.length})`);
+        if (!isBatch) {
+            console.log(`[Theme Manager] saveTheme → 写入 "${normalized.name}.json" (CSS长度: ${normalized.custom_css.length})`);
+        }
 
         const { mtime: _m, ...payload } = normalized;
-        await apiRequest('themes/save', 'POST', payload);
-        console.log(`[Theme Manager] saveTheme ✅ 写入成功: "${normalized.name}.json"`);
+        await apiRequest('themes/save', 'POST', payload, isBatch);
+        if (!isBatch) {
+            console.log(`[Theme Manager] saveTheme ✅ 写入成功: "${normalized.name}.json"`);
+        }
 
         const now = Date.now();
         if (typeof recordThemeMtime === 'function') {
@@ -543,8 +544,10 @@ export function initThemeCore(options) {
         const parsed = allParsedThemesMap.get(normalized.name);
         if (parsed) parsed.mtime = now;
 
-        updateSTThemeMemory(normalized, 'save');
-        invalidateThemesCache();
+        if (!isBatch) {
+            updateSTThemeMemory(normalized, 'save');
+            invalidateThemesCache();
+        }
         return true;
     }
 

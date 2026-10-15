@@ -782,8 +782,15 @@ export function initTagUI(config) {
                 if (modalAutoGroupBtn) {
                     modalAutoGroupBtn.addEventListener('click', (e) => {
                         e.preventDefault();
+                        e.stopPropagation();
                         popup.close();
-                        openAutoGroupWizard();
+                        setTimeout(() => {
+                            try {
+                                openAutoGroupWizard();
+                            } catch (err) {
+                                console.error('[Theme Manager] 打开智能分组向导失败:', err);
+                            }
+                        }, 200);
                     });
                 }
 

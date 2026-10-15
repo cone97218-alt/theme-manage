@@ -1909,7 +1909,7 @@
                 }
 
                 // === 增量无缝更新 DOM 节点与内存 UI 助手函数 ===
-                function softAddThemeUI(themeObject, cachedTags = null, parentContainer = null) {
+                function softAddThemeUI(themeObject, cachedTags = null, parentContainer = null, precomputedTagsMap = null) {
                     if (!themeObject || !themeObject.name) return null;
                     const themeName = themeObject.name;
                     const now = Date.now();
@@ -1924,24 +1924,34 @@
                         mtime: now
                     };
 
-                    const existingParsedIdx = allParsedThemes.findIndex(t => t.value === themeName);
-                    if (existingParsedIdx > -1) {
-                        allParsedThemes[existingParsedIdx] = parsedTheme;
+                    const prevParsed = allParsedThemesMap.get(themeName);
+                    if (prevParsed) {
+                        const existingParsedIdx = allParsedThemes.findIndex(t => t.value === themeName);
+                        if (existingParsedIdx > -1) {
+                            allParsedThemes[existingParsedIdx] = parsedTheme;
+                        } else {
+                            allParsedThemes.push(parsedTheme);
+                        }
                     } else {
                         allParsedThemes.push(parsedTheme);
                     }
                     allParsedThemesMap.set(themeName, parsedTheme);
 
-                    const existingObjIdx = allThemeObjects.findIndex(t => (t.name === themeName || t.value === themeName));
-                    if (existingObjIdx > -1) {
-                        allThemeObjects[existingObjIdx] = themeObject;
+                    const prevObj = allThemeObjectsMap.get(themeName);
+                    if (prevObj) {
+                        const existingObjIdx = allThemeObjects.findIndex(t => (t.name === themeName || t.value === themeName));
+                        if (existingObjIdx > -1) {
+                            allThemeObjects[existingObjIdx] = themeObject;
+                        } else {
+                            allThemeObjects.push(themeObject);
+                        }
                     } else {
                         allThemeObjects.push(themeObject);
                     }
                     allThemeObjectsMap.set(themeName, themeObject);
                     stKnownThemes.add(themeName);
 
-                    const tagsMap = new Map(currentTags.map(t => [t.id, t]));
+                    const tagsMap = precomputedTagsMap || new Map(currentTags.map(t => [t.id, t]));
                     const item = createThemeItem(parsedTheme, tagsMap);
 
                     const oldItem = themeItemMap.get(themeName);
@@ -2673,7 +2683,16 @@
 
                 const autoGroupBtn = managerPanel.querySelector('#tm-auto-group-btn');
                 if (autoGroupBtn) {
-                    autoGroupBtn.addEventListener('click', () => openAutoGroupWizard());
+                    autoGroupBtn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        try {
+                            openAutoGroupWizard();
+                        } catch (err) {
+                            console.error('[Theme Manager] 启动智能分组向导失败:', err);
+                            toastr.error('启动智能分组向导失败: ' + (err.message || err));
+                        }
+                    });
                 }
 
                 const settingsBtn = managerPanel.querySelector('#tm-settings-btn');
@@ -3061,10 +3080,18 @@
                         hideLoader,
                         limitConcurrency,
                         saveTheme,
-                        suspendObserver: (fn) => {
+                        suspendObserver: async (fn) => {
                             _suspendObserver = true;
-                            try { fn(); } finally { setTimeout(() => { _suspendObserver = false; }, 0); }
+                            try {
+                                const res = fn();
+                                if (res && typeof res.then === 'function') {
+                                    await res;
+                                }
+                            } finally {
+                                setTimeout(() => { _suspendObserver = false; }, 50);
+                            }
                         },
+                        setSuspendObserver: (val) => { _suspendObserver = val; },
                         updateSTThemeMemory,
                         findOptionByValue,
                         originalSelect,
@@ -3077,7 +3104,7 @@
                         allParsedThemesMap,
                         softAddThemeUI,
                         contentWrapper,
-                        applyKeywordMappings: (names) => applyKeywordMappings(names),
+                        applyKeywordMappings: (names, skipRefresh) => applyKeywordMappings(names, skipRefresh),
                         softRefreshUI: (names) => softRefreshUI(names),
                         filterThemeList: (pos) => filterThemeList(pos),
                         updateActiveState: () => updateActiveState(),
@@ -3865,6 +3892,7 @@
                         CHARACTER_THEME_BINDINGS_KEY,
                         loadThemeTags,
                         allParsedThemes,
+                        getAllParsedThemes: () => allParsedThemes,
                         stKnownThemes,
                         themeBackgroundBindings,
                         applyThemeDirect,
@@ -3892,6 +3920,7 @@
                         managerPanel,
                         originalSelect,
                         allParsedThemes,
+                        getAllParsedThemes: () => allParsedThemes,
                         themeItemMap,
                         loadThemeTags,
                         getThemeForTarget,

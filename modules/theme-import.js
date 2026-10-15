@@ -18,6 +18,7 @@ export function initThemeImport(config) {
         limitConcurrency,
         saveTheme,
         suspendObserver = (fn) => fn(),
+        setSuspendObserver = () => {},
         updateSTThemeMemory,
         findOptionByValue,
         originalSelect,
@@ -155,12 +156,17 @@ export function initThemeImport(config) {
                         </div>
                     </div>
                     <div style="max-height:75px; overflow-y:auto; display:flex; flex-wrap:wrap; gap:4px; padding:2px;">
-                        ${validFiles.map(f => `
+                        ${validFiles.slice(0, 60).map(f => `
                             <span style="display:inline-flex; align-items:center; gap:4px; padding:2px 6px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.05); border-radius:4px; font-size:11px; font-family:monospace;">
                                 <i class="fa-solid fa-palette" style="font-size:10px; opacity:0.7;"></i>
                                 ${escapeHtml(f.themeObject.name)}
                             </span>
                         `).join('')}
+                        ${validFiles.length > 60 ? `
+                            <span style="display:inline-flex; align-items:center; padding:2px 6px; background:rgba(255,255,255,0.03); border:1px dashed rgba(255,255,255,0.1); border-radius:4px; font-size:11px; opacity:0.75;">
+                                + 剩余 ${validFiles.length - 60} 个美化主题...
+                            </span>
+                        ` : ''}
                     </div>
                     ${invalidFiles.length > 0 ? `
                         <div style="color:#ffaa00; font-size:11px; margin-top:6px; display:flex; align-items:center; gap:4px;">
@@ -390,9 +396,22 @@ export function initThemeImport(config) {
             const invalidFiles = [];
             let detectedBackup = null;
 
-            for (const file of Array.from(files)) {
+            const rawFiles = Array.from(files);
+            const fileTexts = await Promise.all(rawFiles.map(async (file) => {
                 try {
-                    const fileContent = await file.text();
+                    const text = await file.text();
+                    return { file, text, error: null };
+                } catch (err) {
+                    return { file, text: null, error: err };
+                }
+            }));
+
+            for (const { file, text: fileContent, error: readError } of fileTexts) {
+                if (readError) {
+                    invalidFiles.push({ file, valid: false, error: readError.message });
+                    continue;
+                }
+                try {
                     const parsed = JSON.parse(fileContent);
                     const filenameWithoutExt = file.name.replace(/\.json$/i, '').trim();
 
@@ -539,11 +558,17 @@ export function initThemeImport(config) {
             const importedThemes = [];
             let needsUIUpdate = false;
 
-            // 2. 并行发送 API 保存请求 (限制并发为 5)
-            console.log(`[Theme Manager] 开始并发保存 ${validFiles.length} 个有效主题...`);
-            const saveResults = await limitConcurrency(5, validFiles, async ({ themeObject }) => {
+            // 2. 并行发送 API 保存请求 (限制并发为 10，批量模式下静默保存，避免反复触发布局与重载)
+            const saveConcurrency = Math.min(10, Math.max(5, Math.ceil(validFiles.length / 30)));
+            console.log(`[Theme Manager] 开始并发保存 ${validFiles.length} 个有效主题 (并发度: ${saveConcurrency})...`);
+            
+            if (typeof setSuspendObserver === 'function') {
+                setSuspendObserver(true);
+            }
+
+            const saveResults = await limitConcurrency(saveConcurrency, validFiles, async ({ themeObject }) => {
                 try {
-                    await saveTheme(themeObject);
+                    await saveTheme(themeObject, { isBatch: true });
                     return { success: true, themeObject };
                 } catch (err) {
                     return { success: false, themeObject, error: err };
@@ -555,34 +580,44 @@ export function initThemeImport(config) {
                 const orig = validFiles[index];
                 if (res.status === 'fulfilled' && res.value.success) {
                     successCount++;
-                    const themeObject = res.value.themeObject;
-                    importedThemes.push(themeObject);
-                    console.log(`[Theme Manager] 成功保存主题到服务器: "${themeObject.name}"`);
+                    importedThemes.push(res.value.themeObject);
                 } else {
                     errorCount++;
                     console.error(`[Theme Manager Error] 保存主题 "${orig.themeObject.name}" 失败:`, res.status === 'fulfilled' ? res.value.error : res.reason);
                 }
             });
 
-            // 3. 批量更新下拉框、内存及 UI DOM
+            // 3. 批量更新下拉框、内存及 UI DOM (一次性处理，消除 N^2 开销)
             if (importedThemes.length > 0) {
                 needsUIUpdate = true;
 
                 // 第一步：批量更新 ST 原生下拉框 & 同步内部内存与已知合法美化名称集
                 suspendObserver(() => {
+                    const existingOptionValues = new Set();
+                    if (originalSelect && originalSelect.options) {
+                        for (let i = 0; i < originalSelect.options.length; i++) {
+                            existingOptionValues.add(originalSelect.options[i].value);
+                        }
+                    }
+                    const optFragment = document.createDocumentFragment();
+
                     importedThemes.forEach(themeObject => {
                         const cleanTheme = normalizeThemeObject(themeObject, themeObject.name);
-                        updateSTThemeMemory(cleanTheme, 'add');
-                        const existingOption = findOptionByValue(originalSelect, cleanTheme.name);
-                        if (!existingOption) {
+                        if (!existingOptionValues.has(cleanTheme.name)) {
                             const option = document.createElement('option');
                             option.value = cleanTheme.name;
                             option.textContent = cleanTheme.name;
-                            originalSelect.appendChild(option);
+                            optFragment.appendChild(option);
+                            existingOptionValues.add(cleanTheme.name);
                         }
                         stKnownThemes.add(cleanTheme.name);
                         allThemeObjectsMap.set(cleanTheme.name, cleanTheme);
+                        updateSTThemeMemory(cleanTheme, 'add');
                     });
+
+                    if (originalSelect && optFragment.childNodes.length > 0) {
+                        originalSelect.appendChild(optFragment);
+                    }
                     syncStKnownThemes();
                 });
 
@@ -590,16 +625,18 @@ export function initThemeImport(config) {
                 invalidateThemesCache();
                 invalidateValidThemeNamesCache();
 
-                // 第二步：如果指定了目标标签，批量将美化关联到标签并保存（此时系统已识别新主题为合法美化，不会被过滤剔除）
+                // 第二步：如果指定了目标标签，批量将美化关联到标签并保存 (使用 Set 加速查重)
                 if (targetTagIds.length > 0) {
                     allTags = loadThemeTags();
-                    targetTagIds.forEach(tId => {
-                        const tag = allTags.find(t => String(t.id) === String(tId));
-                        if (tag) {
+                    const targetTagIdSet = new Set(targetTagIds.map(String));
+                    allTags.forEach(tag => {
+                        if (targetTagIdSet.has(String(tag.id))) {
                             if (!Array.isArray(tag.themes)) tag.themes = [];
+                            const existingThemesSet = new Set(tag.themes);
                             importedThemes.forEach(th => {
-                                if (!tag.themes.includes(th.name)) {
+                                if (!existingThemesSet.has(th.name)) {
                                     tag.themes.push(th.name);
+                                    existingThemesSet.add(th.name);
                                 }
                             });
                         }
@@ -607,8 +644,9 @@ export function initThemeImport(config) {
                     saveThemeTags(allTags);
                 }
 
-                // 第三步：预先读取已包含目标标签的最新标签数据并构建挂载卡片 DOM
+                // 第三步：预先读取已包含目标标签的最新标签数据并构建挂载卡片 DOM (预构 tagsMap，利用 Fragment 一次性提交)
                 const cachedTags = loadThemeTags();
+                const tagsMap = new Map(cachedTags.map(t => [t.id, t]));
                 const listFragment = document.createDocumentFragment();
                 const list = contentWrapper.querySelector('.theme-list');
 
@@ -619,10 +657,8 @@ export function initThemeImport(config) {
                     const isNewTheme = !existingParsed;
 
                     if (isNewTheme) {
-                        // 批量构建并追加到 DocumentFragment
-                        softAddThemeUI(cleanTheme, cachedTags, listFragment);
+                        softAddThemeUI(cleanTheme, cachedTags, listFragment, tagsMap);
                     } else {
-                        // 覆盖现有主题：使用 Object.assign 原地更新数据，免去 findIndex 的 O(N) 搜索开销
                         const existingObj = allThemeObjectsMap.get(themeName);
                         if (existingObj) {
                             Object.assign(existingObj, cleanTheme);
@@ -638,16 +674,13 @@ export function initThemeImport(config) {
                     list.appendChild(listFragment);
                 }
 
-                // 第四步：关键词自动映射（若启用）
+                // 第四步：关键词自动映射（若启用，跳过其内部的中间刷新）
                 if (importConfig.applyKeywords && importedThemes.length > 0) {
-                    applyKeywordMappings(importedThemes.map(t => t.name));
+                    applyKeywordMappings(importedThemes.map(t => t.name), true);
                 }
 
-                // 第五步：精准刷新被导入主题的标签展示与顶部标签栏
+                // 第五步：精准刷新被导入主题的标签展示并依照排序规则刷新列表 (仅执行一次)
                 softRefreshUI(importedThemes.map(t => t.name));
-
-                // 第六步：依照当前排序规则 (sortBy) 重新对全量美化卡片排序并定位到顶部
-                filterThemeList(0);
 
                 if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
                     const ctx = SillyTavern.getContext();
@@ -679,6 +712,9 @@ export function initThemeImport(config) {
             console.error('[Theme Manager Error] 批量导入产生未捕获异常:', err);
             toastr.error('导入美化发生异常: ' + (err.message || err));
         } finally {
+            if (typeof setSuspendObserver === 'function') {
+                setTimeout(() => setSuspendObserver(false), 100);
+            }
             hideLoader();
         }
     }
