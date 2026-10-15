@@ -55,6 +55,7 @@ const modulesToTest = [
     { name: 'theme-import.js', init: 'initThemeImport', args: {} },
     { name: 'settings-manager.js', init: 'initSettingsManager', args: { settingsKeysToSync: [] } },
     { name: 'avatar-replace.js', init: 'initAvatarReplace', args: {} },
+    { name: 'ai-group.js', init: 'initAiGroup', args: {} },
 ];
 
 let allPassed = true;

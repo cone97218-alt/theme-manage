@@ -251,7 +251,9 @@ export function initAutoGroup(config = {}) {
         toastr,
         escapeHtml = (s) => String(s || ''),
         showLoader = () => {},
-        hideLoader = () => {}
+        hideLoader = () => {},
+        getAiGroupModule = () => null,
+        getAdaptivePopoverBg = () => '#1e2026'
     } = config;
 
     /**
@@ -416,96 +418,114 @@ export function initAutoGroup(config = {}) {
                 : null;
             const hasDeepestTag = deepestActiveTagId && existingTags.some(t => t.id === deepestActiveTagId);
 
+            const popoverBg = typeof getAdaptivePopoverBg === 'function' ? getAdaptivePopoverBg() : '#1e2026';
             const setupHtml = `
-                <div class="tm-wizard-setup-container" style="padding:4px; max-height:calc(85vh - 110px); max-height:calc(85dvh - 110px); height:100%; display:flex; flex-direction:column; box-sizing:border-box; overflow:hidden;">
-                    <h4 style="margin:0 0 10px 0; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px; flex-shrink:0;">
-                        <i class="fa-solid fa-wand-magic-sparkles" style="color:#ffc107;"></i> 智能美化分组向导
-                    </h4>
-                    <div style="background:rgba(255,255,255,0.04); border-radius:6px; padding:16px; flex:1; min-height:0; max-height:calc(85vh - 180px); max-height:calc(85dvh - 180px); display:flex; flex-direction:column; gap:16px; overflow-y:auto;">
-                        <div>
-                            <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
-                                <i class="fa-solid fa-layer-group"></i> 1. 选择分析的美化基数范围：
+                <div class="tm-wizard-setup-container" style="padding:4px; max-height:calc(85vh - 110px); max-height:calc(85dvh - 110px); height:100%; display:flex; flex-direction:column; box-sizing:border-box; overflow:hidden; writing-mode:horizontal-tb !important; width:100%; max-width:100%;">
+                    
+                    <!-- 顶部两项 Tab 切换条 -->
+                    <div class="tm-group-tabs-nav" style="display:flex; gap:8px; margin-bottom:12px; flex-shrink:0; border-bottom:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.12)); padding-bottom:8px;">
+                        <button type="button" id="tm-tab-btn-rule" class="menu_button tm-group-tab-btn active" style="flex:1; padding:8px 12px; font-size:13px; font-weight:bold; border-radius:6px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:6px; border:1px solid var(--SmartThemeQuoteColor, #4a90e2); background:var(--SmartThemeQuoteColor, #4a90e2); color:#ffffff; transition:all 0.2s;" title="基于词频与分词规则的自动分组向导">
+                            <i class="fa-solid fa-list-check"></i>
+                            <span>自动分组</span>
+                        </button>
+                        <button type="button" id="tm-tab-btn-ai" class="menu_button tm-group-tab-btn" style="flex:1; padding:8px 12px; font-size:13px; font-weight:bold; border-radius:6px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:6px; border:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2)); background:rgba(0,0,0,0.25); color:var(--SmartThemeBodyColor, #ffffff); opacity:0.85; transition:all 0.2s;" title="基于酒馆 AI 智能理解与两阶段标签树规划分组">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>
+                            <span>智能分组</span>
+                        </button>
+                    </div>
+
+                    <!-- Tab 1 内容：自动分组（原规则向导） -->
+                    <div id="tm-tab-content-rule" style="flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden;">
+                        <div style="background-color:${popoverBg}; opacity:1 !important; border:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.12)); border-radius:6px; padding:16px; flex:1; min-height:0; max-height:calc(85vh - 180px); max-height:calc(85dvh - 180px); display:flex; flex-direction:column; gap:16px; overflow-y:auto; overflow-x:hidden;">
+                            <div>
+                                <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
+                                    <i class="fa-solid fa-layer-group"></i> 1. 选择分析的美化基数范围：
+                                </div>
+                                <div style="display:flex; flex-direction:column; gap:8px; padding-left:12px;">
+                                    <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                        <input type="radio" name="tm-auto-scope" value="filtered" checked style="margin:0;">
+                                        <span>${scopeFilteredLabel}</span>
+                                    </label>
+                                    <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                        <input type="radio" name="tm-auto-scope" value="all" style="margin:0;">
+                                        <span>全部美化主题 (共 <b>${allParsedThemes.length}</b> 个)</span>
+                                    </label>
+                                    <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                        <input type="radio" name="tm-auto-scope" value="tag" style="margin:0;">
+                                        <span>特定标签下的美化</span>
+                                    </label>
+                                    <div id="tm-auto-scope-tag-container" style="margin-left:24px; display:none;">
+                                        <select id="tm-auto-scope-tag-select" class="text_pole" style="font-size:12px; height:30px; padding:2px 8px; width:100%; max-width:280px; background-color:${popoverBg}; color:var(--SmartThemeBodyColor, #ffffff);">
+                                            ${allTagsSelectOptionsHtml}
+                                        </select>
+                                    </div>
+                                </div>
                             </div>
-                            <div style="display:flex; flex-direction:column; gap:8px; padding-left:12px;">
-                                <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                    <input type="radio" name="tm-auto-scope" value="filtered" checked style="margin:0;">
-                                    <span>${scopeFilteredLabel}</span>
-                                </label>
-                                <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                    <input type="radio" name="tm-auto-scope" value="all" style="margin:0;">
-                                    <span>全部美化主题 (共 <b>${allParsedThemes.length}</b> 个)</span>
-                                </label>
-                                <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                    <input type="radio" name="tm-auto-scope" value="tag" style="margin:0;">
-                                    <span>特定标签下的美化</span>
-                                </label>
-                                <div id="tm-auto-scope-tag-container" style="margin-left:24px; display:none;">
-                                    <select id="tm-auto-scope-tag-select" class="text_pole" style="font-size:12px; height:30px; padding:2px 8px; width:100%; max-width:280px;">
-                                        ${allTagsSelectOptionsHtml}
+                            <hr style="border:0; border-top:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.12)); margin:0;">
+                            <div>
+                                <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
+                                    <i class="fa-solid fa-sitemap"></i> 2. 选择生成标签的目标层级：
+                                </div>
+                                <div style="display:flex; flex-direction:column; gap:8px; padding-left:12px;">
+                                    <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                        <input type="radio" name="tm-auto-level" value="l1" ${!hasDeepestTag ? 'checked' : ''} style="margin:0;">
+                                        <span>创建为 <b>一级主标签/分类</b></span>
+                                    </label>
+                                    <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                        <input type="radio" name="tm-auto-level" value="l2" ${hasDeepestTag ? 'checked' : ''} style="margin:0;">
+                                        <span>创建为 <b>二级子标签</b> (支持向归属主分类融合/合并)</span>
+                                    </label>
+                                    <div id="tm-auto-parent-container" style="margin-left:24px; display:${hasDeepestTag ? 'block' : 'none'};">
+                                        <select id="tm-auto-parent-select" class="text_pole" style="font-size:12px; height:30px; padding:2px 8px; width:100%; max-width:280px; background-color:${popoverBg}; color:var(--SmartThemeBodyColor, #ffffff);">
+                                            ${l1SelectOptionsHtml}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <hr style="border:0; border-top:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.12)); margin:0;">
+                            <div>
+                                <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
+                                    <i class="fa-solid fa-filter"></i> 3. 提取门槛：
+                                </div>
+                                <div style="display:inline-flex; align-items:center; gap:8px; font-size:13px; padding-left:12px;">
+                                    <span>至少重合包含：</span>
+                                    <input type="number" id="tm-auto-min-match" class="text_pole" value="2" min="2" max="50" style="width:60px; text-align:center; height:28px; padding:0; margin:0; background-color:${popoverBg}; color:var(--SmartThemeBodyColor, #ffffff);">
+                                    <span>个美化主题</span>
+                                </div>
+                            </div>
+                            <hr style="border:0; border-top:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.12)); margin:0;">
+                            <div>
+                                <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
+                                    <i class="fa-solid fa-list-ol"></i> 4. 提取分类上限 (海量美化专用)：
+                                </div>
+                                <div style="display:inline-flex; align-items:center; gap:8px; font-size:13px; padding-left:12px; flex-wrap:wrap;">
+                                    <span>提取候选上限：</span>
+                                    <select id="tm-auto-max-candidates" class="text_pole" style="font-size:12px; height:28px; padding:2px 8px; width:170px; margin:0; background-color:${popoverBg}; color:var(--SmartThemeBodyColor, #ffffff);">
+                                        <option value="100">100 组 (默认推荐)</option>
+                                        <option value="200" selected>200 组 (深度提取)</option>
+                                        <option value="500">500 组 (海量美化推荐)</option>
+                                        <option value="0">🚀 全量全景提取 (不限组数)</option>
                                     </select>
+                                    <small style="opacity:0.65;">(不限组数可提取所有可能的分类组，结合全景矩阵审核一键全选清理)</small>
+                                </div>
+                            </div>
+                            <hr style="border:0; border-top:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.12)); margin:0;">
+                            <div>
+                                <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
+                                    <i class="fa-solid fa-filter-circle-xmark"></i> 5. 智能过滤：
+                                </div>
+                                <div style="display:flex; flex-direction:column; gap:8px; padding-left:12px;">
+                                    <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+                                        <input type="checkbox" id="tm-auto-untagged-only" style="margin:0;">
+                                        <span>🎯 仅分析<b>未归类</b>的美化</span>
+                                    </label>
                                 </div>
                             </div>
                         </div>
-                        <hr style="border:0; border-top:1px solid rgba(128,128,128,0.2); margin:0;">
-                        <div>
-                            <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
-                                <i class="fa-solid fa-sitemap"></i> 2. 选择生成标签的目标层级：
-                            </div>
-                            <div style="display:flex; flex-direction:column; gap:8px; padding-left:12px;">
-                                <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                    <input type="radio" name="tm-auto-level" value="l1" ${!hasDeepestTag ? 'checked' : ''} style="margin:0;">
-                                    <span>创建为 <b>一级主标签/分类</b></span>
-                                </label>
-                                <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                    <input type="radio" name="tm-auto-level" value="l2" ${hasDeepestTag ? 'checked' : ''} style="margin:0;">
-                                    <span>创建为 <b>二级子标签</b> (支持向归属主分类融合/合并)</span>
-                                </label>
-                                <div id="tm-auto-parent-container" style="margin-left:24px; display:${hasDeepestTag ? 'block' : 'none'};">
-                                    <select id="tm-auto-parent-select" class="text_pole" style="font-size:12px; height:30px; padding:2px 8px; width:100%; max-width:280px;">
-                                        ${l1SelectOptionsHtml}
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                        <hr style="border:0; border-top:1px solid rgba(128,128,128,0.2); margin:0;">
-                        <div>
-                            <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
-                                <i class="fa-solid fa-filter"></i> 3. 提取门槛：
-                            </div>
-                            <div style="display:inline-flex; align-items:center; gap:8px; font-size:13px; padding-left:12px;">
-                                <span>至少重合包含：</span>
-                                <input type="number" id="tm-auto-min-match" class="text_pole" value="2" min="2" max="50" style="width:60px; text-align:center; height:28px; padding:0; margin:0;">
-                                <span>个美化主题</span>
-                            </div>
-                        </div>
-                        <hr style="border:0; border-top:1px solid rgba(128,128,128,0.2); margin:0;">
-                        <div>
-                            <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
-                                <i class="fa-solid fa-list-ol"></i> 4. 提取分类上限 (海量美化专用)：
-                            </div>
-                            <div style="display:inline-flex; align-items:center; gap:8px; font-size:13px; padding-left:12px; flex-wrap:wrap;">
-                                <span>提取候选上限：</span>
-                                <select id="tm-auto-max-candidates" class="text_pole" style="font-size:12px; height:28px; padding:2px 8px; width:170px; margin:0;">
-                                    <option value="100">100 组 (默认推荐)</option>
-                                    <option value="200" selected>200 组 (深度提取)</option>
-                                    <option value="500">500 组 (海量美化推荐)</option>
-                                    <option value="0">🚀 全量全景提取 (不限组数)</option>
-                                </select>
-                                <small style="opacity:0.65;">(不限组数可提取所有可能的分类组，结合全景矩阵审核一键全选清理)</small>
-                            </div>
-                        </div>
-                        <hr style="border:0; border-top:1px solid rgba(128,128,128,0.2); margin:0;">
-                        <div>
-                            <div style="font-size:13px; font-weight:bold; margin-bottom:8px; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:6px;">
-                                <i class="fa-solid fa-filter-circle-xmark"></i> 5. 智能过滤：
-                            </div>
-                            <div style="display:flex; flex-direction:column; gap:8px; padding-left:12px;">
-                                <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
-                                    <input type="checkbox" id="tm-auto-untagged-only" style="margin:0;">
-                                    <span>🎯 仅分析<b>未归类</b>的美化 (在该目标层级下尚无更细分子标签的美化)</span>
-                                </label>
-                            </div>
-                        </div>
+                    </div>
+
+                    <!-- Tab 2 内容：智能分组 (AI 两阶段) -->
+                    <div id="tm-tab-content-ai" style="flex:1; min-height:0; display:none; flex-direction:column; overflow-y:auto; overflow-x:hidden;">
                     </div>
                 </div>
             `;
@@ -517,9 +537,10 @@ export function initAutoGroup(config = {}) {
             let minMatch = 2;
             let maxCandidates = 200;
             let untaggedOnly = false;
+            let currentActiveTab = 'rule';
 
             const popupRes = await callGenericPopup(setupHtml, 2, null, {
-                title: '分组提取设置',
+                title: '美化分组向导',
                 okButton: '▶ 开始分析提取',
                 cancelButton: '✕ 取消',
                 wide: true,
@@ -534,6 +555,9 @@ export function initAutoGroup(config = {}) {
                         dlg.style.display = 'flex';
                         dlg.style.flexDirection = 'column';
                         dlg.style.boxSizing = 'border-box';
+                        dlg.style.backgroundColor = popoverBg;
+                        dlg.style.writingMode = 'horizontal-tb';
+                        dlg.style.overflowX = 'hidden';
 
                         const body = dlg.querySelector('.popup-body');
                         if (body) {
@@ -542,6 +566,7 @@ export function initAutoGroup(config = {}) {
                             body.style.flexDirection = 'column';
                             body.style.minHeight = '0';
                             body.style.overflow = 'hidden';
+                            body.style.backgroundColor = popoverBg;
                         }
                         const content = dlg.querySelector('.popup-content');
                         if (content) {
@@ -550,7 +575,71 @@ export function initAutoGroup(config = {}) {
                             content.style.flexDirection = 'column';
                             content.style.minHeight = '0';
                             content.style.overflow = 'hidden';
+                            content.style.backgroundColor = popoverBg;
                         }
+
+                        const tabRuleBtn = dlg.querySelector('#tm-tab-btn-rule');
+                        const tabAiBtn = dlg.querySelector('#tm-tab-btn-ai');
+                        const contentRule = dlg.querySelector('#tm-tab-content-rule');
+                        const contentAi = dlg.querySelector('#tm-tab-content-ai');
+                        const okBtn = dlg.querySelector('.popup-button-ok');
+
+                        let aiTabRendered = false;
+
+                        const switchTab = (tab) => {
+                            currentActiveTab = tab;
+                            if (tab === 'rule') {
+                                if (tabRuleBtn) {
+                                    tabRuleBtn.style.border = '1px solid var(--SmartThemeQuoteColor, #4a90e2)';
+                                    tabRuleBtn.style.background = 'var(--SmartThemeQuoteColor, #4a90e2)';
+                                    tabRuleBtn.style.color = '#ffffff';
+                                    tabRuleBtn.style.opacity = '1';
+                                }
+                                if (tabAiBtn) {
+                                    tabAiBtn.style.border = '1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2))';
+                                    tabAiBtn.style.background = 'rgba(0,0,0,0.25)';
+                                    tabAiBtn.style.color = 'var(--SmartThemeBodyColor, #ffffff)';
+                                    tabAiBtn.style.opacity = '0.85';
+                                }
+                                if (contentRule) contentRule.style.display = 'flex';
+                                if (contentAi) contentAi.style.display = 'none';
+                                if (okBtn) okBtn.style.display = '';
+                            } else {
+                                if (tabAiBtn) {
+                                    tabAiBtn.style.border = '1px solid var(--SmartThemeQuoteColor, #4a90e2)';
+                                    tabAiBtn.style.background = 'var(--SmartThemeQuoteColor, #4a90e2)';
+                                    tabAiBtn.style.color = '#ffffff';
+                                    tabAiBtn.style.opacity = '1';
+                                }
+                                if (tabRuleBtn) {
+                                    tabRuleBtn.style.border = '1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2))';
+                                    tabRuleBtn.style.background = 'rgba(0,0,0,0.25)';
+                                    tabRuleBtn.style.color = 'var(--SmartThemeBodyColor, #ffffff)';
+                                    tabRuleBtn.style.opacity = '0.85';
+                                }
+                                if (contentRule) contentRule.style.display = 'none';
+                                if (contentAi) contentAi.style.display = 'flex';
+                                if (okBtn) okBtn.style.display = 'none';
+
+                                if (!aiTabRendered) {
+                                    aiTabRendered = true;
+                                    const aiModule = (typeof getAiGroupModule === 'function') ? getAiGroupModule() : null;
+                                    if (aiModule && typeof aiModule.renderAiGroupTabContent === 'function') {
+                                        aiModule.renderAiGroupTabContent(contentAi);
+                                    } else {
+                                        contentAi.innerHTML = `
+                                            <div style="padding:24px; text-align:center; opacity:0.8; color:var(--SmartThemeBodyColor, #ffffff); background-color:${popoverBg};">
+                                                <i class="fa-solid fa-triangle-exclamation" style="font-size:24px; color:var(--SmartThemeQuoteColor, #4a90e2); margin-bottom:8px;"></i>
+                                                <div>AI 智能分组模块尚未就绪，请检查酒馆网络或刷新重试。</div>
+                                            </div>
+                                        `;
+                                    }
+                                }
+                            }
+                        };
+
+                        if (tabRuleBtn) tabRuleBtn.addEventListener('click', () => switchTab('rule'));
+                        if (tabAiBtn) tabAiBtn.addEventListener('click', () => switchTab('ai'));
                     }
 
                     const parentSelect = dlg.querySelector('#tm-auto-parent-select');
@@ -630,7 +719,7 @@ export function initAutoGroup(config = {}) {
                 }
             });
 
-            if (!popupRes) return;
+            if (!popupRes || currentActiveTab === 'ai') return;
 
             // 计算当前分析的分组归属标识，严格锁定智能映射范围（本分组）
             const effectiveGroupScopeId = (selectedLevel === 'l2' && parentId) ? parentId : (selectedScope === 'tag' ? scopeTagId : (hasDeepestTag ? deepestActiveTagId : null));

@@ -3153,6 +3153,31 @@
                     openManageTagsPopup();
                 });
 
+                let aiGroupModule = null;
+                try {
+                    const { initAiGroup } = await import(`${baseDir}modules/ai-group.js`);
+                    aiGroupModule = initAiGroup({
+                        loadThemeTags,
+                        saveThemeTags,
+                        getAllParsedThemes: () => allParsedThemes,
+                        getSelectedForBatch: () => selectedForBatch,
+                        getFilteredThemes: () => (typeof filteredThemes !== 'undefined' ? filteredThemes : allParsedThemes),
+                        findThemeObject,
+                        getCachedThemes,
+                        callGenericPopup,
+                        toastr,
+                        escapeHtml,
+                        showLoader,
+                        hideLoader,
+                        closePopup,
+                        getAdaptivePopoverBg,
+                        limitConcurrency,
+                        softRefreshUI: (names) => softRefreshUI(names)
+                    });
+                } catch (e) {
+                    console.error('[Theme Manager] AI 智能分组模块加载失败:', e);
+                }
+
                 try {
                     const { initAutoGroup, AUTO_GROUP_STOPWORDS, isTextMatchingCompositeSearch, sanitizeThemeTitle } = await import(`${baseDir}modules/auto-group.js`);
                     const autoGroupModule = initAutoGroup({
@@ -3176,7 +3201,9 @@
                         toastr,
                         escapeHtml,
                         showLoader,
-                        hideLoader
+                        hideLoader,
+                        getAiGroupModule: () => aiGroupModule,
+                        getAdaptivePopoverBg
                     });
                     applyKeywordMappings = autoGroupModule.applyKeywordMappings;
                     openAutoGroupWizard = autoGroupModule.openAutoGroupWizard;
