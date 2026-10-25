@@ -263,45 +263,78 @@ export function initThemeCore(options) {
         const rawName = String(themeName || pu?.theme || originalSelect?.value || '').trim();
         const currentObj = findThemeObject(rawName) || {};
 
-        let currentCss = '';
-        const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style');
-        if (editorEl) {
-            if (editorEl.CodeMirror && typeof editorEl.CodeMirror.getValue === 'function') {
-                currentCss = editorEl.CodeMirror.getValue();
-            } else if (window.jQuery && $(editorEl).data('codemirror')) {
-                const cm = $(editorEl).data('codemirror');
-                if (cm && typeof cm.getValue === 'function') currentCss = cm.getValue();
-            } else if (typeof editorEl.value === 'string' && editorEl.value.trim()) {
-                currentCss = editorEl.value;
-            }
-        }
-        if (!currentCss && pu && typeof pu.custom_css === 'string' && pu.custom_css.trim()) {
-            currentCss = pu.custom_css;
-        }
-        if (!currentCss) {
-            const styleTag = document.getElementById('custom-style');
-            if (styleTag && typeof styleTag.innerHTML === 'string' && styleTag.innerHTML.trim()) {
-                currentCss = styleTag.innerHTML;
+        let currentCss = null;
+
+        // 1. 优先检查是否存在处于展开/编辑状态的最大化 CSS 编辑器（移动端常用）
+        const maxTextarea = document.querySelector('.maximized_textarea[data-for="customCSS"]') || 
+                            document.querySelector('.maximized_textarea');
+        if (maxTextarea && typeof maxTextarea.value === 'string') {
+            currentCss = maxTextarea.value;
+            const origArea = document.querySelector('#customCSS');
+            if (origArea) {
+                origArea.value = currentCss;
+                try { origArea.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
             }
         }
 
-        // 辅助提取数值（支持 DOM 滑块、计数器输入框、pu 字段、旧主题对象及保底默认值）
+        // 2. 检查页面中标准的 CSS 输入框
+        if (currentCss === null) {
+            const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style');
+            if (editorEl) {
+                if (editorEl.CodeMirror && typeof editorEl.CodeMirror.getValue === 'function') {
+                    currentCss = editorEl.CodeMirror.getValue();
+                } else if (window.jQuery && $(editorEl).data('codemirror')) {
+                    const cm = $(editorEl).data('codemirror');
+                    if (cm && typeof cm.getValue === 'function') currentCss = cm.getValue();
+                } else if (typeof editorEl.value === 'string') {
+                    // 保留用户真实输入的字符串（即使被用户清空为 "" 也是有意修改）
+                    currentCss = editorEl.value;
+                }
+            }
+        }
+
+        // 3. 兜底回退：若 DOM 中完全未找到编辑框，才使用 pu 内存或 <style> 标签
+        if (currentCss === null && pu && typeof pu.custom_css === 'string') {
+            currentCss = pu.custom_css;
+        }
+        if (currentCss === null) {
+            const styleTag = document.getElementById('custom-style');
+            if (styleTag && typeof styleTag.innerHTML === 'string') {
+                currentCss = styleTag.innerHTML;
+            }
+        }
+        if (currentCss === null) currentCss = '';
+
+        // 辅助提取数值（支持计数器输入框、DOM滑块、pu 字段、旧主题对象及保底默认值）
         const extractNum = (sliderId, counterId, puProp, minVal, maxVal, defaultVal) => {
             let val = null;
             const slider = sliderId ? document.querySelector(sliderId) : null;
             const counter = counterId ? document.querySelector(counterId) : null;
-            if (slider && slider.value !== '' && !isNaN(Number(slider.value))) {
+
+            // 移动端优先：手机端拖动微小滑块极易偏差，用户常直接在数字框中输入。
+            // 若 counter 有值且当前获得焦点，或其值与 slider 不一致，优先以 counter 为准
+            if (counter && counter.value !== '' && !isNaN(Number(counter.value))) {
+                const cVal = Number(counter.value);
+                if (document.activeElement === counter || !slider || slider.value === '' || isNaN(Number(slider.value)) || cVal !== Number(slider.value)) {
+                    val = cVal;
+                }
+            }
+
+            if (val === null && slider && slider.value !== '' && !isNaN(Number(slider.value))) {
                 val = Number(slider.value);
-            } else if (counter && counter.value !== '' && !isNaN(Number(counter.value))) {
+            } else if (val === null && counter && counter.value !== '' && !isNaN(Number(counter.value))) {
                 val = Number(counter.value);
-            } else if (pu && pu[puProp] !== undefined && pu[puProp] !== null && pu[puProp] !== '' && !isNaN(Number(pu[puProp]))) {
+            } else if (val === null && pu && pu[puProp] !== undefined && pu[puProp] !== null && pu[puProp] !== '' && !isNaN(Number(pu[puProp]))) {
                 val = Number(pu[puProp]);
-            } else if (currentObj && currentObj[puProp] !== undefined && currentObj[puProp] !== null && currentObj[puProp] !== '' && !isNaN(Number(currentObj[puProp]))) {
+            } else if (val === null && currentObj && currentObj[puProp] !== undefined && currentObj[puProp] !== null && currentObj[puProp] !== '' && !isNaN(Number(currentObj[puProp]))) {
                 val = Number(currentObj[puProp]);
             }
+
             if (val !== null && !isNaN(val)) {
                 if (minVal !== undefined && val < minVal) val = minVal;
                 if (maxVal !== undefined && val > maxVal) val = maxVal;
+                if (slider && Number(slider.value) !== val) slider.value = val;
+                if (counter && Number(counter.value) !== val) counter.value = val;
                 return val;
             }
             return defaultVal;
@@ -317,32 +350,44 @@ export function initThemeCore(options) {
             pu.font_scale = finalFontScale;
             pu.blur_strength = finalBlur;
             pu.shadow_width = finalShadow;
+            pu.custom_css = currentCss;
         }
 
         // 权威取色逻辑：
-        // ① pu[puProp] (用户选色时 ST 监听器实时写入的权威内存数据，格式如 rgba(r,g,b,a))
+        // ① picker.rgba / picker.rgb / picker.value (Web Component 实时属性。移动端选色时若弹窗未关闭或 change 未触发，组件内部已是最真实选择)
         // ② 生效中的 CSS 变量 (applyThemeColor 实时写入的真实样式)
-        // ③ picker.rgba / picker.rgb / picker.value (Web Component 内部实时属性)
+        // ③ pu[puProp] (用户选色时 ST 监听器写入的内存数据)
         // ④ currentObj[puProp] (已加载主题对象的原始颜色)
-        // ⑤ picker.getAttribute('color') (仅作为末位兜底，切勿优先读取，因 toolcool 选色时不更新 attribute)
+        // ⑤ picker.getAttribute('color') (兜底)
         // ⑥ DEFAULT_THEME_PROPS[puProp]
         const getColorVal = (pickerId, puProp, cssVar) => {
-            if (pu && typeof pu[puProp] === 'string' && pu[puProp].trim()) {
-                return pu[puProp].trim();
+            const picker = document.querySelector(pickerId);
+            if (picker) {
+                if (typeof picker.rgba === 'string' && picker.rgba.trim()) {
+                    const pickerColor = picker.rgba.trim();
+                    if (pu) pu[puProp] = pickerColor;
+                    return pickerColor;
+                }
+                if (typeof picker.value === 'string' && picker.value.trim()) {
+                    const pickerColor = picker.value.trim();
+                    if (pu) pu[puProp] = pickerColor;
+                    return pickerColor;
+                }
             }
 
             if (cssVar) {
                 try {
                     const cssVal = (document.documentElement.style.getPropertyValue(cssVar) ||
                         (typeof getComputedStyle === 'function' ? getComputedStyle(document.documentElement).getPropertyValue(cssVar) : '')).trim();
-                    if (cssVal) return cssVal;
+                    if (cssVal) {
+                        if (pu) pu[puProp] = cssVal;
+                        return cssVal;
+                    }
                 } catch (e) {}
             }
 
-            const picker = document.querySelector(pickerId);
-            if (picker) {
-                if (typeof picker.rgba === 'string' && picker.rgba.trim()) return picker.rgba.trim();
-                if (typeof picker.value === 'string' && picker.value.trim()) return picker.value.trim();
+            if (pu && typeof pu[puProp] === 'string' && pu[puProp].trim()) {
+                return pu[puProp].trim();
             }
 
             if (currentObj && typeof currentObj[puProp] === 'string' && currentObj[puProp].trim()) {
@@ -351,7 +396,10 @@ export function initThemeCore(options) {
 
             if (picker) {
                 const attrCol = picker.getAttribute('color');
-                if (attrCol && typeof attrCol === 'string' && attrCol.trim()) return attrCol.trim();
+                if (attrCol && typeof attrCol === 'string' && attrCol.trim()) {
+                    if (pu) pu[puProp] = attrCol.trim();
+                    return attrCol.trim();
+                }
             }
 
             return DEFAULT_THEME_PROPS[puProp];
@@ -392,8 +440,26 @@ export function initThemeCore(options) {
                 if (pu[k] !== undefined) snapshot[k] = pu[k];
             });
         }
-        const reducedMotionEl = document.querySelector('#reduced_motion');
-        if (reducedMotionEl) snapshot.reduced_motion = reducedMotionEl.checked;
+
+        // 直接读取 DOM 控件实时状态，防止移动端事件尚未派发导致 pu 内存滞后
+        const checkboxKeys = ['fast_ui_mode', 'waifuMode', 'noShadows', 'timer_enabled', 'timestamps_enabled', 'reduced_motion', 'compact_input_area', 'click_to_edit', 'hotswap_enabled'];
+        checkboxKeys.forEach(k => {
+            const el = document.querySelector('#' + k);
+            if (el && typeof el.checked === 'boolean') {
+                snapshot[k] = el.checked;
+                if (pu) pu[k] = el.checked;
+            }
+        });
+
+        const selectKeys = ['avatar_style', 'chat_display', 'toastr_position', 'media_display'];
+        selectKeys.forEach(k => {
+            const el = document.querySelector('#' + k);
+            if (el && el.value !== undefined && el.value !== '') {
+                const val = isNaN(Number(el.value)) ? el.value : Number(el.value);
+                snapshot[k] = val;
+                if (pu) pu[k] = val;
+            }
+        });
 
         return snapshot;
     }

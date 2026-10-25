@@ -534,16 +534,26 @@
                                         dlg.style.maxWidth = '380px';
                                         const input = dlg.querySelector(`#${inputId}`);
                                         if (input) {
-                                            input.addEventListener('input', (e) => {
-                                                currentInputValue = e.target.value;
-                                            });
+                                            const syncValue = () => {
+                                                if (input) currentInputValue = input.value;
+                                            };
+                                            input.addEventListener('input', syncValue);
+                                            input.addEventListener('change', syncValue);
+                                            input.addEventListener('blur', syncValue);
                                             input.addEventListener('keydown', (e) => {
                                                 if (e.key === 'Enter') {
-                                                    currentInputValue = input.value;
-                                                    const okBtn = dlg.querySelector('.popup_ok');
+                                                    syncValue();
+                                                    const okBtn = dlg.querySelector('.popup_ok, .popup-button-ok');
                                                     if (okBtn) okBtn.click();
                                                 }
                                             });
+
+                                            const okButton = dlg.querySelector('.popup_ok, .popup-button-ok');
+                                            if (okButton) {
+                                                okButton.addEventListener('pointerdown', syncValue);
+                                                okButton.addEventListener('click', syncValue);
+                                            }
+
                                             setTimeout(() => { input.focus(); input.select(); }, 100);
                                         }
                                     }
@@ -841,85 +851,161 @@
                 nativeButtonsContainer.appendChild(cleanUpdateButton);
                 nativeButtonsContainer.appendChild(cleanSaveAsButton);
 
-                // 1. 深度接管“更新当前主题” (Update Theme)
-                cleanUpdateButton.addEventListener('click', async (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
+                // 辅助函数：统一让激活中的输入框失焦并微延时，确保移动端虚拟键盘收起、IME完成合成、DOM数据完全提交
+                async function flushActiveInputState() {
+                    if (document.activeElement && typeof document.activeElement.blur === 'function') {
+                        document.activeElement.blur();
+                    }
+                    // 等待一个事件循环周期，让浏览器完成 change/input 派发与移动端重排
+                    await new Promise(r => setTimeout(r, 60));
+                }
 
-                    const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
-                    const currentThemeName = pu?.theme || originalSelect?.value || '';
-                    if (!currentThemeName) {
-                        toastr.warning('当前未选中任何主题，无法更新');
+                // 1. 深度接管“更新当前主题” (Update Theme)
+                let _isSavingTheme = false;
+                let _lastUpdateTouchTime = 0;
+
+                const executeThemeUpdate = async (e) => {
+                    if (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }
+                    if (_isSavingTheme) return;
+                    _isSavingTheme = true;
+
+                    try {
+                        await flushActiveInputState();
+
+                        const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
+                        const currentThemeName = pu?.theme || originalSelect?.value || _activeThemeItem?.dataset?.value || '';
+                        if (!currentThemeName) {
+                            toastr.warning('当前未选中任何主题，无法更新');
+                            return;
+                        }
+
+                        showLoader();
+                        try {
+                            console.log(`[Theme Manager] 正在更新并固化当前主题: "${currentThemeName}"`);
+                            const snapshot = captureCurrentThemeSnapshot(currentThemeName);
+
+                            const ok = await saveTheme(snapshot);
+                            if (!ok) throw new Error('保存主题写盘失败');
+
+                            // 增量维护内存与 UI mtime
+                            recordThemeMtime(currentThemeName);
+                            const parsed = allParsedThemesMap.get(currentThemeName);
+                            if (parsed) parsed.mtime = Date.now();
+
+                            toastr.success(`主题「${currentThemeName}」已成功保存并更新！`);
+                        } catch (err) {
+                            console.error('[Theme Manager Error] 保存更新主题失败:', err);
+                            toastr.error(`更新主题失败: ${err.message || err}`);
+                        } finally {
+                            hideLoader();
+                        }
+                    } finally {
+                        _isSavingTheme = false;
+                    }
+                };
+
+                // 移动端触摸保护：当软键盘弹出时，点击可能因失焦导致页面跳动而丢掉 click，在 pointerdown/touchend 预先处理
+                cleanUpdateButton.addEventListener('pointerdown', (e) => {
+                    if (e.pointerType === 'touch') {
+                        if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+                            document.activeElement.blur();
+                        }
+                    }
+                });
+                cleanUpdateButton.addEventListener('touchend', (e) => {
+                    _lastUpdateTouchTime = Date.now();
+                    executeThemeUpdate(e);
+                }, { passive: false });
+                cleanUpdateButton.addEventListener('click', (e) => {
+                    if (Date.now() - _lastUpdateTouchTime < 500) {
+                        e.preventDefault();
+                        e.stopPropagation();
                         return;
                     }
-
-                    showLoader();
-                    try {
-                        console.log(`[Theme Manager] 正在更新并固化当前主题: "${currentThemeName}"`);
-                        const snapshot = captureCurrentThemeSnapshot(currentThemeName);
-
-                        const ok = await saveTheme(snapshot);
-                        if (!ok) throw new Error('保存主题写盘失败');
-
-                        // 增量维护内存与 UI mtime
-                        recordThemeMtime(currentThemeName);
-                        const parsed = allParsedThemesMap.get(currentThemeName);
-                        if (parsed) parsed.mtime = Date.now();
-
-                        toastr.success(`主题「${currentThemeName}」已成功保存并更新！`);
-                    } catch (err) {
-                        console.error('[Theme Manager Error] 保存更新主题失败:', err);
-                        toastr.error(`更新主题失败: ${err.message || err}`);
-                    } finally {
-                        hideLoader();
-                    }
+                    executeThemeUpdate(e);
                 });
 
                 // 2. 深度接管“另存为新主题” (Save As New Theme)
-                cleanSaveAsButton.addEventListener('click', async (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
+                let _isSavingAsTheme = false;
+                let _lastSaveAsTouchTime = 0;
 
-                    const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
-                    const baseName = pu?.theme || originalSelect?.value || '新主题';
-                    const suggestedName = `${baseName} (副本)`;
+                const executeThemeSaveAs = async (e) => {
+                    if (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }
+                    if (_isSavingAsTheme) return;
+                    _isSavingAsTheme = true;
 
-                    const inputName = await promptAction('请输入新美化主题名称：', suggestedName);
-                    if (!inputName || !inputName.trim()) return;
+                    try {
+                        await flushActiveInputState();
 
-                    const finalNewName = inputName.trim();
+                        const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
+                        const baseName = pu?.theme || originalSelect?.value || _activeThemeItem?.dataset?.value || '新主题';
+                        const suggestedName = `${baseName} (副本)`;
 
-                    // 检查是否重名
-                    if (allParsedThemesMap.has(finalNewName)) {
-                        toastr.warning(`主题「${finalNewName}」已存在，请使用其他名称`);
+                        const inputName = await promptAction('请输入新美化主题名称：', suggestedName);
+                        if (!inputName || !inputName.trim()) return;
+
+                        const finalNewName = inputName.trim();
+
+                        // 检查是否重名
+                        if (allParsedThemesMap.has(finalNewName)) {
+                            toastr.warning(`主题「${finalNewName}」已存在，请使用其他名称`);
+                            return;
+                        }
+
+                        showLoader();
+                        try {
+                            console.log(`[Theme Manager] 正在另存为新主题: "${finalNewName}"`);
+                            const snapshot = captureCurrentThemeSnapshot(finalNewName);
+
+                            const ok = await saveTheme(snapshot);
+                            if (!ok) throw new Error('保存主题写盘失败');
+
+                            // 1. 原生 select 同步追加
+                            manualUpdateOriginalSelect('add', null, finalNewName);
+
+                            // 2. 增量更新内存与 UI（包含完整的 data 配置数据）
+                            const listUl = contentWrapper.querySelector('.theme-list');
+                            softAddThemeUI(snapshot, null, listUl);
+
+                            // 3. 立即极速应用新主题
+                            applyThemeDirect(finalNewName);
+
+                            toastr.success(`新主题「${finalNewName}」已成功创建并应用！`);
+                        } catch (err) {
+                            console.error('[Theme Manager Error] 另存为主题失败:', err);
+                            toastr.error(`另存为主题失败: ${err.message || err}`);
+                        } finally {
+                            hideLoader();
+                        }
+                    } finally {
+                        _isSavingAsTheme = false;
+                    }
+                };
+
+                cleanSaveAsButton.addEventListener('pointerdown', (e) => {
+                    if (e.pointerType === 'touch') {
+                        if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+                            document.activeElement.blur();
+                        }
+                    }
+                });
+                cleanSaveAsButton.addEventListener('touchend', (e) => {
+                    _lastSaveAsTouchTime = Date.now();
+                    executeThemeSaveAs(e);
+                }, { passive: false });
+                cleanSaveAsButton.addEventListener('click', (e) => {
+                    if (Date.now() - _lastSaveAsTouchTime < 500) {
+                        e.preventDefault();
+                        e.stopPropagation();
                         return;
                     }
-
-                    showLoader();
-                    try {
-                        console.log(`[Theme Manager] 正在另存为新主题: "${finalNewName}"`);
-                        const snapshot = captureCurrentThemeSnapshot(finalNewName);
-
-                        const ok = await saveTheme(snapshot);
-                        if (!ok) throw new Error('保存主题写盘失败');
-
-                        // 1. 原生 select 同步追加
-                        manualUpdateOriginalSelect('add', null, finalNewName);
-
-                        // 2. 增量更新内存与 UI（包含完整的 data 配置数据）
-                        const listUl = contentWrapper.querySelector('.theme-list');
-                        softAddThemeUI(snapshot, null, listUl);
-
-                        // 3. 立即极速应用新主题
-                        applyThemeDirect(finalNewName);
-
-                        toastr.success(`新主题「${finalNewName}」已成功创建并应用！`);
-                    } catch (err) {
-                        console.error('[Theme Manager Error] 另存为主题失败:', err);
-                        toastr.error(`另存为主题失败: ${err.message || err}`);
-                    } finally {
-                        hideLoader();
-                    }
+                    executeThemeSaveAs(e);
                 });
 
                 const header = managerPanel.querySelector('#theme-manager-header');
