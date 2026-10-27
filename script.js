@@ -893,7 +893,10 @@
                             // 增量维护内存与 UI mtime
                             recordThemeMtime(currentThemeName);
                             const parsed = allParsedThemesMap.get(currentThemeName);
-                            if (parsed) parsed.mtime = Date.now();
+                            if (parsed) {
+                                parsed.mtime = Date.now();
+                                parsed.data = snapshot;
+                            }
 
                             toastr.success(`主题「${currentThemeName}」已成功保存并更新！`);
                         } catch (err) {

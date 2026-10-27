@@ -265,45 +265,89 @@ export function initThemeCore(options) {
 
         let currentCss = null;
 
-        // 1. 优先检查是否存在处于展开/编辑状态的最大化 CSS 编辑器（移动端常用）
-        const maxTextarea = document.querySelector('.maximized_textarea[data-for="customCSS"]') || 
-                            document.querySelector('.maximized_textarea');
-        if (maxTextarea && typeof maxTextarea.value === 'string') {
-            currentCss = maxTextarea.value;
-            const origArea = document.querySelector('#customCSS');
-            if (origArea) {
-                origArea.value = currentCss;
-                try { origArea.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
-            }
-        }
-
-        // 2. 检查页面中标准的 CSS 输入框
-        if (currentCss === null) {
-            const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content') || document.querySelector('#custom_style');
-            if (editorEl) {
-                if (editorEl.CodeMirror && typeof editorEl.CodeMirror.getValue === 'function') {
-                    currentCss = editorEl.CodeMirror.getValue();
-                } else if (window.jQuery && $(editorEl).data('codemirror')) {
-                    const cm = $(editorEl).data('codemirror');
-                    if (cm && typeof cm.getValue === 'function') currentCss = cm.getValue();
-                } else if (typeof editorEl.value === 'string') {
-                    // 保留用户真实输入的字符串（即使被用户清空为 "" 也是有意修改）
-                    currentCss = editorEl.value;
+        // 1. 优先检查是否存在处于展开/编辑状态的最大化 CSS 编辑器
+        // ⚠️ 严禁使用无属性限制的 document.querySelector('.maximized_textarea')！
+        // 在酒馆中，聊天输入框、人物设定、世界书等任意文本框放大均带有 .maximized_textarea，
+        // 盲目匹配会导致手机端或弹窗下误匹配到无关输入框从而将 CSS 彻底清空！
+        const maxTextarea = document.querySelector('.maximized_textarea[data-for="customCSS"]');
+        if (maxTextarea && (maxTextarea.dataset?.for === 'customCSS' || maxTextarea.getAttribute('data-for') === 'customCSS')) {
+            if (typeof maxTextarea.value === 'string') {
+                const val = maxTextarea.value;
+                if (val.trim().length > 0) {
+                    currentCss = val;
+                } else if (document.activeElement === maxTextarea) {
+                    // 仅当用户正在该最大化 CSS 输入框中编辑且清空了内容时，才视为有意清空
+                    currentCss = '';
+                }
+                if (currentCss !== null) {
+                    const origArea = document.querySelector('#customCSS');
+                    if (origArea && origArea.value !== currentCss) {
+                        origArea.value = currentCss;
+                        try { origArea.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+                    }
                 }
             }
         }
 
-        // 3. 兜底回退：若 DOM 中完全未找到编辑框，才使用 pu 内存或 <style> 标签
-        if (currentCss === null && pu && typeof pu.custom_css === 'string') {
-            currentCss = pu.custom_css;
-        }
+        // 2. 检查页面中标准的 CSS 输入框 (#customCSS)
         if (currentCss === null) {
-            const styleTag = document.getElementById('custom-style');
-            if (styleTag && typeof styleTag.innerHTML === 'string') {
-                currentCss = styleTag.innerHTML;
+            const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content');
+            if (editorEl) {
+                let editorVal = null;
+                if (editorEl.CodeMirror && typeof editorEl.CodeMirror.getValue === 'function') {
+                    editorVal = editorEl.CodeMirror.getValue();
+                } else if (window.jQuery && $(editorEl).data('codemirror')) {
+                    const cm = $(editorEl).data('codemirror');
+                    if (cm && typeof cm.getValue === 'function') editorVal = cm.getValue();
+                } else if (typeof editorEl.value === 'string') {
+                    editorVal = editorEl.value;
+                }
+
+                if (typeof editorVal === 'string') {
+                    if (editorVal.trim().length > 0) {
+                        currentCss = editorVal;
+                    } else if (document.activeElement === editorEl) {
+                        // 仅当用户当前真正获得焦点并在该输入框中编辑且清空时，才视为有意清空
+                        currentCss = '';
+                    }
+                }
             }
         }
+
+        // 3. 兜底回退：若当前未在输入框中主动清空，优先依序从权威运行时内存与生效 DOM 提取
+        // (移动端侧边抽屉未展开时，DOM 输入框可能未初始化或未同步，绝不可直接当作空值)
+        if (currentCss === null) {
+            // 3.1 首选：SillyTavern 官方运行时权威内存 power_user.custom_css
+            if (pu && typeof pu.custom_css === 'string' && pu.custom_css.trim().length > 0) {
+                currentCss = pu.custom_css;
+            }
+            // 3.2 次选：页面实际生效中的 <style id="custom-style"> 标签
+            else {
+                const styleTag = document.getElementById('custom-style');
+                if (styleTag && typeof styleTag.innerHTML === 'string' && styleTag.innerHTML.trim().length > 0) {
+                    currentCss = styleTag.innerHTML;
+                }
+                // 3.3 再次选：当前主题在系统已知配置对象中的 custom_css
+                else if (currentObj && typeof currentObj.custom_css === 'string' && currentObj.custom_css.trim().length > 0) {
+                    currentCss = currentObj.custom_css;
+                }
+            }
+        }
+
+        // 3.4 若以上所有来源均无 CSS，才确认为空字符串
         if (currentCss === null) currentCss = '';
+
+        // 4. 同步回写：若提取到了非空 CSS，反向同步至 DOM 与 pu 内存，确保手机端所有状态严密一致
+        if (currentCss) {
+            const origArea = document.querySelector('#customCSS');
+            if (origArea && origArea.value !== currentCss) {
+                origArea.value = currentCss;
+            }
+            const styleTag = document.getElementById('custom-style');
+            if (styleTag && styleTag.innerHTML !== currentCss) {
+                styleTag.innerHTML = currentCss;
+            }
+        }
 
         // 辅助提取数值（支持计数器输入框、DOM滑块、pu 字段、旧主题对象及保底默认值）
         const extractNum = (sliderId, counterId, puProp, minVal, maxVal, defaultVal) => {
