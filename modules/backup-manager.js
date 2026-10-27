@@ -4,6 +4,8 @@
  * 负责选择性导出/恢复主题、标签、背景、快捷键及全部界面个性化偏好。
  */
 
+import { getJSZip, isZipFile } from './theme-import.js';
+
 export const BACKUP_MODULE_DEFS = [
     {
         id: 'themes',
@@ -107,7 +109,7 @@ export function initBackupManager(config = {}) {
         if (!fileInputEl) {
             fileInputEl = document.createElement('input');
             fileInputEl.type = 'file';
-            fileInputEl.accept = '.json';
+            fileInputEl.accept = '.json, .zip, application/zip, application/x-zip-compressed';
             fileInputEl.style.display = 'none';
             document.body.appendChild(fileInputEl);
             fileInputEl.addEventListener('change', handleBackupFileInputChange);
@@ -124,8 +126,38 @@ export function initBackupManager(config = {}) {
         if (!file) return;
 
         try {
-            const content = await file.text();
-            const backup = JSON.parse(content);
+            let backup = null;
+            if (isZipFile(file)) {
+                const JSZip = await getJSZip();
+                const zipData = (typeof file.arrayBuffer === 'function') ? await file.arrayBuffer() : file;
+                const zip = await JSZip.loadAsync(zipData);
+                const jsonEntries = [];
+                zip.forEach((path, entry) => {
+                    if (!entry.dir && path.toLowerCase().endsWith('.json') && !path.includes('__MACOSX/')) {
+                        jsonEntries.push(entry);
+                    }
+                });
+                for (const entry of jsonEntries) {
+                    try {
+                        const text = await entry.async('string');
+                        const parsed = JSON.parse(text);
+                        if (parsed && (parsed._type === 'themeManager_customBackup' || parsed._modules || (parsed.settings && typeof parsed.settings === 'object') || Array.isArray(parsed.themes))) {
+                            backup = parsed;
+                            break;
+                        }
+                    } catch (_) {}
+                }
+                if (!backup && jsonEntries.length > 0) {
+                    const text = await jsonEntries[0].async('string');
+                    backup = JSON.parse(text);
+                }
+                if (!backup) {
+                    throw new Error('所选压缩包中未找到有效的备份或美化数据文件。');
+                }
+            } else {
+                const content = await file.text();
+                backup = JSON.parse(content);
+            }
             await openCustomImportModal(backup);
         } catch (err) {
             console.error('[Theme Manager] 解析备份文件失败:', err);

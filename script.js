@@ -719,7 +719,7 @@
                             </div>
                             <div class="tm-button-row">
                                 <button id="batch-edit-btn" class="menu_button" title="进入/退出批量编辑模式"><i class="fa-solid fa-pen-to-square"></i> 编辑</button>
-                                <button id="batch-import-btn" class="menu_button" title="从文件批量导入主题"><i class="fa-solid fa-folder-open"></i> 导入</button>
+                                <button id="batch-import-btn" class="menu_button" title="从 JSON 文件或 ZIP 压缩包批量导入主题 (支持拖拽导入)"><i class="fa-solid fa-folder-open"></i> 导入</button>
                                 <button id="manage-tags-btn" class="menu_button" title="管理标签"><i class="fa-solid fa-tags"></i> 标签</button>
                                 <button id="tm-auto-group-btn" class="menu_button" title="自动提取美化名中的共同词组并向导生成标签/分类"><i class="fa-solid fa-wand-magic-sparkles"></i> 分组</button>
                                 <button id="tm-settings-btn" class="menu_button" title="插件高级设置"><i class="fa-solid fa-gear"></i> 设置</button>
@@ -1053,7 +1053,7 @@
                 const fileInput = document.createElement('input');
                 fileInput.type = 'file';
                 fileInput.multiple = true;
-                fileInput.accept = '.json';
+                fileInput.accept = '.json, .zip, application/zip, application/x-zip-compressed';
                 fileInput.style.display = 'none';
                 document.body.appendChild(fileInput);
 
@@ -3217,6 +3217,43 @@
                 batchImportBtn.addEventListener('click', () => {
                     fileInput.click();
                 });
+
+                // 支持将 JSON 主题文件或 ZIP 压缩包直接拖放至管理面板导入
+                if (managerPanel) {
+                    let dragCounter = 0;
+                    managerPanel.addEventListener('dragenter', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        dragCounter++;
+                        managerPanel.classList.add('tm-drop-active');
+                    });
+                    managerPanel.addEventListener('dragover', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (!managerPanel.classList.contains('tm-drop-active')) {
+                            managerPanel.classList.add('tm-drop-active');
+                        }
+                    });
+                    managerPanel.addEventListener('dragleave', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        dragCounter--;
+                        if (dragCounter <= 0) {
+                            dragCounter = 0;
+                            managerPanel.classList.remove('tm-drop-active');
+                        }
+                    });
+                    managerPanel.addEventListener('drop', async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        dragCounter = 0;
+                        managerPanel.classList.remove('tm-drop-active');
+                        const droppedFiles = e.dataTransfer?.files;
+                        if (droppedFiles && droppedFiles.length > 0) {
+                            await handleBatchThemeImport(droppedFiles);
+                        }
+                    });
+                }
 
 
 

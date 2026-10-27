@@ -1,7 +1,75 @@
 /**
  * modules/theme-import.js
- * 美化主题批量导入与目标标签分配交互模块
+ * 美化主题批量导入与压缩包导入、目标标签分配交互模块
  */
+
+let jszipPromise = null;
+
+/**
+ * 动态异步加载 JSZip 库 (优先尝试原生全局、动态 import，最后降级为动态 script 标签加载)
+ */
+export async function getJSZip() {
+    if (typeof window !== 'undefined' && window.JSZip) {
+        return window.JSZip;
+    }
+    if (jszipPromise) return jszipPromise;
+
+    jszipPromise = (async () => {
+        if (typeof window !== 'undefined' && window.JSZip) {
+            return window.JSZip;
+        }
+
+        // 1. 尝试从酒馆根路径动态 import /lib/jszip.min.js
+        try {
+            const mod = await import('/lib/jszip.min.js');
+            if (typeof window !== 'undefined' && window.JSZip) return window.JSZip;
+            if (mod && mod.default) return mod.default;
+        } catch (_) {}
+
+        // 2. 尝试相对路径 import
+        try {
+            const mod = await import('../../../lib/jszip.min.js');
+            if (typeof window !== 'undefined' && window.JSZip) return window.JSZip;
+            if (mod && mod.default) return mod.default;
+        } catch (_) {}
+
+        // 3. 浏览器环境下降级：注入 <script> 标签加载
+        if (typeof document !== 'undefined' && document.head) {
+            await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = '/lib/jszip.min.js';
+                script.onload = () => resolve();
+                script.onerror = () => {
+                    const fallbackScript = document.createElement('script');
+                    fallbackScript.src = 'lib/jszip.min.js';
+                    fallbackScript.onload = () => resolve();
+                    fallbackScript.onerror = (err) => reject(new Error('未能加载 lib/jszip.min.js 压缩包解析库'));
+                    document.head.appendChild(fallbackScript);
+                };
+                document.head.appendChild(script);
+            });
+            if (typeof window !== 'undefined' && window.JSZip) return window.JSZip;
+        }
+
+        throw new Error('未检测到 JSZip 库，请确认酒馆 public/lib/jszip.min.js 文件是否存在。');
+    })();
+
+    return jszipPromise;
+}
+
+/**
+ * 检查文件是否为 ZIP 压缩包
+ */
+export function isZipFile(file) {
+    if (!file || !file.name) return false;
+    const name = file.name.toLowerCase();
+    return name.endsWith('.zip') ||
+        (file.type && (
+            file.type === 'application/zip' ||
+            file.type === 'application/x-zip-compressed' ||
+            file.type === 'application/x-zip'
+        ));
+}
 
 export function initThemeImport(config) {
     const {
@@ -44,6 +112,12 @@ export function initThemeImport(config) {
         const tags = loadThemeTags();
         const subtagsEnabled = isSubtagsEnabled();
         const activeTagFilters = getActiveTagFilters();
+
+        // 识别来源压缩包与文件夹结构
+        const sourceZips = [...new Set(validFiles.map(f => f.sourceZip).filter(Boolean))];
+        const detectedFolders = [...new Set(validFiles.map(f => f.zipFolderName).filter(Boolean))];
+        const isFromZip = sourceZips.length > 0;
+        const singleZipCleanName = (sourceZips.length === 1) ? sourceZips[0].replace(/\.zip$/i, '').trim() : null;
 
         // 检查当前是否有正在筛选的单标签
         const currentActiveTagId = (activeTagFilters && activeTagFilters.size === 1)
@@ -144,22 +218,32 @@ export function initThemeImport(config) {
                 <!-- 文件信息卡片 -->
                 <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:8px 10px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                        <span style="font-weight:bold; font-size:13px;">
-                            <i class="fa-solid fa-file-arrow-up" style="color:var(--SmartThemeQuoteColor, #4a90e2); margin-right:6px;"></i>
-                            准备导入美化主题
+                        <span style="font-weight:bold; font-size:13px; display:inline-flex; align-items:center; gap:6px;">
+                            <i class="${isFromZip ? 'fa-solid fa-file-zipper' : 'fa-solid fa-file-arrow-up'}" style="color:${isFromZip ? '#e5a93c' : 'var(--SmartThemeQuoteColor, #4a90e2)'};"></i>
+                            ${isFromZip ? '准备从压缩包导入美化主题' : '准备导入美化主题'}
                         </span>
                         <div style="display:flex; align-items:center; gap:6px;">
                             <span style="font-size:11.5px; opacity:0.8; background:rgba(255,255,255,0.08); padding:1px 6px; border-radius:4px;">
                                 共 ${validFiles.length} 个
                             </span>
-                            <button id="tm-imp-reselect-btn" class="menu_button" type="button" style="width:26px; height:26px; min-width:26px; padding:0; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; cursor:pointer; font-size:12px; border-radius:4px;" title="重新选择美化文件"><i class="fa-solid fa-arrows-rotate"></i></button>
+                            <button id="tm-imp-reselect-btn" class="menu_button" type="button" style="width:26px; height:26px; min-width:26px; padding:0; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; cursor:pointer; font-size:12px; border-radius:4px;" title="重新选择美化文件或压缩包"><i class="fa-solid fa-arrows-rotate"></i></button>
                         </div>
                     </div>
+
+                    ${isFromZip ? `
+                        <div style="font-size:11.5px; opacity:0.85; margin-bottom:6px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                            <span style="display:inline-flex; align-items:center; gap:5px; background:rgba(229,169,60,0.12); border:1px solid rgba(229,169,60,0.28); color:#e5a93c; padding:2px 8px; border-radius:4px; font-weight:500;">
+                                <i class="fa-solid fa-file-zipper"></i> 压缩包来源: <b>${escapeHtml(sourceZips.join(', '))}</b>
+                            </span>
+                        </div>
+                    ` : ''}
+
                     <div style="max-height:75px; overflow-y:auto; display:flex; flex-wrap:wrap; gap:4px; padding:2px;">
                         ${validFiles.slice(0, 60).map(f => `
-                            <span style="display:inline-flex; align-items:center; gap:4px; padding:2px 6px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.05); border-radius:4px; font-size:11px; font-family:monospace;">
-                                <i class="fa-solid fa-palette" style="font-size:10px; opacity:0.7;"></i>
+                            <span style="display:inline-flex; align-items:center; gap:4px; padding:2px 6px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.05); border-radius:4px; font-size:11px; font-family:monospace;" title="${f.sourceZip ? `来源压缩包: ${escapeHtml(f.sourceZip)}${f.zipFolderName ? ` / 目录: ${escapeHtml(f.zipFolderName)}` : ''}` : ''}">
+                                <i class="fa-solid ${f.sourceZip ? 'fa-file-zipper' : 'fa-palette'}" style="font-size:10px; opacity:0.7; ${f.sourceZip ? 'color:#e5a93c;' : ''}"></i>
                                 ${escapeHtml(f.themeObject.name)}
+                                ${f.zipFolderName ? `<span style="opacity:0.6; font-size:9.5px; margin-left:2px;">[${escapeHtml(f.zipFolderName)}]</span>` : ''}
                             </span>
                         `).join('')}
                         ${validFiles.length > 60 ? `
@@ -171,7 +255,7 @@ export function initThemeImport(config) {
                     ${invalidFiles.length > 0 ? `
                         <div style="color:#ffaa00; font-size:11px; margin-top:6px; display:flex; align-items:center; gap:4px;">
                             <i class="fa-solid fa-triangle-exclamation"></i>
-                            另有 ${invalidFiles.length} 个非有效主题文件将被自动跳过
+                            另有 ${invalidFiles.length} 个非有效主题/无法解析项将被自动跳过
                         </div>
                     ` : ''}
                 </div>
@@ -195,6 +279,23 @@ export function initThemeImport(config) {
                         <select id="tm-imp-tag-select" class="text_pole" style="width:100%; height:32px; font-size:12.5px; padding:2px 8px; margin:0; box-sizing:border-box;">
                             ${optionsHtml}
                         </select>
+
+                        ${singleZipCleanName ? `
+                            <div style="margin-top:8px; width:100%;">
+                                <button id="tm-imp-use-zipname-btn" class="menu_button" type="button" style="width:100% !important; max-width:100% !important; box-sizing:border-box !important; display:flex !important; flex-direction:row !important; align-items:center !important; justify-content:space-between !important; writing-mode:horizontal-tb !important; text-orientation:mixed !important; white-space:normal !important; word-break:break-word !important; padding:6px 10px !important; font-size:12px !important; line-height:1.4 !important; min-height:32px !important; height:auto !important; aspect-ratio:auto !important; cursor:pointer !important; background:rgba(229,169,60,0.12) !important; border:1px solid rgba(229,169,60,0.35) !important; border-radius:6px !important; color:var(--SmartThemeBodyColor, #ffffff) !important; text-align:left !important; gap:8px !important;" title="以压缩包名称「${escapeHtml(singleZipCleanName)}」创建新标签并导入">
+                                    <div style="display:flex !important; flex-direction:row !important; align-items:center !important; gap:8px !important; min-width:0 !important; flex:1 !important; writing-mode:horizontal-tb !important;">
+                                        <i class="fa-solid fa-file-zipper" style="color:#e5a93c !important; font-size:13px !important; flex-shrink:0 !important;"></i>
+                                        <span style="font-size:12px !important; writing-mode:horizontal-tb !important; white-space:normal !important; word-break:break-all !important; line-height:1.4 !important; text-align:left !important;">
+                                            以此压缩包名新建标签：<b style="color:#e5a93c !important;">${escapeHtml(singleZipCleanName)}</b>
+                                        </span>
+                                    </div>
+                                    <span style="font-size:11px !important; opacity:0.8 !important; flex-shrink:0 !important; background:rgba(255,255,255,0.1) !important; padding:2px 7px !important; border-radius:4px !important; white-space:nowrap !important; writing-mode:horizontal-tb !important;">
+                                        一键填入
+                                    </span>
+                                </button>
+                            </div>
+                        ` : ''}
+
                         <!-- 新建标签输入栏与层级选择 -->
                         <div id="tm-imp-new-tag-wrap" style="display:none; margin-top:8px; padding:8px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.08); border-radius:6px;">
                             <div style="font-size:11.5px; opacity:0.8; margin-bottom:4px; font-weight:bold;">
@@ -227,6 +328,23 @@ export function initThemeImport(config) {
                     </div>
                 </div>
 
+                <!-- 压缩包内文件夹自动建标签选项 (当检测到子目录时展示) -->
+                ${detectedFolders.length > 0 ? `
+                    <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:8px 10px;">
+                        <label style="display:flex; align-items:flex-start; gap:8px; font-size:12px; cursor:pointer; user-select:none; margin:0;">
+                            <input type="checkbox" id="tm-imp-zip-folder-tags" checked style="margin-top:2px; flex-shrink:0;">
+                            <div style="flex:1;">
+                                <span style="font-weight:bold; color:var(--SmartThemeQuoteColor, #4a90e2); display:flex; align-items:center; gap:5px;">
+                                    <i class="fa-solid fa-folder-tree"></i> 根据压缩包内文件夹自动分类到对应标签
+                                </span>
+                                <div style="font-size:11px; opacity:0.75; margin-top:2px; line-height:1.4;">
+                                    检测到文件夹目录: <b>${escapeHtml(detectedFolders.slice(0, 5).join('、'))}${detectedFolders.length > 5 ? ` 等共 ${detectedFolders.length} 个` : ''}</b>。勾选后各美化将按所在文件夹自动分门别类创建并归入对应标签。
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+                ` : ''}
+
                 <!-- 规则选项 -->
                 <div style="padding:0 2px;">
                     <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; user-select:none;">
@@ -242,7 +360,7 @@ export function initThemeImport(config) {
             let isMultiMode = false;
 
             await callGenericPopup(popupHtml, 'confirm', null, {
-                title: `导入主题设置 (${validFiles.length} 个美化)`,
+                title: isFromZip ? `压缩包主题导入 (${validFiles.length} 个美化)` : `导入主题设置 (${validFiles.length} 个美化)`,
                 okButton: '确认导入',
                 cancelButton: '取消',
                 wide: false,
@@ -292,6 +410,8 @@ export function initThemeImport(config) {
                     const multiWrap = dlg.querySelector('#tm-imp-multitag-wrap');
                     const multiToggleBtn = dlg.querySelector('#tm-imp-multitag-toggle');
                     const reselectBtn = dlg.querySelector('#tm-imp-reselect-btn');
+                    const useZipNameBtn = dlg.querySelector('#tm-imp-use-zipname-btn');
+                    const zipFolderCb = dlg.querySelector('#tm-imp-zip-folder-tags');
                     const applyKwCb = dlg.querySelector('#tm-imp-apply-kw');
                     const okBtn = dlg.querySelector('.popup-button-ok');
 
@@ -305,6 +425,23 @@ export function initThemeImport(config) {
                                 }
                             } else {
                                 newTagWrap.style.display = 'none';
+                            }
+                        });
+                    }
+
+                    // 快速以压缩包名新建标签按钮
+                    if (useZipNameBtn && singleZipCleanName) {
+                        useZipNameBtn.addEventListener('click', () => {
+                            if (isMultiMode && multiToggleBtn) {
+                                multiToggleBtn.click();
+                            }
+                            if (tagSelect) {
+                                tagSelect.value = '__new__';
+                                tagSelect.dispatchEvent(new Event('change'));
+                            }
+                            if (newTagInput) {
+                                newTagInput.value = singleZipCleanName;
+                                newTagInput.focus();
                             }
                         });
                     }
@@ -372,7 +509,8 @@ export function initThemeImport(config) {
                                 targetTagIds,
                                 newTagName,
                                 newTagParentId,
-                                applyKeywords: applyKwCb ? applyKwCb.checked : true
+                                applyKeywords: applyKwCb ? applyKwCb.checked : true,
+                                useZipFolderTags: zipFolderCb ? zipFolderCb.checked : false
                             });
                         }, true);
                     }
@@ -391,22 +529,93 @@ export function initThemeImport(config) {
         showLoader();
 
         try {
-            // 1. 读取文件内容并智能识别：单主题、主题合集数组、备份包文件或轻量配置
-            const parsedFiles = [];
+            // 1. 读取文件内容并智能识别：单主题、主题合集数组、备份包文件、轻量配置或 ZIP 压缩包
+            const rawFiles = Array.from(files);
+            const fileEntries = [];
             const invalidFiles = [];
             let detectedBackup = null;
 
-            const rawFiles = Array.from(files);
-            const fileTexts = await Promise.all(rawFiles.map(async (file) => {
-                try {
-                    const text = await file.text();
-                    return { file, text, error: null };
-                } catch (err) {
-                    return { file, text: null, error: err };
-                }
-            }));
+            // 预先解压所有压缩包文件并收集 JSON 实体
+            for (const file of rawFiles) {
+                if (isZipFile(file)) {
+                    try {
+                        const JSZip = await getJSZip();
+                        const zipData = (typeof file.arrayBuffer === 'function') ? await file.arrayBuffer() : file;
+                        const zip = await JSZip.loadAsync(zipData);
+                        const zipEntriesToRead = [];
 
-            for (const { file, text: fileContent, error: readError } of fileTexts) {
+                        zip.forEach((relativePath, entry) => {
+                            if (entry.dir) return;
+                            // 排除 macOS 系统自动生成的冗余文件及隐藏文件
+                            if (relativePath.includes('__MACOSX/') || relativePath.split('/').some(p => p.startsWith('.'))) {
+                                return;
+                            }
+                            if (relativePath.toLowerCase().endsWith('.json')) {
+                                zipEntriesToRead.push({ relativePath, entry });
+                            }
+                        });
+
+                        if (zipEntriesToRead.length === 0) {
+                            invalidFiles.push({
+                                file,
+                                valid: false,
+                                error: '压缩包内未找到任何有效的主题文件（.json）'
+                            });
+                            continue;
+                        }
+
+                        for (const { relativePath, entry } of zipEntriesToRead) {
+                            try {
+                                const text = await entry.async('string');
+                                const pathParts = relativePath.split('/').filter(p => p && p.trim());
+                                const filename = pathParts.pop() || entry.name;
+                                const immediateFolder = pathParts.length > 0 ? pathParts[pathParts.length - 1] : null;
+                                const folderPath = pathParts.join('/');
+
+                                fileEntries.push({
+                                    file: { name: filename, size: text.length },
+                                    text,
+                                    sourceZip: file.name,
+                                    zipFolderName: immediateFolder,
+                                    zipFolderPath: folderPath,
+                                    error: null
+                                });
+                            } catch (entryErr) {
+                                invalidFiles.push({
+                                    file: { name: `${file.name}/${relativePath}` },
+                                    valid: false,
+                                    error: `解压文件失败: ${entryErr.message}`
+                                });
+                            }
+                        }
+                    } catch (zipErr) {
+                        console.error('[Theme Manager] 读取解压 ZIP 失败:', zipErr);
+                        invalidFiles.push({
+                            file,
+                            valid: false,
+                            error: `解压压缩包失败: ${zipErr.message}`
+                        });
+                    }
+                } else {
+                    try {
+                        const text = await file.text();
+                        fileEntries.push({
+                            file,
+                            text,
+                            sourceZip: null,
+                            zipFolderName: null,
+                            zipFolderPath: null,
+                            error: null
+                        });
+                    } catch (err) {
+                        invalidFiles.push({ file, valid: false, error: err.message });
+                    }
+                }
+            }
+
+            const parsedFiles = [];
+
+            for (const { file, text: fileContent, sourceZip, zipFolderName, zipFolderPath, error: readError } of fileEntries) {
                 if (readError) {
                     invalidFiles.push({ file, valid: false, error: readError.message });
                     continue;
@@ -441,7 +650,14 @@ export function initThemeImport(config) {
                                 const effectiveName = internalName || `${filenameWithoutExt}_${idx + 1}`;
                                 item.name = effectiveName;
                                 item.value = effectiveName;
-                                parsedFiles.push({ file, themeObject: item, valid: true });
+                                parsedFiles.push({
+                                    file,
+                                    themeObject: item,
+                                    valid: true,
+                                    sourceZip,
+                                    zipFolderName,
+                                    zipFolderPath
+                                });
                             }
                         });
                         continue;
@@ -455,7 +671,14 @@ export function initThemeImport(config) {
                                 const effectiveName = internalName || `${filenameWithoutExt}_${idx + 1}`;
                                 item.name = effectiveName;
                                 item.value = effectiveName;
-                                parsedFiles.push({ file, themeObject: item, valid: true });
+                                parsedFiles.push({
+                                    file,
+                                    themeObject: item,
+                                    valid: true,
+                                    sourceZip,
+                                    zipFolderName,
+                                    zipFolderPath
+                                });
                             }
                         });
                         continue;
@@ -467,7 +690,14 @@ export function initThemeImport(config) {
                         const effectiveName = internalName || filenameWithoutExt || '未命名美化';
                         parsed.name = effectiveName;
                         parsed.value = effectiveName;
-                        parsedFiles.push({ file, themeObject: parsed, valid: true });
+                        parsedFiles.push({
+                            file,
+                            themeObject: parsed,
+                            valid: true,
+                            sourceZip,
+                            zipFolderName,
+                            zipFolderPath
+                        });
                         continue;
                     }
 
@@ -497,7 +727,14 @@ export function initThemeImport(config) {
                         const effectiveName = internalName || `备份主题_${idx + 1}`;
                         item.name = effectiveName;
                         item.value = effectiveName;
-                        parsedFiles.push({ file: { name: effectiveName }, themeObject: item, valid: true });
+                        parsedFiles.push({
+                            file: { name: effectiveName },
+                            themeObject: item,
+                            valid: true,
+                            sourceZip: null,
+                            zipFolderName: null,
+                            zipFolderPath: null
+                        });
                     }
                 });
             }
@@ -566,12 +803,12 @@ export function initThemeImport(config) {
                 setSuspendObserver(true);
             }
 
-            const saveResults = await limitConcurrency(saveConcurrency, validFiles, async ({ themeObject }) => {
+            const saveResults = await limitConcurrency(saveConcurrency, validFiles, async (item) => {
                 try {
-                    await saveTheme(themeObject, { isBatch: true });
-                    return { success: true, themeObject };
+                    await saveTheme(item.themeObject, { isBatch: true });
+                    return { success: true, themeObject: item.themeObject, item };
                 } catch (err) {
-                    return { success: false, themeObject, error: err };
+                    return { success: false, themeObject: item.themeObject, item, error: err };
                 }
             });
 
@@ -580,7 +817,9 @@ export function initThemeImport(config) {
                 const orig = validFiles[index];
                 if (res.status === 'fulfilled' && res.value.success) {
                     successCount++;
-                    importedThemes.push(res.value.themeObject);
+                    const th = res.value.themeObject;
+                    th._zipFolderName = orig.zipFolderName || null;
+                    importedThemes.push(th);
                 } else {
                     errorCount++;
                     console.error(`[Theme Manager Error] 保存主题 "${orig.themeObject.name}" 失败:`, res.status === 'fulfilled' ? res.value.error : res.reason);
@@ -603,6 +842,7 @@ export function initThemeImport(config) {
 
                     importedThemes.forEach(themeObject => {
                         const cleanTheme = normalizeThemeObject(themeObject, themeObject.name);
+                        cleanTheme._zipFolderName = themeObject._zipFolderName || null;
                         if (!existingOptionValues.has(cleanTheme.name)) {
                             const option = document.createElement('option');
                             option.value = cleanTheme.name;
@@ -625,22 +865,73 @@ export function initThemeImport(config) {
                 invalidateThemesCache();
                 invalidateValidThemeNamesCache();
 
-                // 第二步：如果指定了目标标签，批量将美化关联到标签并保存 (使用 Set 加速查重)
-                if (targetTagIds.length > 0) {
+                // 第二步：如果指定了目标标签或按文件夹自动建标签，批量将美化关联到标签并保存
+                const detectedFolders = [...new Set(validFiles.map(f => f.zipFolderName).filter(Boolean))];
+                if (targetTagIds.length > 0 || (importConfig.useZipFolderTags && detectedFolders.length > 0)) {
                     allTags = loadThemeTags();
-                    const targetTagIdSet = new Set(targetTagIds.map(String));
-                    allTags.forEach(tag => {
-                        if (targetTagIdSet.has(String(tag.id))) {
-                            if (!Array.isArray(tag.themes)) tag.themes = [];
-                            const existingThemesSet = new Set(tag.themes);
-                            importedThemes.forEach(th => {
-                                if (!existingThemesSet.has(th.name)) {
-                                    tag.themes.push(th.name);
-                                    existingThemesSet.add(th.name);
-                                }
-                            });
+
+                    const subtagsEnabled = isSubtagsEnabled();
+                    if (importConfig.useZipFolderTags && detectedFolders.length > 0) {
+                        // 确定子文件夹标签所属父级
+                        let folderParentId = null;
+                        if (subtagsEnabled) {
+                            if (importConfig.newTagName && targetTagIds.length > 0) {
+                                folderParentId = targetTagIds[0];
+                            } else if (targetTagIds.length === 1) {
+                                folderParentId = targetTagIds[0];
+                            }
                         }
-                    });
+
+                        const folderTagMap = new Map();
+                        detectedFolders.forEach(folderName => {
+                            let existingTag = allTags.find(t => 
+                                t.name.toLowerCase() === folderName.toLowerCase() && 
+                                (!folderParentId || (t.parentId || null) === folderParentId)
+                            );
+                            if (!existingTag) {
+                                existingTag = {
+                                    id: (Date.now() + Math.floor(Math.random() * 100000)).toString(),
+                                    name: folderName,
+                                    parentId: folderParentId,
+                                    themes: [],
+                                    keywords: []
+                                };
+                                allTags.push(existingTag);
+                            }
+                            folderTagMap.set(folderName, existingTag);
+                        });
+
+                        importedThemes.forEach(th => {
+                            const folder = th._zipFolderName;
+                            if (folder && folderTagMap.has(folder)) {
+                                const tag = folderTagMap.get(folder);
+                                if (!Array.isArray(tag.themes)) tag.themes = [];
+                                if (!tag.themes.includes(th.name)) tag.themes.push(th.name);
+                            } else if (targetTagIds.length > 0) {
+                                targetTagIds.forEach(tId => {
+                                    const tag = allTags.find(t => String(t.id) === String(tId));
+                                    if (tag) {
+                                        if (!Array.isArray(tag.themes)) tag.themes = [];
+                                        if (!tag.themes.includes(th.name)) tag.themes.push(th.name);
+                                    }
+                                });
+                            }
+                        });
+                    } else if (targetTagIds.length > 0) {
+                        const targetTagIdSet = new Set(targetTagIds.map(String));
+                        allTags.forEach(tag => {
+                            if (targetTagIdSet.has(String(tag.id))) {
+                                if (!Array.isArray(tag.themes)) tag.themes = [];
+                                const existingThemesSet = new Set(tag.themes);
+                                importedThemes.forEach(th => {
+                                    if (!existingThemesSet.has(th.name)) {
+                                        tag.themes.push(th.name);
+                                        existingThemesSet.add(th.name);
+                                    }
+                                });
+                            }
+                        });
+                    }
                     saveThemeTags(allTags);
                 }
 
@@ -688,8 +979,12 @@ export function initThemeImport(config) {
                 }
             }
 
-            let summary = `批量导入完成！成功 ${successCount} 个`;
-            if (importedThemes.length > 0 && targetTagIds.length > 0) {
+            const sourceZips = [...new Set(validFiles.map(f => f.sourceZip).filter(Boolean))];
+            let summary = sourceZips.length > 0 
+                ? `压缩包导入完成！成功导入 ${successCount} 个美化主题` 
+                : `批量导入完成！成功 ${successCount} 个`;
+
+            if (importedThemes.length > 0 && (targetTagIds.length > 0 || importConfig.useZipFolderTags)) {
                 const finalTags = loadThemeTags();
                 const assignedTagNames = finalTags.filter(t => targetTagIds.includes(String(t.id))).map(t => t.name).join(', ');
                 if (assignedTagNames) {
@@ -721,6 +1016,7 @@ export function initThemeImport(config) {
 
     return {
         showImportTagSelectionPopup,
-        handleBatchThemeImport
+        handleBatchThemeImport,
+        getJSZip
     };
 }

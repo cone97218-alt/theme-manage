@@ -1296,3 +1296,41 @@
     margin-top: 10px !important;
     flex-shrink: 0 !important;
 }
+
+/* 拖拽文件/压缩包进入美化管理面板的高亮视觉反馈 */
+.tm-drop-active {
+    outline: 2px dashed var(--SmartThemeQuoteColor, #4a90e2) !important;
+    outline-offset: -4px !important;
+    background: rgba(74, 144, 226, 0.08) !important;
+    transition: outline 0.15s ease, background 0.15s ease;
+}
+
+/* 导入弹窗与压缩包标签建议按钮强制常规横向排列样式（防止被主题或全局竖向样式挤压变形） */
+.tm-tag-assign-dialog,
+.tm-tag-assign-dialog *,
+.tm-imp-dialog-content,
+.tm-imp-dialog-content * {
+    writing-mode: horizontal-tb !important;
+}
+
+#tm-imp-use-zipname-btn {
+    writing-mode: horizontal-tb !important;
+    text-orientation: mixed !important;
+    aspect-ratio: auto !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-height: 32px !important;
+    height: auto !important;
+    box-sizing: border-box !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    line-height: 1.4 !important;
+}
+
+#tm-imp-use-zipname-btn * {
+    writing-mode: horizontal-tb !important;
+}
