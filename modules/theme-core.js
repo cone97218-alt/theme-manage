@@ -98,7 +98,7 @@ async function loadNativePowerUserModule() {
         _powerUserModule = await import('/scripts/power-user.js');
     } catch (e) {
         try {
-            _powerUserModule = await import('../../../power-user.js');
+            _powerUserModule = await import('../../../../power-user.js');
         } catch (err) {
             console.warn('[Theme Manager] 无法加载 power-user.js 模块:', err);
         }
@@ -306,9 +306,13 @@ export function initThemeCore(options) {
                 if (typeof editorVal === 'string') {
                     if (editorVal.trim().length > 0) {
                         currentCss = editorVal;
-                    } else if (document.activeElement === editorEl) {
-                        // 仅当用户当前真正获得焦点并在该输入框中编辑且清空时，才视为有意清空
-                        currentCss = '';
+                    } else {
+                        // 输入框在 DOM 中真实存在且内容已被清空为空字符串
+                        // 若用户当前正在编辑（或曾获得焦点）、或者 pu.custom_css 也为空、或者页面 style 标签为空，确认为有意清空
+                        const activeStyle = document.getElementById('custom-style');
+                        if (document.activeElement === editorEl || !pu?.custom_css || !activeStyle?.innerHTML?.trim()) {
+                            currentCss = '';
+                        }
                     }
                 }
             }
@@ -594,7 +598,7 @@ export function initThemeCore(options) {
                 }
             }
 
-            // 深度同步至酒馆原生 power-user 模块闭包的 themes 数组 (使用安全的轻量级注入函数，杜绝反复调用 loadPowerUserSettings 破坏 DOM 与触发死循环)
+            // 深度同步至酒馆原生 power-user 模块闭包的 themes 数组
             if (typeof window !== 'undefined' && typeof window.baibaokuHydrateTheme === 'function' && normalizedObj) {
                 try {
                     window.baibaokuHydrateTheme(normalizedObj);
@@ -652,7 +656,18 @@ export function initThemeCore(options) {
         allThemeObjectsMap.set(normalized.name, normalized);
 
         const parsed = allParsedThemesMap.get(normalized.name);
-        if (parsed) parsed.mtime = now;
+        if (parsed) {
+            parsed.mtime = now;
+            parsed.data = normalized;
+        }
+        if (typeof getAllThemeObjects === 'function') {
+            const allObjs = getAllThemeObjects();
+            if (Array.isArray(allObjs)) {
+                const idx = allObjs.findIndex(t => t && (t.name === normalized.name || t.value === normalized.name));
+                if (idx !== -1) allObjs[idx] = normalized;
+                else allObjs.push(normalized);
+            }
+        }
 
         if (!isBatch) {
             updateSTThemeMemory(normalized, 'save');
@@ -934,6 +949,23 @@ export function initThemeCore(options) {
                 } finally {
                     setTimeout(() => { onObserverSuspendChange(false); }, 50);
                 }
+            }
+
+            // 【核心保障】全量终极权威固化 (Master Theme Enforcer)
+            // 原生 triggerSelectChange 触发 ST 内置 applyTheme，可能用原生陈旧闭包数据覆盖属性
+            // 此处显式重新强制覆盖回写自定义 CSS 与各核心控件，确保 100% 生效且不被任何旧数据回退篡改
+            if (pu) pu.custom_css = customCss;
+            if (editorEl) {
+                editorEl.value = customCss;
+                if (editorEl.CodeMirror && typeof editorEl.CodeMirror.setValue === 'function') {
+                    editorEl.CodeMirror.setValue(customCss);
+                } else if (typeof $ !== 'undefined' && $(editorEl).data('codemirror')) {
+                    const cm = $(editorEl).data('codemirror');
+                    if (cm && typeof cm.setValue === 'function') cm.setValue(customCss);
+                }
+            }
+            if (customStyleTag) {
+                customStyleTag.innerHTML = customCss;
             }
 
             // 【核心修复】显式同步高级布尔开关与样式类

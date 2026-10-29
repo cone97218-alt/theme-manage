@@ -856,8 +856,8 @@
                     if (document.activeElement && typeof document.activeElement.blur === 'function') {
                         document.activeElement.blur();
                     }
-                    // 等待一个事件循环周期，让浏览器完成 change/input 派发与移动端重排
-                    await new Promise(r => setTimeout(r, 60));
+                    // 等待失焦派发、IME合成及移动端软键盘收起完成重排
+                    await new Promise(r => setTimeout(r, 120));
                 }
 
                 // 1. 深度接管“更新当前主题” (Update Theme)
@@ -897,6 +897,11 @@
                                 parsed.mtime = Date.now();
                                 parsed.data = snapshot;
                             }
+                            if (Array.isArray(allThemeObjects)) {
+                                const objIdx = allThemeObjects.findIndex(t => t && (t.name === currentThemeName || t.value === currentThemeName));
+                                if (objIdx !== -1) allThemeObjects[objIdx] = snapshot;
+                                else allThemeObjects.push(snapshot);
+                            }
 
                             toastr.success(`主题「${currentThemeName}」已成功保存并更新！`);
                         } catch (err) {
@@ -910,26 +915,59 @@
                     }
                 };
 
-                // 移动端触摸保护：当软键盘弹出时，点击可能因失焦导致页面跳动而丢掉 click，在 pointerdown/touchend 预先处理
-                cleanUpdateButton.addEventListener('pointerdown', (e) => {
-                    if (e.pointerType === 'touch') {
-                        if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
-                            document.activeElement.blur();
+                // 移动端/跨端触摸保护与防重：
+                // 使用标准 pointerdown 触发失焦，并在 click / touchend 双通道中健壮唤起，杜绝键盘跳动丢事件与滑动误触
+                const bindRobustActionButton = (btn, actionExecutor) => {
+                    let lastExecutedTime = 0;
+                    let touchStartX = 0;
+                    let touchStartY = 0;
+                    let touchMoved = false;
+
+                    btn.addEventListener('pointerdown', (e) => {
+                        if (e.pointerType === 'touch') {
+                            touchStartX = e.clientX;
+                            touchStartY = e.clientY;
+                            touchMoved = false;
+                            if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+                                document.activeElement.blur();
+                            }
                         }
-                    }
-                });
-                cleanUpdateButton.addEventListener('touchend', (e) => {
-                    _lastUpdateTouchTime = Date.now();
-                    executeThemeUpdate(e);
-                }, { passive: false });
-                cleanUpdateButton.addEventListener('click', (e) => {
-                    if (Date.now() - _lastUpdateTouchTime < 500) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        return;
-                    }
-                    executeThemeUpdate(e);
-                });
+                    });
+
+                    btn.addEventListener('touchmove', (e) => {
+                        if (!e.touches || !e.touches[0]) return;
+                        const dx = Math.abs(e.touches[0].clientX - touchStartX);
+                        const dy = Math.abs(e.touches[0].clientY - touchStartY);
+                        if (dx > 10 || dy > 10) {
+                            touchMoved = true;
+                        }
+                    }, { passive: true });
+
+                    const triggerSafe = (e) => {
+                        if (touchMoved) return;
+                        const now = Date.now();
+                        if (now - lastExecutedTime < 600) {
+                            if (e) { e.preventDefault(); e.stopPropagation(); }
+                            return;
+                        }
+                        lastExecutedTime = now;
+                        if (navigator.vibrate) {
+                            try { navigator.vibrate(25); } catch (err) {}
+                        }
+                        actionExecutor(e);
+                    };
+
+                    btn.addEventListener('touchend', (e) => {
+                        if (touchMoved) return;
+                        triggerSafe(e);
+                    }, { passive: false });
+
+                    btn.addEventListener('click', (e) => {
+                        triggerSafe(e);
+                    });
+                };
+
+                bindRobustActionButton(cleanUpdateButton, executeThemeUpdate);
 
                 // 2. 深度接管“另存为新主题” (Save As New Theme)
                 let _isSavingAsTheme = false;
@@ -991,25 +1029,7 @@
                     }
                 };
 
-                cleanSaveAsButton.addEventListener('pointerdown', (e) => {
-                    if (e.pointerType === 'touch') {
-                        if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
-                            document.activeElement.blur();
-                        }
-                    }
-                });
-                cleanSaveAsButton.addEventListener('touchend', (e) => {
-                    _lastSaveAsTouchTime = Date.now();
-                    executeThemeSaveAs(e);
-                }, { passive: false });
-                cleanSaveAsButton.addEventListener('click', (e) => {
-                    if (Date.now() - _lastSaveAsTouchTime < 500) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        return;
-                    }
-                    executeThemeSaveAs(e);
-                });
+                bindRobustActionButton(cleanSaveAsButton, executeThemeSaveAs);
 
                 const header = managerPanel.querySelector('#theme-manager-header');
                 const content = managerPanel.querySelector('#theme-manager-content');
