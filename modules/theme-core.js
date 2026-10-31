@@ -901,6 +901,12 @@ export function initThemeCore(options) {
             updateSTThemeMemory(cleanTheme, 'add');
 
             if (select) {
+                // 彻底排他性净化：先剥离所有非目标选项的 selected 属性与状态，防止 jQuery find(':selected') 误匹配旧选项
+                Array.from(select.options).forEach(o => {
+                    o.selected = false;
+                    o.removeAttribute('selected');
+                });
+
                 let opt = Array.from(select.options).find(o => o.value === cleanTheme.name);
                 if (!opt) {
                     opt = document.createElement('option');
@@ -909,7 +915,15 @@ export function initThemeCore(options) {
                     select.appendChild(opt);
                 }
                 opt.selected = true;
+                opt.setAttribute('selected', 'selected');
                 select.value = cleanTheme.name;
+                const optIdx = Array.from(select.options).indexOf(opt);
+                if (optIdx !== -1) {
+                    select.selectedIndex = optIdx;
+                }
+                if (typeof window !== 'undefined' && window.jQuery) {
+                    try { $(select).val(cleanTheme.name); } catch (e) {}
+                }
             }
 
             const pu = getPowerUser();
@@ -1120,6 +1134,11 @@ export function initThemeCore(options) {
             }
 
             updateActiveState();
+
+            try {
+                localStorage.setItem('themeManager_lastActiveTheme', cleanTheme.name);
+                localStorage.setItem('themeManager_lastThemeSwitchTime', String(Date.now()));
+            } catch (e) {}
 
             try {
                 document.dispatchEvent(new CustomEvent('themeManager:themeChanged', { 

@@ -85,6 +85,17 @@ export function initCharacterBinding({
             bindings = {};
         }
 
+        // 保护期机制：若用户最近手动在面板/界面中切换了主题（例如 60 秒内），用户的主动意图优先级最高，
+        // 绝不擅自自动用角色的旧绑定强行覆盖用户刚选的主题！
+        try {
+            const lastSwitchTime = Number(localStorage.getItem('themeManager_lastThemeSwitchTime')) || 0;
+            const lastActiveTheme = localStorage.getItem('themeManager_lastActiveTheme');
+            if (Date.now() - lastSwitchTime < 60000 && lastActiveTheme) {
+                console.log(`[Theme Manager] 用户最近手动切换了主题 "${lastActiveTheme}" (在60秒保护期内)，跳过角色 "${cleanName}" 的自动绑定覆盖`);
+                return;
+            }
+        } catch (e) {}
+
         const target = bindings[cleanName];
         if (target) {
             const themeToApply = getThemeForTarget(target);

@@ -4144,12 +4144,47 @@
                         console.log(`[Theme Manager Debug] Event source & event types found. Registering listeners.`);
                         eventSource.on(eventTypes.CHAT_CHANGED, () => {
                             console.log(`[Theme Manager Debug] CHAT_CHANGED event fired`);
-                            const currentTheme = originalSelect.value;
-                            const boundBg = themeBackgroundBindings[currentTheme];
-                            if (boundBg) {
-                                // 短延迟确保在 SillyTavern 的 onChatChanged 完成后再应用
-                                setTimeout(() => applyBackgroundDirectly(boundBg), 300);
-                            }
+                            const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
+                            const currentTheme = originalSelect?.value || pu?.theme || localStorage.getItem('themeManager_lastActiveTheme') || '';
+                            
+                            // 延时等待 SillyTavern 原生 onChatChanged() 执行完毕后，重新执行全量权威加固
+                            setTimeout(() => {
+                                try {
+                                    if (!currentTheme) return;
+                                    
+                                    // 1. 背景图固化保障：解决原生 onChatChanged() 覆盖背景图问题
+                                    const boundBg = themeBackgroundBindings ? themeBackgroundBindings[currentTheme] : null;
+                                    if (boundBg && typeof applyBackgroundDirectly === 'function') {
+                                        applyBackgroundDirectly(boundBg);
+                                    }
+                                    
+                                    // 2. 核心 CSS 与样式权威加固保障：防止进入聊天时原生重绘将样式冲刷回退
+                                    if (typeof findThemeObject === 'function') {
+                                        const themeObj = findThemeObject(currentTheme);
+                                        if (themeObj && typeof themeObj.custom_css === 'string') {
+                                            const customStyleTag = document.getElementById('custom-style');
+                                            if (customStyleTag && customStyleTag.innerHTML !== themeObj.custom_css) {
+                                                console.log(`[Theme Manager] 聊天切换时重新加固当前美化 CSS: "${currentTheme}"`);
+                                                customStyleTag.innerHTML = themeObj.custom_css;
+                                            }
+                                            const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content');
+                                            if (editorEl && editorEl.value !== themeObj.custom_css) {
+                                                editorEl.value = themeObj.custom_css;
+                                            }
+                                        }
+                                    }
+                                    
+                                    // 3. 确保原生选择框与内存严格同步
+                                    if (originalSelect && originalSelect.value !== currentTheme) {
+                                        originalSelect.value = currentTheme;
+                                    }
+                                    if (pu && pu.theme !== currentTheme) {
+                                        pu.theme = currentTheme;
+                                    }
+                                } catch (err) {
+                                    console.warn('[Theme Manager] CHAT_CHANGED 主题加固处理异常:', err);
+                                }
+                            }, 250);
                         });
 
                         eventSource.on(eventTypes.CHARACTER_SELECTED, () => {
