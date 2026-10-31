@@ -2256,6 +2256,128 @@
                         currentChipDrag = null;
                         lastChipDragEndTime = Date.now();
                     });
+
+                    // === 移动端触屏长按拖拽排序逻辑 ===
+                    let touchTimer = null;
+                    let touchStartX = 0;
+                    let touchStartY = 0;
+                    let isTouchDragging = false;
+                    let touchGhost = null;
+                    let currentTouchOverTagId = null;
+                    let currentTouchDropPos = null;
+
+                    chip.addEventListener('touchstart', (e) => {
+                        if (e.touches.length !== 1) return;
+                        const touch = e.touches[0];
+                        touchStartX = touch.clientX;
+                        touchStartY = touch.clientY;
+                        isTouchDragging = false;
+
+                        clearTimeout(touchTimer);
+                        touchTimer = setTimeout(() => {
+                            isTouchDragging = true;
+                            if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                                navigator.vibrate(25);
+                            }
+                            chip.classList.add('tm-tag-dragging');
+
+                            const rect = chip.getBoundingClientRect();
+                            touchGhost = chip.cloneNode(true);
+                            touchGhost.classList.add('tm-touch-drag-ghost');
+                            touchGhost.style.left = rect.left + 'px';
+                            touchGhost.style.top = (rect.top - 8) + 'px';
+                            document.body.appendChild(touchGhost);
+                        }, 220);
+                    }, { passive: true });
+
+                    chip.addEventListener('touchmove', (e) => {
+                        if (!isTouchDragging) {
+                            if (touchTimer) {
+                                const touch = e.touches[0];
+                                const dist = Math.hypot(touch.clientX - touchStartX, touch.clientY - touchStartY);
+                                if (dist > 8) {
+                                    clearTimeout(touchTimer);
+                                    touchTimer = null;
+                                }
+                            }
+                            return;
+                        }
+
+                        if (e.cancelable) e.preventDefault();
+                        const touch = e.touches[0];
+
+                        if (touchGhost) {
+                            touchGhost.style.left = (touch.clientX - touchGhost.offsetWidth / 2) + 'px';
+                            touchGhost.style.top = (touch.clientY - touchGhost.offsetHeight / 2 - 12) + 'px';
+
+                            touchGhost.style.visibility = 'hidden';
+                            const hit = document.elementFromPoint(touch.clientX, touch.clientY);
+                            touchGhost.style.visibility = 'visible';
+
+                            const targetChip = hit ? hit.closest('.theme-tag-chip.tm-draggable-tag') : null;
+
+                            managerPanel.querySelectorAll('.tm-drag-over-left, .tm-drag-over-right').forEach(el => {
+                                el.classList.remove('tm-drag-over-left', 'tm-drag-over-right');
+                            });
+
+                            if (targetChip && targetChip.dataset.tagId !== tag.id) {
+                                const isTargetSub = targetChip.classList.contains('level2');
+                                const targetParentId = targetChip.closest('.theme-subtags-row')?.dataset?.parentId || null;
+                                if (isTargetSub === !!isSubtag && targetParentId === (parentId || null)) {
+                                    const targetRect = targetChip.getBoundingClientRect();
+                                    const isLeft = touch.clientX < targetRect.left + targetRect.width / 2;
+                                    if (isLeft) {
+                                        targetChip.classList.add('tm-drag-over-left');
+                                        currentTouchDropPos = 'before';
+                                    } else {
+                                        targetChip.classList.add('tm-drag-over-right');
+                                        currentTouchDropPos = 'after';
+                                    }
+                                    currentTouchOverTagId = targetChip.dataset.tagId;
+                                } else {
+                                    currentTouchOverTagId = null;
+                                    currentTouchDropPos = null;
+                                }
+                            } else {
+                                currentTouchOverTagId = null;
+                                currentTouchDropPos = null;
+                            }
+                        }
+                    }, { passive: false });
+
+                    const handleTouchEnd = () => {
+                        clearTimeout(touchTimer);
+                        touchTimer = null;
+
+                        if (isTouchDragging) {
+                            lastChipDragEndTime = Date.now();
+                            if (touchGhost && touchGhost.parentNode) {
+                                touchGhost.parentNode.removeChild(touchGhost);
+                                touchGhost = null;
+                            }
+                            chip.classList.remove('tm-tag-dragging');
+                            managerPanel.querySelectorAll('.tm-drag-over-left, .tm-drag-over-right').forEach(el => {
+                                el.classList.remove('tm-drag-over-left', 'tm-drag-over-right');
+                            });
+
+                            if (currentTouchOverTagId && currentTouchOverTagId !== tag.id && currentTouchDropPos) {
+                                if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                                    navigator.vibrate([15, 20, 15]);
+                                }
+                                const currentTags = loadThemeTags();
+                                const updatedTags = reorderTags(currentTags, tag.id, currentTouchOverTagId, currentTouchDropPos);
+                                saveThemeTags(updatedTags);
+                                renderTagsUI(updatedTags);
+                                toastr.success('已调整标签排序');
+                            }
+                            isTouchDragging = false;
+                            currentTouchOverTagId = null;
+                            currentTouchDropPos = null;
+                        }
+                    };
+
+                    chip.addEventListener('touchend', handleTouchEnd);
+                    chip.addEventListener('touchcancel', handleTouchEnd);
                 }
 
                 function renderTagsUI(cachedTags) {
@@ -2515,6 +2637,7 @@
 
                                 const subRow = document.createElement('div');
                                 subRow.className = `theme-tags-row theme-subtags-row level-${depthIdx + 2}`;
+                                subRow.dataset.parentId = parentTagId;
                                 
                                 const labelSpan = document.createElement('span');
                                 labelSpan.className = 'tm-subtag-label';

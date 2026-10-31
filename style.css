@@ -1399,3 +1399,57 @@
 .tm-drag-over-bottom {
     border-bottom: 2px solid var(--SmartThemeQuoteColor, #4a90e2) !important;
 }
+
+/* ======== 移动端触摸拖拽与树形逐级展开折叠优化 ======== */
+.tm-touch-drag-ghost {
+    position: fixed !important;
+    z-index: 9999999 !important;
+    pointer-events: none !important;
+    opacity: 0.92 !important;
+    transform: scale(1.05) rotate(1deg) !important;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5) !important;
+    border: 2px solid var(--SmartThemeQuoteColor, #4a90e2) !important;
+    border-radius: 6px !important;
+    margin: 0 !important;
+    transition: none !important;
+}
+
+.theme-tag-chip.tm-touch-drag-ghost {
+    border-radius: 16px !important;
+}
+
+.tm-tag-drag-handle {
+    cursor: grab;
+    touch-action: none !important;
+    padding: 6px 6px;
+    margin: -4px 0 -4px -2px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+}
+
+.tm-tree-fold-control-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: nowrap;
+}
+
+.tm-tree-fold-control-group button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    height: 26px;
+    padding: 0 8px;
+    font-size: 11px;
+    white-space: nowrap;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+}
+
+.tm-tree-fold-control-group button:active {
+    transform: scale(0.96);
+}

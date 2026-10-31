@@ -185,7 +185,11 @@ export function initTagUI(config) {
                         <input type="checkbox" id="chk-enable-subtags" ${subtagsEnabled ? 'checked' : ''}>
                         <span>开启二级目录模式</span> <small style="opacity:0.6; font-weight:normal;">(支持一级目录/二级标签)</small>
                     </label>
-                    ${subtagsEnabled ? `<button id="tm-toggle-all-tree-fold" class="menu_button tm-btn-icon-only" style="margin:0;" title="一键折叠/展开全部父级标签"><i class="fa-solid fa-compress"></i></button>` : ''}
+                    <div class="tm-tree-fold-control-group" id="tm-tree-fold-controls" style="display:${subtagsEnabled ? 'inline-flex' : 'none'}; align-items:center; gap:4px; margin-left:4px;">
+                        <button id="tm-step-expand-tree-btn" class="menu_button tm-btn-icon-only" style="margin:0; height:26px; padding:0 8px; font-size:11px;" title="逐级全部展开 (点击逐步展开下一层级)"><i class="fa-solid fa-expand"></i> <span style="font-size:10px;">逐级展开</span></button>
+                        <button id="tm-step-collapse-tree-btn" class="menu_button tm-btn-icon-only" style="margin:0; height:26px; padding:0 8px; font-size:11px;" title="逐级全部折叠 (点击逐步收拢最深层级)"><i class="fa-solid fa-compress"></i> <span style="font-size:10px;">逐级折叠</span></button>
+                        <button id="tm-toggle-all-tree-fold" class="menu_button tm-btn-icon-only" style="margin:0; height:26px; padding:0 6px;" title="智能一键全展/全折"><i class="fa-solid fa-arrows-up-down"></i></button>
+                    </div>
                 </div>
                 <button id="batch-delete-tags-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:4px 12px; white-space:nowrap; word-break:keep-all; flex-shrink:0; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; display:inline-flex !important; flex-direction:row !important; align-items:center !important; justify-content:center !important; writing-mode:horizontal-tb !important; width:auto !important; height:auto !important; min-height:28px !important; gap:4px;"><i class="fa-solid fa-trash-can" style="margin-right:4px;"></i> 批量删除标签</button>
             </div>
@@ -235,15 +239,26 @@ export function initTagUI(config) {
                     const batchBar = dlg.querySelector('#tm-batch-delete-bar');
                     if (batchBar) batchBar.style.display = isBatchDeleteMode ? 'flex' : 'none';
 
-                    const toggleAllBtn = dlg.querySelector('#tm-toggle-all-tree-fold');
-                    if (toggleAllBtn) {
-                        toggleAllBtn.style.display = subtagsEnabled ? 'inline-flex' : 'none';
-                        const parentTagIds = tags.filter(t => tags.some(c => c.parentId === t.id)).map(t => t.id);
-                        const allCollapsed = parentTagIds.length > 0 && parentTagIds.every(id => collapsedTagIds.has(id));
-                        toggleAllBtn.innerHTML = allCollapsed 
-                            ? `<i class="fa-solid fa-expand"></i>` 
-                            : `<i class="fa-solid fa-compress"></i>`;
-                        toggleAllBtn.title = allCollapsed ? '一键展开全部标签' : '一键折叠全部标签';
+                    const foldControls = dlg.querySelector('#tm-tree-fold-controls');
+                    if (foldControls) {
+                        foldControls.style.display = subtagsEnabled ? 'inline-flex' : 'none';
+                        const parentTagsWithDepth = getParentTagsWithDepth();
+                        const allCollapsed = parentTagsWithDepth.length > 0 && parentTagsWithDepth.every(p => collapsedTagIds.has(p.tag.id));
+                        const allExpanded = parentTagsWithDepth.length > 0 && parentTagsWithDepth.every(p => !collapsedTagIds.has(p.tag.id));
+                        
+                        const expBtn = dlg.querySelector('#tm-step-expand-tree-btn');
+                        if (expBtn) {
+                            expBtn.style.opacity = allExpanded ? '0.45' : '1';
+                        }
+                        const colBtn = dlg.querySelector('#tm-step-collapse-tree-btn');
+                        if (colBtn) {
+                            colBtn.style.opacity = allCollapsed ? '0.45' : '1';
+                        }
+                        const toggleAllBtn = dlg.querySelector('#tm-toggle-all-tree-fold');
+                        if (toggleAllBtn) {
+                            toggleAllBtn.innerHTML = allExpanded ? `<i class="fa-solid fa-compress"></i>` : `<i class="fa-solid fa-expand"></i>`;
+                            toggleAllBtn.title = allExpanded ? '一键全部折叠' : '一键全部展开';
+                        }
                     }
 
                     const validThemeNames = getValidInstalledThemeNames();
@@ -341,14 +356,121 @@ export function initTagUI(config) {
                     BindEvents();
                 };
 
+                // 获取所有父节点及其在树中的深度
+                const getParentTagsWithDepth = () => {
+                    const parentTags = tags.filter(t => tags.some(c => c.parentId === t.id));
+                    const getDepth = (tagId) => {
+                        let depth = 0;
+                        let cur = tags.find(t => t.id === tagId);
+                        const visited = new Set();
+                        while (cur && cur.parentId && !visited.has(cur.id)) {
+                            visited.add(cur.id);
+                            const parent = tags.find(t => t.id === cur.parentId);
+                            if (parent) {
+                                depth++;
+                                cur = parent;
+                            } else {
+                                break;
+                            }
+                        }
+                        return depth;
+                    };
+                    return parentTags.map(t => ({
+                        tag: t,
+                        depth: getDepth(t.id)
+                    }));
+                };
+
+                const getParentDepths = () => {
+                    const parentTagsWithDepth = getParentTagsWithDepth();
+                    if (parentTagsWithDepth.length === 0) return [];
+                    return Array.from(new Set(parentTagsWithDepth.map(p => p.depth))).sort((a, b) => a - b);
+                };
+
+                // 逐级全部展开
+                const stepExpandTree = () => {
+                    const parentTagsWithDepth = getParentTagsWithDepth();
+                    if (parentTagsWithDepth.length === 0) return;
+                    const depths = getParentDepths();
+
+                    let targetDepthToExpand = null;
+                    for (const d of depths) {
+                        const nodesAtDepth = parentTagsWithDepth.filter(p => p.depth === d);
+                        if (nodesAtDepth.some(n => collapsedTagIds.has(n.tag.id))) {
+                            targetDepthToExpand = d;
+                            break;
+                        }
+                    }
+
+                    if (targetDepthToExpand === null) {
+                        toastr.info('所有层级已全部展开');
+                        return;
+                    }
+
+                    parentTagsWithDepth.filter(p => p.depth === targetDepthToExpand).forEach(p => {
+                        collapsedTagIds.delete(p.tag.id);
+                    });
+
+                    const isNowAllExpanded = parentTagsWithDepth.every(p => !collapsedTagIds.has(p.tag.id));
+                    if (isNowAllExpanded) {
+                        toastr.success(`已全部展开 (共 ${depths.length} 级)`);
+                    } else {
+                        toastr.info(`已展开至第 ${targetDepthToExpand + 1} 级分组`);
+                    }
+                    renderList();
+                };
+
+                // 逐级全部折叠
+                const stepCollapseTree = () => {
+                    const parentTagsWithDepth = getParentTagsWithDepth();
+                    if (parentTagsWithDepth.length === 0) return;
+                    const depths = getParentDepths();
+
+                    let targetDepthToCollapse = null;
+                    for (let i = depths.length - 1; i >= 0; i--) {
+                        const d = depths[i];
+                        const nodesAtDepth = parentTagsWithDepth.filter(p => p.depth === d);
+                        if (nodesAtDepth.some(n => !collapsedTagIds.has(n.tag.id))) {
+                            targetDepthToCollapse = d;
+                            break;
+                        }
+                    }
+
+                    if (targetDepthToCollapse === null) {
+                        toastr.info('所有分组已处于全部折叠状态');
+                        return;
+                    }
+
+                    parentTagsWithDepth.filter(p => p.depth === targetDepthToCollapse).forEach(p => {
+                        collapsedTagIds.add(p.tag.id);
+                    });
+
+                    const isNowAllCollapsed = parentTagsWithDepth.every(p => collapsedTagIds.has(p.tag.id));
+                    if (isNowAllCollapsed) {
+                        toastr.info('已全部折叠');
+                    } else {
+                        toastr.info(`已折叠第 ${targetDepthToCollapse + 1} 级分组`);
+                    }
+                    renderList();
+                };
+
+                const expBtn = dlg.querySelector('#tm-step-expand-tree-btn');
+                if (expBtn) expBtn.addEventListener('click', stepExpandTree);
+
+                const colBtn = dlg.querySelector('#tm-step-collapse-tree-btn');
+                if (colBtn) colBtn.addEventListener('click', stepCollapseTree);
+
                 const toggleAllBtn = dlg.querySelector('#tm-toggle-all-tree-fold');
                 if (toggleAllBtn) {
                     toggleAllBtn.addEventListener('click', () => {
-                        const parentTagIds = tags.filter(t => tags.some(child => child.parentId === t.id)).map(t => t.id);
-                        if (collapsedTagIds.size >= parentTagIds.length) {
-                            collapsedTagIds.clear();
+                        const parentTagsWithDepth = getParentTagsWithDepth();
+                        const allExpanded = parentTagsWithDepth.length > 0 && parentTagsWithDepth.every(p => !collapsedTagIds.has(p.tag.id));
+                        if (allExpanded) {
+                            parentTagsWithDepth.forEach(p => collapsedTagIds.add(p.tag.id));
+                            toastr.info('已全部折叠');
                         } else {
-                            parentTagIds.forEach(id => collapsedTagIds.add(id));
+                            collapsedTagIds.clear();
+                            toastr.success('已全部展开');
                         }
                         renderList();
                     });
@@ -798,6 +920,114 @@ export function initTagUI(config) {
                             currentModalDragId = null;
                             currentModalDragParentId = null;
                         });
+                    });
+
+                    // === 移动端专用触控手柄拖拽排序逻辑 ===
+                    dlg.querySelectorAll('.tm-tag-drag-handle').forEach(handle => {
+                        handle.addEventListener('touchstart', (e) => {
+                            if (e.touches.length !== 1) return;
+                            const touch = e.touches[0];
+                            const item = handle.closest('.tm-flat-tag-item') || handle.closest('.tm-tree-node-header');
+                            if (!item) return;
+
+                            const isTree = item.classList.contains('tm-tree-node-header');
+                            const sourceId = item.dataset.id;
+                            const tag = tags.find(t => t.id === sourceId);
+                            const sourceParentId = tag ? (tag.parentId || null) : null;
+
+                            if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                                navigator.vibrate(25);
+                            }
+
+                            const rect = item.getBoundingClientRect();
+                            const ghost = item.cloneNode(true);
+                            ghost.classList.add('tm-touch-drag-ghost');
+                            ghost.style.width = rect.width + 'px';
+                            ghost.style.left = rect.left + 'px';
+                            ghost.style.top = (rect.top - 6) + 'px';
+                            document.body.appendChild(ghost);
+
+                            item.classList.add('tm-item-dragging');
+
+                            let currentOverTarget = null;
+                            let currentDropPosition = null;
+
+                            const onTouchMove = (moveEvt) => {
+                                if (!moveEvt.touches || moveEvt.touches.length === 0) return;
+                                if (moveEvt.cancelable) moveEvt.preventDefault();
+                                const curTouch = moveEvt.touches[0];
+
+                                ghost.style.left = (curTouch.clientX - rect.width / 2) + 'px';
+                                ghost.style.top = (curTouch.clientY - 25) + 'px';
+
+                                ghost.style.visibility = 'hidden';
+                                const hit = document.elementFromPoint(curTouch.clientX, curTouch.clientY);
+                                ghost.style.visibility = 'visible';
+
+                                const targetEl = isTree
+                                    ? (hit ? hit.closest('.tm-tree-node-header') : null)
+                                    : (hit ? hit.closest('.tm-flat-tag-item') : null);
+
+                                dlg.querySelectorAll('.tm-drag-over-top, .tm-drag-over-bottom').forEach(el => {
+                                    el.classList.remove('tm-drag-over-top', 'tm-drag-over-bottom');
+                                });
+
+                                if (targetEl && targetEl.dataset.id !== sourceId) {
+                                    if (isTree) {
+                                        const targetTag = tags.find(t => t.id === targetEl.dataset.id);
+                                        const targetParentId = targetTag ? (targetTag.parentId || null) : null;
+                                        if (targetParentId !== sourceParentId) {
+                                            currentOverTarget = null;
+                                            currentDropPosition = null;
+                                            return;
+                                        }
+                                    }
+
+                                    const targetRect = targetEl.getBoundingClientRect();
+                                    const isTop = curTouch.clientY < targetRect.top + targetRect.height / 2;
+                                    if (isTop) {
+                                        targetEl.classList.add('tm-drag-over-top');
+                                        currentDropPosition = 'before';
+                                    } else {
+                                        targetEl.classList.add('tm-drag-over-bottom');
+                                        currentDropPosition = 'after';
+                                    }
+                                    currentOverTarget = targetEl.dataset.id;
+                                } else {
+                                    currentOverTarget = null;
+                                    currentDropPosition = null;
+                                }
+                            };
+
+                            const onTouchEnd = () => {
+                                window.removeEventListener('touchmove', onTouchMove);
+                                window.removeEventListener('touchend', onTouchEnd);
+                                window.removeEventListener('touchcancel', onTouchEnd);
+
+                                if (ghost && ghost.parentNode) {
+                                    ghost.parentNode.removeChild(ghost);
+                                }
+                                item.classList.remove('tm-item-dragging');
+                                dlg.querySelectorAll('.tm-drag-over-top, .tm-drag-over-bottom').forEach(el => {
+                                    el.classList.remove('tm-drag-over-top', 'tm-drag-over-bottom');
+                                });
+
+                                if (currentOverTarget && currentOverTarget !== sourceId && currentDropPosition) {
+                                    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                                        navigator.vibrate([15, 20, 15]);
+                                    }
+                                    tags = reorderTags(tags, sourceId, currentOverTarget, currentDropPosition);
+                                    saveThemeTags(tags);
+                                    renderList();
+                                    softRefreshUI();
+                                    toastr.success('已调整标签排序');
+                                }
+                            };
+
+                            window.addEventListener('touchmove', onTouchMove, { passive: false });
+                            window.addEventListener('touchend', onTouchEnd);
+                            window.addEventListener('touchcancel', onTouchEnd);
+                        }, { passive: false });
                     });
                 };
 
