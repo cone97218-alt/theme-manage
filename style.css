@@ -1334,3 +1334,68 @@
 #tm-imp-use-zipname-btn * {
     writing-mode: horizontal-tb !important;
 }
+
+
+/* ======== 标签拖动排序样式 (Tag Drag & Drop Reorder) ======== */
+.theme-tag-chip.tm-draggable-tag {
+    cursor: grab;
+    user-select: none;
+    -webkit-user-drag: element;
+    transition: transform 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.theme-tag-chip.tm-draggable-tag:active {
+    cursor: grabbing;
+}
+
+.theme-tag-chip.tm-tag-dragging {
+    opacity: 0.45 !important;
+    transform: scale(0.95);
+    border: 1px dashed var(--SmartThemeQuoteColor, #4a90e2) !important;
+}
+
+.theme-tag-chip.tm-drag-over-left {
+    box-shadow: -3px 0 0 0 var(--SmartThemeQuoteColor, #4a90e2) !important;
+    transform: translateX(2px);
+}
+
+.theme-tag-chip.tm-drag-over-right {
+    box-shadow: 3px 0 0 0 var(--SmartThemeQuoteColor, #4a90e2) !important;
+    transform: translateX(-2px);
+}
+
+/* 管理标签弹窗列表项拖拽样式 */
+.tm-flat-tag-item[draggable="true"],
+.tm-tree-node-header[draggable="true"] {
+    cursor: grab;
+    user-select: none;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.tm-flat-tag-item[draggable="true"]:active,
+.tm-tree-node-header[draggable="true"]:active {
+    cursor: grabbing;
+}
+
+.tm-tag-drag-handle {
+    cursor: grab;
+    transition: opacity 0.15s, color 0.15s;
+}
+
+.tm-tag-drag-handle:hover {
+    opacity: 0.9 !important;
+    color: var(--SmartThemeQuoteColor, #4a90e2);
+}
+
+.tm-item-dragging {
+    opacity: 0.45 !important;
+    border: 1px dashed var(--SmartThemeQuoteColor, #4a90e2) !important;
+}
+
+.tm-drag-over-top {
+    border-top: 2px solid var(--SmartThemeQuoteColor, #4a90e2) !important;
+}
+
+.tm-drag-over-bottom {
+    border-bottom: 2px solid var(--SmartThemeQuoteColor, #4a90e2) !important;
+}

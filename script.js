@@ -474,7 +474,8 @@
                     getTagsForTheme,
                     refreshAllParsedThemesTags,
                     sanitizeTagsWithValidThemes,
-                    sanitizeSubtagThemeAssociations
+                    sanitizeSubtagThemeAssociations,
+                    reorderTags
                 } = tagManager;
 
                 let applyKeywordMappings = () => false;
@@ -2189,6 +2190,74 @@
                     }
                 }
 
+                let currentChipDrag = null;
+                let lastChipDragEndTime = 0;
+
+                function attachTagChipDragEvents(chip, tag, isSubtag, parentId) {
+                    chip.setAttribute('draggable', 'true');
+                    chip.classList.add('tm-draggable-tag');
+                    chip.title = `${tag.name} (可按住拖动排序)`;
+
+                    chip.addEventListener('dragstart', (e) => {
+                        currentChipDrag = {
+                            tagId: tag.id,
+                            isSubtag: !!isSubtag,
+                            parentId: parentId || null
+                        };
+                        chip.classList.add('tm-tag-dragging');
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', tag.id);
+                    });
+
+                    chip.addEventListener('dragover', (e) => {
+                        if (!currentChipDrag) return;
+                        if (currentChipDrag.tagId === tag.id) return;
+                        if (currentChipDrag.isSubtag !== !!isSubtag) return;
+                        if (currentChipDrag.parentId !== (parentId || null)) return;
+
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+
+                        const rect = chip.getBoundingClientRect();
+                        const isLeft = e.clientX < rect.left + rect.width / 2;
+                        if (isLeft) {
+                            chip.classList.add('tm-drag-over-left');
+                            chip.classList.remove('tm-drag-over-right');
+                        } else {
+                            chip.classList.add('tm-drag-over-right');
+                            chip.classList.remove('tm-drag-over-left');
+                        }
+                    });
+
+                    chip.addEventListener('dragleave', () => {
+                        chip.classList.remove('tm-drag-over-left', 'tm-drag-over-right');
+                    });
+
+                    chip.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const isLeft = chip.classList.contains('tm-drag-over-left') || (e.clientX < chip.getBoundingClientRect().left + chip.getBoundingClientRect().width / 2);
+                        chip.classList.remove('tm-drag-over-left', 'tm-drag-over-right');
+
+                        if (currentChipDrag && currentChipDrag.tagId !== tag.id) {
+                            const currentTags = loadThemeTags();
+                            const position = isLeft ? 'before' : 'after';
+                            const updatedTags = reorderTags(currentTags, currentChipDrag.tagId, tag.id, position);
+                            saveThemeTags(updatedTags);
+                            renderTagsUI(updatedTags);
+                            toastr.success('已调整标签排序');
+                        }
+                    });
+
+                    chip.addEventListener('dragend', () => {
+                        managerPanel.querySelectorAll('.tm-drag-over-left, .tm-drag-over-right, .tm-tag-dragging').forEach(el => {
+                            el.classList.remove('tm-drag-over-left', 'tm-drag-over-right', 'tm-tag-dragging');
+                        });
+                        currentChipDrag = null;
+                        lastChipDragEndTime = Date.now();
+                    });
+                }
+
                 function renderTagsUI(cachedTags) {
                     const container = managerPanel.querySelector('#theme-tags-container');
                     if (!container) return;
@@ -2321,7 +2390,9 @@
                             }
 
                             chip.innerHTML = `${escapeHtml(tag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${count})</span>`;
+                            attachTagChipDragEvents(chip, tag, false, null);
                             chip.addEventListener('click', () => {
+                                if (Date.now() - lastChipDragEndTime < 200) return;
                                 if (subtagsEnabled) {
                                     if (activeTagAncestryPath[0] === tag.id) {
                                         if (tagFilterMode === 'or' && activeTagFilters.has(tag.id) && activeTagAncestryPath.length === 1) {
@@ -2466,8 +2537,10 @@
                                     subChip.className = `theme-tag-chip level2 ${isSubDirectActive || isSubInPath ? 'active' : ''}`;
                                     subChip.dataset.tagId = childTag.id;
                                     subChip.innerHTML = `${escapeHtml(childTag.name)} <span style="opacity:0.6;font-size:10px;margin-left:3px;">(${cThemeNames.size})</span>`;
+                                    attachTagChipDragEvents(subChip, childTag, true, parentTagId);
                                     subChip.addEventListener('click', (e) => {
                                         e.stopPropagation();
+                                        if (Date.now() - lastChipDragEndTime < 200) return;
                                         if (tagFilterMode === 'or') {
                                             if (isSubInPath && isSubDirectActive) {
                                                 // OR 模式：同层级再次点击已选中的标签 -> 取消选中该层级，回退至父级标签
@@ -3373,6 +3446,7 @@
                     const tagUiModule = initTagUI({
                         loadThemeTags,
                         saveThemeTags,
+                        reorderTags,
                         isSubtagsEnabled,
                         getValidInstalledThemeNames,
                         escapeHtml,

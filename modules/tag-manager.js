@@ -217,6 +217,83 @@ export function createTagManager(config = {}) {
         getTagsForTheme,
         refreshAllParsedThemesTags,
         sanitizeTagsWithValidThemes,
-        sanitizeSubtagThemeAssociations
+        sanitizeSubtagThemeAssociations,
+        reorderTags
     };
+}
+
+/**
+ * 通用标签重排算法：将 sourceId 节点（及其完整子树）移动到 targetId 节点之前或之后
+ * @param {Array} tags 完整标签数组
+ * @param {string} sourceId 被拖拽的标签 ID
+ * @param {string} targetId 目标标签 ID
+ * @param {'before'|'after'} position 插入位置：目标之前或之后
+ * @returns {Array} 重排后的标签数组
+ */
+export function reorderTags(tags, sourceId, targetId, position = 'before') {
+    if (!Array.isArray(tags) || !sourceId || !targetId || sourceId === targetId) {
+        return tags;
+    }
+
+    const srcIndex = tags.findIndex(t => t.id === sourceId);
+    const tgtIndex = tags.findIndex(t => t.id === targetId);
+    if (srcIndex === -1 || tgtIndex === -1) {
+        return tags;
+    }
+
+    // 获取 rootId 节点及其所有递归后代节点的 ID 列表
+    const getSubtreeIds = (rootId) => {
+        const result = [rootId];
+        const queue = [rootId];
+        const visited = new Set([rootId]);
+        while (queue.length > 0) {
+            const cur = queue.shift();
+            const children = tags.filter(t => t.parentId === cur);
+            for (const c of children) {
+                if (!visited.has(c.id)) {
+                    visited.add(c.id);
+                    result.push(c.id);
+                    queue.push(c.id);
+                }
+            }
+        }
+        return result;
+    };
+
+    const sourceSubtreeIds = new Set(getSubtreeIds(sourceId));
+    // 防止将父级节点移动到它自己的子树中
+    if (sourceSubtreeIds.has(targetId)) {
+        return tags;
+    }
+
+    // 抽取出 source 块
+    const sourceBlock = [];
+    const remainingTags = [];
+    for (const t of tags) {
+        if (sourceSubtreeIds.has(t.id)) {
+            sourceBlock.push(t);
+        } else {
+            remainingTags.push(t);
+        }
+    }
+
+    const targetIdxInRemaining = remainingTags.findIndex(t => t.id === targetId);
+    if (targetIdxInRemaining === -1) {
+        return tags;
+    }
+
+    if (position === 'after') {
+        const targetSubtreeIds = new Set(getSubtreeIds(targetId));
+        let lastTargetIdx = targetIdxInRemaining;
+        for (let i = targetIdxInRemaining + 1; i < remainingTags.length; i++) {
+            if (targetSubtreeIds.has(remainingTags[i].id)) {
+                lastTargetIdx = i;
+            }
+        }
+        remainingTags.splice(lastTargetIdx + 1, 0, ...sourceBlock);
+    } else {
+        remainingTags.splice(targetIdxInRemaining, 0, ...sourceBlock);
+    }
+
+    return remainingTags;
 }

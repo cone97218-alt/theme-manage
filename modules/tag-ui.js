@@ -3,6 +3,8 @@
  * 标签管理、标签分配/移除及关键词映射弹窗交互模块
  */
 
+import { reorderTags as defaultReorderTags } from './tag-manager.js';
+
 export function initTagUI(config) {
     const {
         loadThemeTags,
@@ -19,7 +21,8 @@ export function initTagUI(config) {
         ENABLE_SUBTAGS_KEY = 'themeManager_enableSubtags',
         getIsBatchEditMode = () => false,
         getSelectedForBatch = () => new Set(),
-        resetBatchSelection = () => {}
+        resetBatchSelection = () => {},
+        reorderTags = defaultReorderTags
     } = config;
 
     // 高级关键词映射管理弹窗：可直观查看关键词胶囊、一键删除独立关键词、无损追加新关键词
@@ -252,9 +255,10 @@ export function initTagUI(config) {
                             const kwCount = t.keywords ? t.keywords.length : 0;
                             const isChecked = selectedTagIds.has(t.id);
                             html += `
-                                <li class="tm-flat-tag-item" data-id="${t.id}" data-index="${idx}" style="display:flex; justify-content:space-between; padding:6px 8px; background:rgba(255,255,255,0.04); margin-bottom:4px; border-radius:4px; align-items:center;">
+                                <li class="tm-flat-tag-item" data-id="${t.id}" data-index="${idx}" draggable="true" style="display:flex; justify-content:space-between; padding:6px 8px; background:rgba(255,255,255,0.04); margin-bottom:4px; border-radius:4px; align-items:center;">
                                     <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
                                         ${isBatchDeleteMode ? `<input type="checkbox" class="tm-batch-tag-chk" data-id="${t.id}" ${isChecked ? 'checked' : ''} style="margin:0;">` : ''}
+                                        <i class="fa-solid fa-grip-vertical tm-tag-drag-handle" style="opacity:0.4; font-size:12px; cursor:grab; flex-shrink:0; margin-right:2px;" title="按住拖动排序"></i>
                                         <i class="fa-solid fa-tag" style="opacity:0.7; font-size:11px; flex-shrink:0;"></i>
                                         <span style="word-break: break-all; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(t.name)}</span>
                                         <small style="opacity:0.6; flex-shrink:0; white-space:nowrap;">(${filterValid(t.themes).length})</small>
@@ -290,9 +294,10 @@ export function initTagUI(config) {
 
                             let nodeHtml = `
                                 <div class="tm-tree-node-card" data-id="${nodeTag.id}" data-depth="${depth}" style="margin-left:${depth * 10}px; margin-bottom:4px;">
-                                    <div class="tm-tree-node-header" data-id="${nodeTag.id}" style="display:flex; justify-content:space-between; padding:5px 8px; background:${depth === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)'}; border-radius:4px; align-items:center; border:1px solid rgba(128,128,128,0.15);">
+                                    <div class="tm-tree-node-header" data-id="${nodeTag.id}" draggable="true" style="display:flex; justify-content:space-between; padding:5px 8px; background:${depth === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)'}; border-radius:4px; align-items:center; border:1px solid rgba(128,128,128,0.15);">
                                         <div style="display:flex; align-items:center; gap:6px; min-width:0; flex:1; overflow:hidden;">
                                             ${isBatchDeleteMode ? `<input type="checkbox" class="tm-batch-tag-chk" data-id="${nodeTag.id}" ${isChecked ? 'checked' : ''} style="margin:0;">` : ''}
+                                            <i class="fa-solid fa-grip-vertical tm-tag-drag-handle" style="opacity:0.4; font-size:11px; cursor:grab; flex-shrink:0; margin-right:2px;" title="按住拖动同级排序"></i>
                                             ${hasChildren ? `<i class="fa-solid ${isCollapsed ? 'fa-caret-right' : 'fa-caret-down'} tm-tag-tree-fold-toggle" data-id="${nodeTag.id}" style="cursor:pointer; padding:2px 4px; color:var(--SmartThemeQuoteColor, #4a90e2); flex-shrink:0; font-size:12px;" title="${isCollapsed ? '点击展开子标签' : '点击折叠子标签'}"></i>` : '<span style="width:14px; flex-shrink:0; display:inline-block;"></span>'}
                                             <i class="${iconClass}" style="${depth === 0 ? 'color:var(--SmartThemeQuoteColor, #4a90e2);' : 'opacity:0.7; font-size:11px;'} flex-shrink:0;"></i>
                                             <span style="font-weight:${depth === 0 ? 'bold' : 'normal'}; text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(nodeTag.name)}</span>
@@ -650,6 +655,148 @@ export function initTagUI(config) {
                                     softRefreshUI();
                                 }
                             }
+                        });
+                    });
+
+                    // 平铺模式下的向上/向下移动按钮
+                    dlg.querySelectorAll('.move-flat-up').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const id = e.currentTarget.dataset.id;
+                            const idx = tags.findIndex(t => t.id === id);
+                            if (idx > 0) {
+                                const [moved] = tags.splice(idx, 1);
+                                tags.splice(idx - 1, 0, moved);
+                                saveThemeTags(tags);
+                                renderList();
+                                softRefreshUI();
+                            }
+                        });
+                    });
+
+                    dlg.querySelectorAll('.move-flat-down').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const id = e.currentTarget.dataset.id;
+                            const idx = tags.findIndex(t => t.id === id);
+                            if (idx > -1 && idx < tags.length - 1) {
+                                const [moved] = tags.splice(idx, 1);
+                                tags.splice(idx + 1, 0, moved);
+                                saveThemeTags(tags);
+                                renderList();
+                                softRefreshUI();
+                            }
+                        });
+                    });
+
+                    // === 弹窗内列表拖拽排序逻辑 ===
+                    let currentModalDragId = null;
+                    let currentModalDragParentId = null;
+
+                    // 1. 平铺列表项拖拽
+                    dlg.querySelectorAll('.tm-flat-tag-item').forEach(item => {
+                        item.addEventListener('dragstart', (e) => {
+                            currentModalDragId = item.dataset.id;
+                            item.classList.add('tm-item-dragging');
+                            e.dataTransfer.effectAllowed = 'move';
+                            e.dataTransfer.setData('text/plain', currentModalDragId);
+                        });
+                        item.addEventListener('dragover', (e) => {
+                            if (!currentModalDragId || currentModalDragId === item.dataset.id) return;
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = 'move';
+                            const rect = item.getBoundingClientRect();
+                            const isTop = e.clientY < rect.top + rect.height / 2;
+                            if (isTop) {
+                                item.classList.add('tm-drag-over-top');
+                                item.classList.remove('tm-drag-over-bottom');
+                            } else {
+                                item.classList.add('tm-drag-over-bottom');
+                                item.classList.remove('tm-drag-over-top');
+                            }
+                        });
+                        item.addEventListener('dragleave', () => {
+                            item.classList.remove('tm-drag-over-top', 'tm-drag-over-bottom');
+                        });
+                        item.addEventListener('drop', (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const targetId = item.dataset.id;
+                            const isTop = item.classList.contains('tm-drag-over-top') || (e.clientY < item.getBoundingClientRect().top + item.getBoundingClientRect().height / 2);
+                            item.classList.remove('tm-drag-over-top', 'tm-drag-over-bottom');
+                            if (currentModalDragId && currentModalDragId !== targetId) {
+                                tags = reorderTags(tags, currentModalDragId, targetId, isTop ? 'before' : 'after');
+                                saveThemeTags(tags);
+                                renderList();
+                                softRefreshUI();
+                                toastr.success('已调整标签排序');
+                            }
+                        });
+                        item.addEventListener('dragend', () => {
+                            dlg.querySelectorAll('.tm-item-dragging, .tm-drag-over-top, .tm-drag-over-bottom').forEach(el => {
+                                el.classList.remove('tm-item-dragging', 'tm-drag-over-top', 'tm-drag-over-bottom');
+                            });
+                            currentModalDragId = null;
+                        });
+                    });
+
+                    // 2. 树形列表节点拖拽 (仅限同级兄弟节点间排序)
+                    dlg.querySelectorAll('.tm-tree-node-header').forEach(header => {
+                        header.addEventListener('dragstart', (e) => {
+                            const id = header.dataset.id;
+                            const tag = tags.find(t => t.id === id);
+                            currentModalDragId = id;
+                            currentModalDragParentId = tag ? (tag.parentId || null) : null;
+                            header.classList.add('tm-item-dragging');
+                            e.dataTransfer.effectAllowed = 'move';
+                            e.dataTransfer.setData('text/plain', id);
+                        });
+                        header.addEventListener('dragover', (e) => {
+                            if (!currentModalDragId || currentModalDragId === header.dataset.id) return;
+                            const id = header.dataset.id;
+                            const tag = tags.find(t => t.id === id);
+                            const tagParentId = tag ? (tag.parentId || null) : null;
+                            if (tagParentId !== currentModalDragParentId) return;
+
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = 'move';
+                            const rect = header.getBoundingClientRect();
+                            const isTop = e.clientY < rect.top + rect.height / 2;
+                            if (isTop) {
+                                header.classList.add('tm-drag-over-top');
+                                header.classList.remove('tm-drag-over-bottom');
+                            } else {
+                                header.classList.add('tm-drag-over-bottom');
+                                header.classList.remove('tm-drag-over-top');
+                            }
+                        });
+                        header.addEventListener('dragleave', () => {
+                            header.classList.remove('tm-drag-over-top', 'tm-drag-over-bottom');
+                        });
+                        header.addEventListener('drop', (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const targetId = header.dataset.id;
+                            const tag = tags.find(t => t.id === targetId);
+                            const tagParentId = tag ? (tag.parentId || null) : null;
+                            if (tagParentId !== currentModalDragParentId) return;
+
+                            const isTop = header.classList.contains('tm-drag-over-top') || (e.clientY < header.getBoundingClientRect().top + header.getBoundingClientRect().height / 2);
+                            header.classList.remove('tm-drag-over-top', 'tm-drag-over-bottom');
+                            if (currentModalDragId && currentModalDragId !== targetId) {
+                                tags = reorderTags(tags, currentModalDragId, targetId, isTop ? 'before' : 'after');
+                                saveThemeTags(tags);
+                                renderList();
+                                softRefreshUI();
+                                toastr.success('已调整标签排序');
+                            }
+                        });
+                        header.addEventListener('dragend', () => {
+                            dlg.querySelectorAll('.tm-item-dragging, .tm-drag-over-top, .tm-drag-over-bottom').forEach(el => {
+                                el.classList.remove('tm-item-dragging', 'tm-drag-over-top', 'tm-drag-over-bottom');
+                            });
+                            currentModalDragId = null;
+                            currentModalDragParentId = null;
                         });
                     });
                 };
