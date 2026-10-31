@@ -304,8 +304,16 @@ export function initThemeCore(options) {
                 }
 
                 if (typeof editorVal === 'string') {
-                    // 输入框在 DOM 中真实存在，其值（无论是修改后的 CSS 还是主动清空的内容）即为用户实时意图
-                    currentCss = editorVal;
+                    if (editorVal.trim().length > 0) {
+                        currentCss = editorVal;
+                    } else {
+                        // 输入框在 DOM 中真实存在且内容已被清空为空字符串
+                        // 若用户当前正在编辑（或曾获得焦点）、或者 pu.custom_css 也为空、或者页面 style 标签为空，确认为有意清空
+                        const activeStyle = document.getElementById('custom-style');
+                        if (document.activeElement === editorEl || !pu?.custom_css || !activeStyle?.innerHTML?.trim()) {
+                            currentCss = '';
+                        }
+                    }
                 }
             }
         }
@@ -405,11 +413,6 @@ export function initThemeCore(options) {
             if (picker) {
                 if (typeof picker.rgba === 'string' && picker.rgba.trim()) {
                     const pickerColor = picker.rgba.trim();
-                    if (pu) pu[puProp] = pickerColor;
-                    return pickerColor;
-                }
-                if (typeof picker.color === 'string' && picker.color.trim()) {
-                    const pickerColor = picker.color.trim();
                     if (pu) pu[puProp] = pickerColor;
                     return pickerColor;
                 }
@@ -640,10 +643,6 @@ export function initThemeCore(options) {
         }
 
         const { mtime: _m, ...payload } = normalized;
-        // 同步固化原生闭包内存，确保任何后续即刻切换均能使用最新保存对象
-        if (typeof window !== 'undefined' && typeof window.baibaokuHydrateTheme === 'function') {
-            try { window.baibaokuHydrateTheme(normalized); } catch (e) {}
-        }
         await apiRequest('themes/save', 'POST', payload, isBatch);
         if (!isBatch) {
             console.log(`[Theme Manager] saveTheme ✅ 写入成功: "${normalized.name}.json"`);
@@ -899,19 +898,10 @@ export function initThemeCore(options) {
             let themeObj = findThemeObject(themeName) || { name: themeName };
             const cleanTheme = normalizeThemeObject(themeObj, themeName);
 
-            // 立即固化手动激活意图与时间戳，彻底防御后续任何外部事件覆盖
-            try {
-                localStorage.setItem('themeManager_lastActiveTheme', cleanTheme.name);
-                localStorage.setItem('themeManager_lastThemeSwitchTime', String(Date.now()));
-            } catch (e) {}
-
             updateSTThemeMemory(cleanTheme, 'add');
-            if (typeof window !== 'undefined' && typeof window.baibaokuHydrateTheme === 'function') {
-                try { window.baibaokuHydrateTheme(cleanTheme); } catch (e) {}
-            }
 
             if (select) {
-                // 彻底排他性净化：先剥离所有非目标选项的 selected 属性与状态，防止 jQuery find(':selected') 误匹配旧选项
+                // 原生选项彻底排他性净化：剥离所有非目标选项的 selected 属性与状态，消灭 jQuery find(':selected') 冲突
                 Array.from(select.options).forEach(o => {
                     o.selected = false;
                     o.removeAttribute('selected');
@@ -1144,11 +1134,6 @@ export function initThemeCore(options) {
             }
 
             updateActiveState();
-
-            try {
-                localStorage.setItem('themeManager_lastActiveTheme', cleanTheme.name);
-                localStorage.setItem('themeManager_lastThemeSwitchTime', String(Date.now()));
-            } catch (e) {}
 
             try {
                 document.dispatchEvent(new CustomEvent('themeManager:themeChanged', { 

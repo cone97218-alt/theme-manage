@@ -85,17 +85,6 @@ export function initCharacterBinding({
             bindings = {};
         }
 
-        // 保护期机制：若用户最近手动在面板/界面中切换了主题（10分钟保护期），用户的主动意图优先级最高，
-        // 绝不擅自自动用角色的旧绑定强行覆盖用户刚选的主题！
-        try {
-            const lastSwitchTime = Number(localStorage.getItem('themeManager_lastThemeSwitchTime')) || 0;
-            const lastActiveTheme = localStorage.getItem('themeManager_lastActiveTheme');
-            if (Date.now() - lastSwitchTime < 600000 && lastActiveTheme) {
-                console.log(`[Theme Manager] 用户最近手动切换了主题 "${lastActiveTheme}" (在10分钟保护期内)，跳过角色 "${cleanName}" 的自动绑定覆盖`);
-                return;
-            }
-        } catch (e) {}
-
         const target = bindings[cleanName];
         if (target) {
             const themeToApply = getThemeForTarget(target);
@@ -147,12 +136,6 @@ export function initCharacterBinding({
         chatArea.addEventListener('click', (event) => {
             const recentChatBlock = event.target.closest('.recentChat');
             if (!recentChatBlock) return;
-
-            // 若用户近期刚刚在首页自主选定了美化，绝不在点击聊天时擅自跳变覆盖
-            const lastSwitchTime = Number(localStorage.getItem('themeManager_lastThemeSwitchTime')) || 0;
-            if (Date.now() - lastSwitchTime < 600000) {
-                return;
-            }
 
             const characterAvatar = recentChatBlock.dataset.avatar;
             if (characterAvatar) {
