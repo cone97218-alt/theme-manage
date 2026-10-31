@@ -919,32 +919,14 @@
                 // 使用标准 pointerdown 触发失焦，并在 click / touchend 双通道中健壮唤起，杜绝键盘跳动丢事件与滑动误触
                 const bindRobustActionButton = (btn, actionExecutor) => {
                     let lastExecutedTime = 0;
-                    let touchStartX = 0;
-                    let touchStartY = 0;
-                    let touchMoved = false;
 
-                    btn.addEventListener('pointerdown', (e) => {
-                        if (e.pointerType === 'touch') {
-                            touchStartX = e.clientX;
-                            touchStartY = e.clientY;
-                            touchMoved = false;
-                            if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
-                                document.activeElement.blur();
-                            }
+                    btn.addEventListener('pointerdown', () => {
+                        if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+                            document.activeElement.blur();
                         }
                     });
 
-                    btn.addEventListener('touchmove', (e) => {
-                        if (!e.touches || !e.touches[0]) return;
-                        const dx = Math.abs(e.touches[0].clientX - touchStartX);
-                        const dy = Math.abs(e.touches[0].clientY - touchStartY);
-                        if (dx > 10 || dy > 10) {
-                            touchMoved = true;
-                        }
-                    }, { passive: true });
-
-                    const triggerSafe = (e) => {
-                        if (touchMoved) return;
+                    const triggerSafe = async (e) => {
                         const now = Date.now();
                         if (now - lastExecutedTime < 600) {
                             if (e) { e.preventDefault(); e.stopPropagation(); }
@@ -954,17 +936,19 @@
                         if (navigator.vibrate) {
                             try { navigator.vibrate(25); } catch (err) {}
                         }
-                        actionExecutor(e);
+                        await actionExecutor(e);
                     };
 
-                    btn.addEventListener('touchend', (e) => {
-                        if (touchMoved) return;
-                        triggerSafe(e);
-                    }, { passive: false });
-
+                    // 标准 click 事件 + 补充 touchend 支持，杜绝移动端软键盘收起重排时误弃点击
                     btn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                         triggerSafe(e);
                     });
+
+                    btn.addEventListener('touchend', (e) => {
+                        triggerSafe(e);
+                    }, { passive: false });
                 };
 
                 bindRobustActionButton(cleanUpdateButton, executeThemeUpdate);
@@ -4145,41 +4129,53 @@
                         eventSource.on(eventTypes.CHAT_CHANGED, () => {
                             console.log(`[Theme Manager Debug] CHAT_CHANGED event fired`);
                             const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
-                            const currentTheme = originalSelect?.value || pu?.theme || localStorage.getItem('themeManager_lastActiveTheme') || '';
+                            const currentTheme = localStorage.getItem('themeManager_lastActiveTheme') || pu?.theme || originalSelect?.value || '';
                             
                             // 延时等待 SillyTavern 原生 onChatChanged() 执行完毕后，重新执行全量权威加固
                             setTimeout(() => {
                                 try {
-                                    if (!currentTheme) return;
+                                    const activeTheme = localStorage.getItem('themeManager_lastActiveTheme') || currentTheme;
+                                    if (!activeTheme) return;
                                     
                                     // 1. 背景图固化保障：解决原生 onChatChanged() 覆盖背景图问题
-                                    const boundBg = themeBackgroundBindings ? themeBackgroundBindings[currentTheme] : null;
+                                    const boundBg = themeBackgroundBindings ? themeBackgroundBindings[activeTheme] : null;
                                     if (boundBg && typeof applyBackgroundDirectly === 'function') {
                                         applyBackgroundDirectly(boundBg);
                                     }
                                     
                                     // 2. 核心 CSS 与样式权威加固保障：防止进入聊天时原生重绘将样式冲刷回退
                                     if (typeof findThemeObject === 'function') {
-                                        const themeObj = findThemeObject(currentTheme);
-                                        if (themeObj && typeof themeObj.custom_css === 'string') {
-                                            const customStyleTag = document.getElementById('custom-style');
-                                            if (customStyleTag && customStyleTag.innerHTML !== themeObj.custom_css) {
-                                                console.log(`[Theme Manager] 聊天切换时重新加固当前美化 CSS: "${currentTheme}"`);
-                                                customStyleTag.innerHTML = themeObj.custom_css;
+                                        const themeObj = findThemeObject(activeTheme);
+                                        if (themeObj) {
+                                            const clean = typeof normalizeThemeObject === 'function' ? normalizeThemeObject(themeObj, activeTheme) : themeObj;
+                                            if (typeof clean.custom_css === 'string') {
+                                                const customStyleTag = document.getElementById('custom-style');
+                                                if (customStyleTag && customStyleTag.innerHTML !== clean.custom_css) {
+                                                    console.log(`[Theme Manager] 聊天切换时重新加固当前美化 CSS: "${activeTheme}"`);
+                                                    customStyleTag.innerHTML = clean.custom_css;
+                                                }
+                                                const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content');
+                                                if (editorEl && editorEl.value !== clean.custom_css) {
+                                                    editorEl.value = clean.custom_css;
+                                                }
                                             }
-                                            const editorEl = document.querySelector('#customCSS') || document.querySelector('#style_custom_content');
-                                            if (editorEl && editorEl.value !== themeObj.custom_css) {
-                                                editorEl.value = themeObj.custom_css;
+                                            if (THEME_COLOR_KEYS) {
+                                                THEME_COLOR_KEYS.forEach(({ key, cssVar }) => {
+                                                    const col = clean[key];
+                                                    if (col) {
+                                                        try { document.documentElement.style.setProperty(cssVar, col); } catch (e) {}
+                                                    }
+                                                });
                                             }
                                         }
                                     }
                                     
                                     // 3. 确保原生选择框与内存严格同步
-                                    if (originalSelect && originalSelect.value !== currentTheme) {
-                                        originalSelect.value = currentTheme;
+                                    if (originalSelect && originalSelect.value !== activeTheme) {
+                                        originalSelect.value = activeTheme;
                                     }
-                                    if (pu && pu.theme !== currentTheme) {
-                                        pu.theme = currentTheme;
+                                    if (pu && pu.theme !== activeTheme) {
+                                        pu.theme = activeTheme;
                                     }
                                 } catch (err) {
                                     console.warn('[Theme Manager] CHAT_CHANGED 主题加固处理异常:', err);
