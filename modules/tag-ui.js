@@ -186,9 +186,9 @@ export function initTagUI(config) {
                         <span>开启二级目录模式</span> <small style="opacity:0.6; font-weight:normal;">(支持一级目录/二级标签)</small>
                     </label>
                     <div class="tm-tree-fold-control-group" id="tm-tree-fold-controls" style="display:${subtagsEnabled ? 'inline-flex' : 'none'}; align-items:center; gap:4px; margin-left:4px;">
-                        <button id="tm-step-expand-tree-btn" class="menu_button tm-btn-icon-only" style="margin:0; height:26px; padding:0 8px; font-size:11px;" title="逐级全部展开 (点击逐步展开下一层级)"><i class="fa-solid fa-expand"></i> <span style="font-size:10px;">逐级展开</span></button>
-                        <button id="tm-step-collapse-tree-btn" class="menu_button tm-btn-icon-only" style="margin:0; height:26px; padding:0 8px; font-size:11px;" title="逐级全部折叠 (点击逐步收拢最深层级)"><i class="fa-solid fa-compress"></i> <span style="font-size:10px;">逐级折叠</span></button>
-                        <button id="tm-toggle-all-tree-fold" class="menu_button tm-btn-icon-only" style="margin:0; height:26px; padding:0 6px;" title="智能一键全展/全折"><i class="fa-solid fa-arrows-up-down"></i></button>
+                        <button id="tm-step-expand-tree-btn" class="menu_button tm-btn-icon-only" style="margin:0;" title="逐级全部展开"><i class="fa-solid fa-expand"></i></button>
+                        <button id="tm-step-collapse-tree-btn" class="menu_button tm-btn-icon-only" style="margin:0;" title="逐级全部折叠"><i class="fa-solid fa-compress"></i></button>
+                        <button id="tm-toggle-all-tree-fold" class="menu_button tm-btn-icon-only" style="margin:0;" title="一键全部展开/折叠"><i class="fa-solid fa-arrows-up-down"></i></button>
                     </div>
                 </div>
                 <button id="batch-delete-tags-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:4px 12px; white-space:nowrap; word-break:keep-all; flex-shrink:0; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; display:inline-flex !important; flex-direction:row !important; align-items:center !important; justify-content:center !important; writing-mode:horizontal-tb !important; width:auto !important; height:auto !important; min-height:28px !important; gap:4px;"><i class="fa-solid fa-trash-can" style="margin-right:4px;"></i> 批量删除标签</button>
@@ -387,7 +387,7 @@ export function initTagUI(config) {
                     return Array.from(new Set(parentTagsWithDepth.map(p => p.depth))).sort((a, b) => a - b);
                 };
 
-                // 逐级全部展开
+                // 逐级全部展开 (静默执行，无弹窗打扰)
                 const stepExpandTree = () => {
                     const parentTagsWithDepth = getParentTagsWithDepth();
                     if (parentTagsWithDepth.length === 0) return;
@@ -402,25 +402,16 @@ export function initTagUI(config) {
                         }
                     }
 
-                    if (targetDepthToExpand === null) {
-                        toastr.info('所有层级已全部展开');
-                        return;
-                    }
+                    if (targetDepthToExpand === null) return;
 
                     parentTagsWithDepth.filter(p => p.depth === targetDepthToExpand).forEach(p => {
                         collapsedTagIds.delete(p.tag.id);
                     });
 
-                    const isNowAllExpanded = parentTagsWithDepth.every(p => !collapsedTagIds.has(p.tag.id));
-                    if (isNowAllExpanded) {
-                        toastr.success(`已全部展开 (共 ${depths.length} 级)`);
-                    } else {
-                        toastr.info(`已展开至第 ${targetDepthToExpand + 1} 级分组`);
-                    }
                     renderList();
                 };
 
-                // 逐级全部折叠
+                // 逐级全部折叠 (静默执行，无弹窗打扰)
                 const stepCollapseTree = () => {
                     const parentTagsWithDepth = getParentTagsWithDepth();
                     if (parentTagsWithDepth.length === 0) return;
@@ -436,21 +427,12 @@ export function initTagUI(config) {
                         }
                     }
 
-                    if (targetDepthToCollapse === null) {
-                        toastr.info('所有分组已处于全部折叠状态');
-                        return;
-                    }
+                    if (targetDepthToCollapse === null) return;
 
                     parentTagsWithDepth.filter(p => p.depth === targetDepthToCollapse).forEach(p => {
                         collapsedTagIds.add(p.tag.id);
                     });
 
-                    const isNowAllCollapsed = parentTagsWithDepth.every(p => collapsedTagIds.has(p.tag.id));
-                    if (isNowAllCollapsed) {
-                        toastr.info('已全部折叠');
-                    } else {
-                        toastr.info(`已折叠第 ${targetDepthToCollapse + 1} 级分组`);
-                    }
                     renderList();
                 };
 
@@ -467,10 +449,8 @@ export function initTagUI(config) {
                         const allExpanded = parentTagsWithDepth.length > 0 && parentTagsWithDepth.every(p => !collapsedTagIds.has(p.tag.id));
                         if (allExpanded) {
                             parentTagsWithDepth.forEach(p => collapsedTagIds.add(p.tag.id));
-                            toastr.info('已全部折叠');
                         } else {
                             collapsedTagIds.clear();
-                            toastr.success('已全部展开');
                         }
                         renderList();
                     });
