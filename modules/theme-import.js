@@ -1,4 +1,4 @@
-/**
+﻿/**
  * modules/theme-import.js
  * 美化主题批量导入与压缩包导入、目标标签分配交互模块
  */
@@ -88,6 +88,8 @@ export function initThemeImport(config) {
         suspendObserver = (fn) => fn(),
         setSuspendObserver = () => {},
         updateSTThemeMemory,
+        updateSTThemeMemoryBatch,
+        getAllThemesFromAPI,
         findOptionByValue,
         originalSelect,
         stKnownThemes,
@@ -852,14 +854,41 @@ export function initThemeImport(config) {
                         }
                         stKnownThemes.add(cleanTheme.name);
                         allThemeObjectsMap.set(cleanTheme.name, cleanTheme);
-                        updateSTThemeMemory(cleanTheme, 'add');
                     });
+
+                    // 高性能单次批量合并至 ST 原生内存（彻底消除 N^2 循环检索与多次重绘）
+                    if (typeof updateSTThemeMemoryBatch === 'function') {
+                        updateSTThemeMemoryBatch(importedThemes);
+                    } else {
+                        importedThemes.forEach(th => updateSTThemeMemory(th, 'add'));
+                    }
 
                     if (originalSelect && optFragment.childNodes.length > 0) {
                         originalSelect.appendChild(optFragment);
                     }
                     syncStKnownThemes();
                 });
+
+                // 【核心无感热同步】物理落盘后，单次向服务端异步拉取真实磁盘主题清单，彻底消除磁盘与原生闭包脱节
+                if (typeof getAllThemesFromAPI === 'function') {
+                    try {
+                        const freshThemes = await getAllThemesFromAPI();
+                        if (Array.isArray(freshThemes) && freshThemes.length > 0) {
+                            freshThemes.forEach(t => {
+                                const clean = normalizeThemeObject(t);
+                                if (clean && clean.name) {
+                                    allThemeObjectsMap.set(clean.name, clean);
+                                    stKnownThemes.add(clean.name);
+                                }
+                            });
+                            if (typeof updateSTThemeMemoryBatch === 'function') {
+                                updateSTThemeMemoryBatch(freshThemes);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('[Theme Manager] 批量导入后热同步全量列表异常:', e);
+                    }
+                }
 
                 // 立即失效主题缓存与合法美化名称缓存，确保后续标签校验认可新导入的主题
                 invalidateThemesCache();

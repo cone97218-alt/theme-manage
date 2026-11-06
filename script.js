@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
     'use strict';
 
     let currentAutoThemeState = null;
@@ -453,6 +453,7 @@
                     manualUpdateOriginalSelect,
                     syncStKnownThemes,
                     updateSTThemeMemory,
+                    updateSTThemeMemoryBatch,
                     applyThemeDirect,
                     getValidInstalledThemeNames,
                     invalidateValidThemeNamesCache,
@@ -1177,11 +1178,15 @@
                             if (name) allThemeObjectsMap.set(name, t);
                         });
 
-                        // 🧹 严格以服务端 API 返回的真实磁盘文件列表为准，清理原生下拉框中已从磁盘删除的死选项节点
+                        // 🧹 严格以服务端 API 返回的真实磁盘文件列表及已知合法集为准，绝不误杀刚导入的新主题
                         const serverThemeNames = new Set(Array.from(allThemeObjectsMap.keys()));
+                        if (stKnownThemes && stKnownThemes.size > 0) {
+                            stKnownThemes.forEach(k => { if (k) serverThemeNames.add(k); });
+                        }
                         if (originalSelect && originalSelect.options) {
                             const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
-                            const activeVal = pu?.theme || originalSelect.value || '';
+                            const lastActive = localStorage.getItem('themeManager_lastActiveTheme');
+                            const activeVal = (lastActive && serverThemeNames.has(lastActive)) ? lastActive : (pu?.theme || originalSelect.value || '');
                             const prevSuspend = _suspendObserver;
                             _suspendObserver = true;
                             try {
@@ -2801,6 +2806,8 @@
                         originalSelect,
                         manualUpdateOriginalSelect,
                         updateSTThemeMemory,
+                        updateSTThemeMemoryBatch,
+                        getAllThemesFromAPI,
                         softRenameThemeUI,
                         updateFavorites,
                         getThemeBackgroundBindings: () => themeBackgroundBindings,
@@ -3211,6 +3218,8 @@
                         loadThemeTags,
                         saveTheme,
                         updateSTThemeMemory,
+                        updateSTThemeMemoryBatch,
+                        getAllThemesFromAPI,
                         originalSelect,
                         applyThemeDirect,
                         showLoader,
@@ -3398,6 +3407,8 @@
                         },
                         setSuspendObserver: (val) => { _suspendObserver = val; },
                         updateSTThemeMemory,
+                        updateSTThemeMemoryBatch,
+                        getAllThemesFromAPI,
                         findOptionByValue,
                         originalSelect,
                         stKnownThemes,
@@ -4341,7 +4352,17 @@
                         console.log(`[Theme Manager Debug] Event source & event types found. Registering listeners.`);
                         eventSource.on(eventTypes.CHAT_CHANGED, () => {
                             console.log(`[Theme Manager Debug] CHAT_CHANGED event fired`);
-                            const currentTheme = originalSelect.value;
+                            const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
+                            const lastActive = localStorage.getItem('themeManager_lastActiveTheme');
+                            if (lastActive && (stKnownThemes?.has(lastActive) || allThemeObjectsMap?.has(lastActive))) {
+                                if (originalSelect && originalSelect.value !== lastActive) {
+                                    originalSelect.value = lastActive;
+                                }
+                                if (pu && pu.theme !== lastActive) {
+                                    pu.theme = lastActive;
+                                }
+                            }
+                            const currentTheme = originalSelect?.value || pu?.theme || lastActive || '';
                             const boundBg = themeBackgroundBindings[currentTheme];
                             if (boundBg) {
                                 // 短延迟确保在 SillyTavern 的 onChatChanged 完成后再应用

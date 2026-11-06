@@ -1,4 +1,4 @@
-// modules/theme-core.js
+﻿// modules/theme-core.js
 // 主题核心数据模型、标准化清洗、API 通信、ST 内存同步与原生切换管道
 
 export const DEFAULT_THEME_PROPS = {
@@ -630,6 +630,76 @@ export function initThemeCore(options) {
             console.error('[Theme Manager Error] 同步 ST 内部主题内存失败:', e);
         }
     }
+    // 高性能批量内存与原生环境同步引擎（专为大规模批量导入优化，时间复杂度 O(N+M)，彻底消除循环查找与反复重绘）
+    function updateSTThemeMemoryBatch(themeObjects) {
+        if (!Array.isArray(themeObjects) || themeObjects.length === 0) return;
+        try {
+            const normalizedList = themeObjects.map(t => normalizeThemeObject(t)).filter(t => t && t.name);
+            if (normalizedList.length === 0) return;
+
+            const batchMergeArray = (arr) => {
+                if (!Array.isArray(arr)) return;
+                const existingIndices = new Map();
+                for (let i = 0; i < arr.length; i++) {
+                    const item = arr[i];
+                    const name = typeof item === 'string' ? item : (item?.name || item?.value);
+                    if (name) existingIndices.set(String(name), i);
+                }
+                normalizedList.forEach(newObj => {
+                    const idx = existingIndices.get(newObj.name);
+                    if (idx !== undefined) {
+                        arr[idx] = newObj;
+                    } else {
+                        arr.push(newObj);
+                        existingIndices.set(newObj.name, arr.length - 1);
+                    }
+                });
+            };
+
+            const pu = getPowerUser();
+            if (pu && Array.isArray(pu.themes)) {
+                batchMergeArray(pu.themes);
+            }
+
+            if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                const ctx = SillyTavern.getContext();
+                if (ctx) {
+                    if (Array.isArray(ctx.themes)) batchMergeArray(ctx.themes);
+                    if (ctx.powerUserSettings && Array.isArray(ctx.powerUserSettings.themes)) batchMergeArray(ctx.powerUserSettings.themes);
+                    if (ctx.power_user && Array.isArray(ctx.power_user.themes)) batchMergeArray(ctx.power_user.themes);
+                }
+            }
+
+            if (typeof themes !== 'undefined' && Array.isArray(themes)) {
+                batchMergeArray(themes);
+            }
+            if (typeof window !== 'undefined' && Array.isArray(window.themes)) {
+                batchMergeArray(window.themes);
+            }
+
+            if (typeof window !== 'undefined' && typeof window.baibaokuHydrateTheme === 'function') {
+                normalizedList.forEach(obj => {
+                    try { window.baibaokuHydrateTheme(obj); } catch (e) {}
+                });
+            }
+
+            normalizedList.forEach(obj => {
+                allThemeObjectsMap.set(obj.name, obj);
+                stKnownThemes.add(obj.name);
+            });
+
+            if (Array.isArray(_themesCache)) {
+                batchMergeArray(_themesCache);
+            }
+
+            if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                const ctx = SillyTavern.getContext();
+                if (ctx?.saveSettingsDebounced) ctx.saveSettingsDebounced();
+            }
+        } catch (e) {
+            console.error('[Theme Manager Error] 批量同步 ST 内部主题内存失败:', e);
+        }
+    }
 
     async function saveTheme(themeObject, options = {}) {
         if (!themeObject || (!themeObject.name && !themeObject.value)) {
@@ -1098,7 +1168,8 @@ export function initThemeCore(options) {
                 if (counter) counter.value = fontVal;
             }
             if (cleanTheme.blur_strength !== undefined) {
-                const blurVal = Number(cleanTheme.blur_strength) || 10;
+                const parsedBlur = Number(cleanTheme.blur_strength);
+                const blurVal = Number.isFinite(parsedBlur) ? Math.max(0, parsedBlur) : 10;
                 if (pu) pu.blur_strength = blurVal;
                 document.documentElement.style.setProperty('--sheldBlur', `${blurVal}px`);
                 document.documentElement.style.setProperty('--blurStrength', String(blurVal));
@@ -1108,7 +1179,8 @@ export function initThemeCore(options) {
                 if (counter) counter.value = blurVal;
             }
             if (cleanTheme.shadow_width !== undefined) {
-                const shadowVal = Number(cleanTheme.shadow_width) || 2;
+                const parsedShadow = Number(cleanTheme.shadow_width);
+                const shadowVal = Number.isFinite(parsedShadow) ? Math.max(0, parsedShadow) : 2;
                 if (pu) pu.shadow_width = shadowVal;
                 document.documentElement.style.setProperty('--shadowWidth', String(shadowVal));
                 const slider = document.querySelector('#shadow_width');
@@ -1134,6 +1206,11 @@ export function initThemeCore(options) {
             }
 
             updateActiveState();
+
+            try {
+                localStorage.setItem('themeManager_lastActiveTheme', cleanTheme.name);
+                localStorage.setItem('themeManager_lastThemeSwitchTime', String(Date.now()));
+            } catch (e) {}
 
             try {
                 document.dispatchEvent(new CustomEvent('themeManager:themeChanged', { 
@@ -1190,6 +1267,7 @@ export function initThemeCore(options) {
         manualUpdateOriginalSelect,
         syncStKnownThemes,
         updateSTThemeMemory,
+        updateSTThemeMemoryBatch,
         applyThemeDirect,
         getValidInstalledThemeNames,
         invalidateValidThemeNamesCache,
