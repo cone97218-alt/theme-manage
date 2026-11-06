@@ -538,8 +538,8 @@ export function initThemeImport(config) {
             const invalidFiles = [];
             let detectedBackup = null;
 
-            // 预先解压所有压缩包文件并收集 JSON 实体
-            for (const file of rawFiles) {
+            // 高性能并发读取所有压缩包文件与纯文本主题
+            await Promise.all(rawFiles.map(async (file) => {
                 if (isZipFile(file)) {
                     try {
                         const JSZip = await getJSZip();
@@ -564,10 +564,11 @@ export function initThemeImport(config) {
                                 valid: false,
                                 error: '压缩包内未找到任何有效的主题文件（.json）'
                             });
-                            continue;
+                            return;
                         }
 
-                        for (const { relativePath, entry } of zipEntriesToRead) {
+                        // 并发解压 ZIP 内部的所有 JSON 实体 (极大减少 I/O 阻塞)
+                        await Promise.all(zipEntriesToRead.map(async ({ relativePath, entry }) => {
                             try {
                                 const text = await entry.async('string');
                                 const pathParts = relativePath.split('/').filter(p => p && p.trim());
@@ -590,7 +591,7 @@ export function initThemeImport(config) {
                                     error: `解压文件失败: ${entryErr.message}`
                                 });
                             }
-                        }
+                        }));
                     } catch (zipErr) {
                         console.error('[Theme Manager] 读取解压 ZIP 失败:', zipErr);
                         invalidFiles.push({
@@ -614,7 +615,7 @@ export function initThemeImport(config) {
                         invalidFiles.push({ file, valid: false, error: err.message });
                     }
                 }
-            }
+            }));
 
             const parsedFiles = [];
 
@@ -798,8 +799,8 @@ export function initThemeImport(config) {
             const importedThemes = [];
             let needsUIUpdate = false;
 
-            // 2. 并行发送 API 保存请求 (限制并发为 10，批量模式下静默保存，避免反复触发布局与重载)
-            const saveConcurrency = Math.min(10, Math.max(5, Math.ceil(validFiles.length / 30)));
+            // 2. 并行发送 API 保存请求 (动态提升并发度至 8~15，极大缩短网络 I/O 耗时)
+            const saveConcurrency = Math.min(15, Math.max(8, Math.ceil(validFiles.length / 6)));
             console.log(`[Theme Manager] 开始并发保存 ${validFiles.length} 个有效主题 (并发度: ${saveConcurrency})...`);
             
             if (typeof setSuspendObserver === 'function') {
@@ -858,7 +859,7 @@ export function initThemeImport(config) {
                         allThemeObjectsMap.set(cleanTheme.name, cleanTheme);
                     });
 
-                    // 高性能单次批量合并至 ST 原生内存（彻底消除 N^2 循环检索与多次重绘）
+                    // 高性能单次批量合并至 ST 原生内存（已精准注入当前导入项，彻底消除全量重读耗时）
                     if (typeof updateSTThemeMemoryBatch === 'function') {
                         updateSTThemeMemoryBatch(importedThemes);
                     } else {
@@ -871,29 +872,7 @@ export function initThemeImport(config) {
                     syncStKnownThemes();
                 });
 
-                // 【核心无感热同步】物理落盘后，单次向服务端异步拉取真实磁盘主题清单，彻底消除磁盘与原生闭包脱节
-                if (typeof getAllThemesFromAPI === 'function') {
-                    try {
-                        const freshThemes = await getAllThemesFromAPI();
-                        if (Array.isArray(freshThemes) && freshThemes.length > 0) {
-                            freshThemes.forEach(t => {
-                                const clean = normalizeThemeObject(t);
-                                if (clean && clean.name) {
-                                    allThemeObjectsMap.set(clean.name, clean);
-                                    stKnownThemes.add(clean.name);
-                                }
-                            });
-                            if (typeof updateSTThemeMemoryBatch === 'function') {
-                                updateSTThemeMemoryBatch(freshThemes);
-                            }
-                            console.log(`[TM-TRACE] [HOT-SYNC-RESULT] freshThemes count=${freshThemes.length}`);
-                        }
-                    } catch (e) {
-                        console.warn('[Theme Manager] 批量导入后热同步全量列表异常:', e);
-                    }
-                }
-
-                // 立即失效主题缓存与合法美化名称缓存，确保后续标签校验认可新导入的主题
+                // 立即失效主题缓存与合法美化名称缓存，后续按需懒加载，彻底消除全量 700+ 主题阻塞同步开销
                 invalidateThemesCache();
                 invalidateValidThemeNamesCache();
 
@@ -967,35 +946,44 @@ export function initThemeImport(config) {
                     saveThemeTags(allTags);
                 }
 
-                // 第三步：预先读取已包含目标标签的最新标签数据并构建挂载卡片 DOM (预构 tagsMap，利用 Fragment 一次性提交)
+                // 第三步：高效同步解析模型与内存状态，免去创建抛弃型 DOM 节点的重负荷开销
                 const cachedTags = loadThemeTags();
-                const tagsMap = new Map(cachedTags.map(t => [t.id, t]));
-                const listFragment = document.createDocumentFragment();
-                const list = contentWrapper.querySelector('.theme-list');
-
+                const now = Date.now();
                 importedThemes.forEach(themeObject => {
                     const cleanTheme = normalizeThemeObject(themeObject, themeObject.name);
                     const themeName = cleanTheme.name;
-                    const existingParsed = allParsedThemesMap.get(themeName);
-                    const isNewTheme = !existingParsed;
-
-                    if (isNewTheme) {
-                        softAddThemeUI(cleanTheme, cachedTags, listFragment, tagsMap);
-                    } else {
-                        const existingObj = allThemeObjectsMap.get(themeName);
-                        if (existingObj) {
-                            Object.assign(existingObj, cleanTheme);
-                        } else {
-                            allThemeObjects.push(cleanTheme);
-                            allThemeObjectsMap.set(themeName, cleanTheme);
-                        }
+                    if (typeof recordThemeMtime === 'function') {
+                        recordThemeMtime(themeName, now);
                     }
-                });
 
-                // 一次性挂载到 DOM，减少 Reflow
-                if (list && listFragment.children.length > 0) {
-                    list.appendChild(listFragment);
-                }
+                    const tags = getTagsForTheme(themeName, cachedTags);
+                    const parsedTheme = {
+                        value: themeName,
+                        display: themeName,
+                        tags: tags,
+                        data: cleanTheme,
+                        mtime: now
+                    };
+
+                    const prevParsed = allParsedThemesMap.get(themeName);
+                    if (prevParsed) {
+                        const existingParsedIdx = allParsedThemes.findIndex(t => t.value === themeName);
+                        if (existingParsedIdx > -1) allParsedThemes[existingParsedIdx] = parsedTheme;
+                        else allParsedThemes.push(parsedTheme);
+                    } else {
+                        allParsedThemes.push(parsedTheme);
+                    }
+                    allParsedThemesMap.set(themeName, parsedTheme);
+
+                    const prevObj = allThemeObjectsMap.get(themeName);
+                    if (prevObj) {
+                        Object.assign(prevObj, cleanTheme);
+                    } else {
+                        allThemeObjects.push(cleanTheme);
+                    }
+                    allThemeObjectsMap.set(themeName, cleanTheme);
+                    stKnownThemes.add(themeName);
+                });
 
                 // 第四步：关键词自动映射（若启用，跳过其内部的中间刷新）
                 if (importConfig.applyKeywords && importedThemes.length > 0) {

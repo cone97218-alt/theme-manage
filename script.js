@@ -2,7 +2,7 @@
     'use strict';
 
     // === [TM-TRACE] 全局移动端诊断日志捕获系统 (专为手机端调试打造) ===
-    const EXTENSION_VERSION = '2.8.7';
+    const EXTENSION_VERSION = '2.8.8';
     if (typeof window !== 'undefined' && !window.__TM_HOOKED__) {
         window.__TM_HOOKED__ = true;
         window.__TM_TRACE_LOGS__ = [];
@@ -444,7 +444,7 @@
                 }
 
                 const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                const themeCoreModule = await import(`${baseDir}modules/theme-core.js?v=2.8.7`);
+                const themeCoreModule = await import(`${baseDir}modules/theme-core.js?v=2.8.8`);
                 const { getSolidRgbFromCssVar, getAdaptivePopoverBg, DEFAULT_THEME_PROPS, normalizeThemeObject } = themeCoreModule;
 
 
@@ -542,7 +542,7 @@
                     isSwitchingTheme
                 } = themeCore;
 
-                const { createTagManager } = await import(`${baseDir}modules/tag-manager.js?v=2.8.7`);
+                const { createTagManager } = await import(`${baseDir}modules/tag-manager.js?v=2.8.8`);
                 const tagManager = createTagManager({
                     getValidInstalledThemeNames,
                     getAllParsedThemes: () => allParsedThemes
@@ -2863,7 +2863,7 @@
                 let performBatchRename = () => {};
                 let openBatchRenamePopup = () => {};
                 try {
-                    const { initBatchRename } = await import(`${baseDir}modules/batch-rename.js?v=2.8.7`);
+                    const { initBatchRename } = await import(`${baseDir}modules/batch-rename.js?v=2.8.8`);
                     const batchRenameModule = initBatchRename({
                         getSelectedForBatch: () => selectedForBatch,
                         clearSelectedForBatch: () => {
@@ -2906,7 +2906,7 @@
 
                 let performBatchDelete = () => {};
                 try {
-                    const { initBatchDelete } = await import(`${baseDir}modules/batch-delete.js?v=2.8.7`);
+                    const { initBatchDelete } = await import(`${baseDir}modules/batch-delete.js?v=2.8.8`);
                     const batchDeleteModule = initBatchDelete({
                         getSelectedForBatch: () => selectedForBatch,
                         clearSelectedForBatch: () => selectedForBatch.clear(),
@@ -2959,7 +2959,7 @@
                 let openCustomImportModal = () => {};
                 let triggerFullImport = () => {};
 
-                const { initBackupManager, BACKUP_MODULE_DEFS } = await import(`${baseDir}modules/backup-manager.js?v=2.8.7`);
+                const { initBackupManager, BACKUP_MODULE_DEFS } = await import(`${baseDir}modules/backup-manager.js?v=2.8.8`);
                 const backupModule = initBackupManager({
                     getAllThemesFromAPI,
                     apiRequest,
@@ -3010,7 +3010,7 @@
                 let openSettingsPopup = () => {};
 
                 try {
-                    const { initSettingsManager } = await import(`${baseDir}modules/settings-manager.js?v=2.8.7`);
+                    const { initSettingsManager } = await import(`${baseDir}modules/settings-manager.js?v=2.8.8`);
                     const smModule = initSettingsManager({
                         settingsKeysToSync,
                         callGenericPopup,
@@ -3310,7 +3310,7 @@
                 // ========= 替换卡图/头像按钮注入 (模块化: modules/avatar-replace.js) =========
                 // ==========================================================
                 try {
-                    const { initAvatarReplace } = await import(`${baseDir}modules/avatar-replace.js?v=2.8.7`);
+                    const { initAvatarReplace } = await import(`${baseDir}modules/avatar-replace.js?v=2.8.8`);
                     const avatarReplaceModule = initAvatarReplace({
                         ENABLE_REPLACE_AVATAR_BTN_KEY,
                         toastr
@@ -3355,7 +3355,7 @@
                 let getSmartRecommendedThemes = () => [];
 
                 try {
-                    const { initColorTransfer } = await import(`${baseDir}modules/color-transfer.js?v=2.8.7`);
+                    const { initColorTransfer } = await import(`${baseDir}modules/color-transfer.js?v=2.8.8`);
                     const colorModule = initColorTransfer({
                         getAllParsedThemes: () => allParsedThemes,
                         allThemeObjectsMap,
@@ -3524,7 +3524,7 @@
                 let handleBatchThemeImport = () => {};
 
                 try {
-                    const { initThemeImport } = await import(`${baseDir}modules/theme-import.js?v=2.8.7`);
+                    const { initThemeImport } = await import(`${baseDir}modules/theme-import.js?v=2.8.8`);
                     const themeImportModule = initThemeImport({
                         loadThemeTags,
                         saveThemeTags,
@@ -3652,7 +3652,7 @@
 
                 let aiGroupModule = null;
                 try {
-                    const { initAiGroup } = await import(`${baseDir}modules/ai-group.js?v=2.8.7`);
+                    const { initAiGroup } = await import(`${baseDir}modules/ai-group.js?v=2.8.8`);
                     aiGroupModule = initAiGroup({
                         loadThemeTags,
                         saveThemeTags,
@@ -3676,7 +3676,7 @@
                 }
 
                 try {
-                    const { initAutoGroup, AUTO_GROUP_STOPWORDS, isTextMatchingCompositeSearch, sanitizeThemeTitle } = await import(`${baseDir}modules/auto-group.js?v=2.8.7`);
+                    const { initAutoGroup, AUTO_GROUP_STOPWORDS, isTextMatchingCompositeSearch, sanitizeThemeTitle } = await import(`${baseDir}modules/auto-group.js?v=2.8.8`);
                     const autoGroupModule = initAutoGroup({
                         loadThemeTags,
                         saveThemeTags,
@@ -3720,7 +3720,7 @@
                 let openTagRemovalPopup = () => {};
 
                 try {
-                    const { initTagUI } = await import(`${baseDir}modules/tag-ui.js?v=2.8.7`);
+                    const { initTagUI } = await import(`${baseDir}modules/tag-ui.js?v=2.8.8`);
                     const tagUiModule = initTagUI({
                         loadThemeTags,
                         saveThemeTags,
@@ -4419,7 +4419,7 @@
 
                 try {
                     const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                    const { initCharacterBinding } = await import(`${baseDir}modules/character-binding.js?v=2.8.7`);
+                    const { initCharacterBinding } = await import(`${baseDir}modules/character-binding.js?v=2.8.8`);
                     const cbModule = initCharacterBinding({
                         CHARACTER_THEME_BINDINGS_KEY,
                         loadThemeTags,
@@ -4445,7 +4445,7 @@
                 let autoModule = null;
                 try {
                     const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                    const { initAutoTheme } = await import(`${baseDir}modules/auto-theme.js?v=2.8.7`);
+                    const { initAutoTheme } = await import(`${baseDir}modules/auto-theme.js?v=2.8.8`);
                     autoModule = initAutoTheme({
                         AUTO_THEME_KEY,
                         THEME_DAY_NIGHT_PAIRS_KEY,
@@ -4478,7 +4478,7 @@
                 async function initBackgroundEnhancements() {
                     try {
                         const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                        const { initBackgroundEnhancements: initBg } = await import(`${baseDir}modules/background-batch.js?v=2.8.7`);
+                        const { initBackgroundEnhancements: initBg } = await import(`${baseDir}modules/background-batch.js?v=2.8.8`);
                         if (typeof initBg === 'function') {
                             initBg({ getRequestHeaders, showLoader, hideLoader, limitConcurrency });
                         }

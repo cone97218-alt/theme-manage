@@ -782,7 +782,7 @@ export function initThemeCore(options) {
             parsed.mtime = now;
             parsed.data = normalized;
         }
-        if (typeof getAllThemeObjects === 'function') {
+        if (!isBatch && typeof getAllThemeObjects === 'function') {
             const allObjs = getAllThemeObjects();
             if (Array.isArray(allObjs)) {
                 const idx = allObjs.findIndex(t => t && (t.name === normalized.name || t.value === normalized.name));
