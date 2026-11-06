@@ -1,4 +1,4 @@
-﻿/**
+/**
  * modules/theme-import.js
  * 美化主题批量导入与压缩包导入、目标标签分配交互模块
  */
@@ -75,6 +75,13 @@ export function initThemeImport(config) {
     const {
         loadThemeTags,
         saveThemeTags,
+        getTagsForTheme = (themeName, tagsList) => {
+            const tags = Array.isArray(tagsList) ? tagsList : (typeof loadThemeTags === 'function' ? loadThemeTags() : []);
+            return tags.filter(tag => Array.isArray(tag.themes) && tag.themes.includes(themeName)).map(t => t.name);
+        },
+        recordThemeMtime = () => {},
+        allParsedThemes = [],
+        getAllParsedThemes = () => allParsedThemes,
         isSubtagsEnabled,
         getActiveTagFilters = () => new Set(),
         escapeHtml,
@@ -965,13 +972,14 @@ export function initThemeImport(config) {
                         mtime: now
                     };
 
+                    const targetParsedThemes = (typeof getAllParsedThemes === 'function' ? getAllParsedThemes() : null) || allParsedThemes;
                     const prevParsed = allParsedThemesMap.get(themeName);
                     if (prevParsed) {
-                        const existingParsedIdx = allParsedThemes.findIndex(t => t.value === themeName);
-                        if (existingParsedIdx > -1) allParsedThemes[existingParsedIdx] = parsedTheme;
-                        else allParsedThemes.push(parsedTheme);
-                    } else {
-                        allParsedThemes.push(parsedTheme);
+                        const existingParsedIdx = Array.isArray(targetParsedThemes) ? targetParsedThemes.findIndex(t => t.value === themeName) : -1;
+                        if (existingParsedIdx > -1) targetParsedThemes[existingParsedIdx] = parsedTheme;
+                        else if (Array.isArray(targetParsedThemes)) targetParsedThemes.push(parsedTheme);
+                    } else if (Array.isArray(targetParsedThemes)) {
+                        targetParsedThemes.push(parsedTheme);
                     }
                     allParsedThemesMap.set(themeName, parsedTheme);
 
