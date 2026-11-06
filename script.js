@@ -2,7 +2,7 @@
     'use strict';
 
     // === [TM-TRACE] 全局移动端诊断日志捕获系统 (专为手机端调试打造) ===
-    const EXTENSION_VERSION = '2.8.6';
+    const EXTENSION_VERSION = '2.8.7';
     if (typeof window !== 'undefined' && !window.__TM_HOOKED__) {
         window.__TM_HOOKED__ = true;
         window.__TM_TRACE_LOGS__ = [];
@@ -283,6 +283,61 @@
 
             try {
                 const { getRequestHeaders, showLoader, hideLoader, callGenericPopup, eventSource, eventTypes } = SillyTavern.getContext();
+
+                // ==========================================================
+                // 原生上下文同步监听器中和与挂钩系统
+                // 彻底注销与拦截原生 syncThemeForCurrentContext，根治切聊瞬间跳回旧主题闪烁Bug
+                // ==========================================================
+                function isNativeContextThemeSyncListener(fn) {
+                    if (typeof fn !== 'function') return false;
+                    const name = fn.name || '';
+                    const str = typeof fn.toString === 'function' ? fn.toString() : '';
+                    return name === 'syncThemeForCurrentContext' ||
+                           name === 'applyThemeForCurrentContext' ||
+                           str.includes('applyThemeForCurrentContext') ||
+                           str.includes('syncThemeForCurrentContext');
+                }
+
+                function neutralizeContextThemeSync(target) {
+                    const es = target || (typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext().eventSource : null);
+                    if (!es) return;
+                    const eventMaps = [es.events, es._events].filter(m => m && typeof m === 'object');
+                    eventMaps.forEach(events => {
+                        for (const [evtName, listeners] of Object.entries(events)) {
+                            if (!Array.isArray(listeners)) continue;
+                            events[evtName] = listeners.filter(fn => {
+                                if (isNativeContextThemeSyncListener(fn)) {
+                                    console.log(`[TM-TRACE] [NEUTRALIZE-SYNC] 彻底注销原生上下文同步监听器 (${evtName}):`, fn.name || 'anonymous');
+                                    return false;
+                                }
+                                return true;
+                            });
+                        }
+                    });
+                }
+
+                function hookEventSource(es) {
+                    if (!es || es._tmSyncHooked) return;
+                    es._tmSyncHooked = true;
+
+                    ['on', 'makeFirst', 'makeLast'].forEach(method => {
+                        if (typeof es[method] === 'function') {
+                            const orig = es[method];
+                            es[method] = function (event, listener) {
+                                if (isNativeContextThemeSyncListener(listener)) {
+                                    console.log(`[TM-TRACE] [INTERCEPT-SYNC-ON] 拦截阻止注册原生上下文主题同步监听器 (${method} -> ${event}):`, listener.name || 'anonymous');
+                                    return;
+                                }
+                                return orig.apply(this, arguments);
+                            };
+                        }
+                    });
+                }
+
+                if (eventSource) {
+                    neutralizeContextThemeSync(eventSource);
+                    hookEventSource(eventSource);
+                }
                 const FAVORITES_KEY = 'themeManager_favorites';
                 const COLLAPSE_KEY = 'themeManager_collapsed';
                 const THEME_TAGS_KEY = 'themeManager_themeTags';
@@ -389,7 +444,7 @@
                 }
 
                 const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                const themeCoreModule = await import(`${baseDir}modules/theme-core.js?v=2.8.6`);
+                const themeCoreModule = await import(`${baseDir}modules/theme-core.js?v=2.8.7`);
                 const { getSolidRgbFromCssVar, getAdaptivePopoverBg, DEFAULT_THEME_PROPS, normalizeThemeObject } = themeCoreModule;
 
 
@@ -487,7 +542,7 @@
                     isSwitchingTheme
                 } = themeCore;
 
-                const { createTagManager } = await import(`${baseDir}modules/tag-manager.js?v=2.8.6`);
+                const { createTagManager } = await import(`${baseDir}modules/tag-manager.js?v=2.8.7`);
                 const tagManager = createTagManager({
                     getValidInstalledThemeNames,
                     getAllParsedThemes: () => allParsedThemes
@@ -2808,7 +2863,7 @@
                 let performBatchRename = () => {};
                 let openBatchRenamePopup = () => {};
                 try {
-                    const { initBatchRename } = await import(`${baseDir}modules/batch-rename.js?v=2.8.6`);
+                    const { initBatchRename } = await import(`${baseDir}modules/batch-rename.js?v=2.8.7`);
                     const batchRenameModule = initBatchRename({
                         getSelectedForBatch: () => selectedForBatch,
                         clearSelectedForBatch: () => {
@@ -2851,7 +2906,7 @@
 
                 let performBatchDelete = () => {};
                 try {
-                    const { initBatchDelete } = await import(`${baseDir}modules/batch-delete.js?v=2.8.6`);
+                    const { initBatchDelete } = await import(`${baseDir}modules/batch-delete.js?v=2.8.7`);
                     const batchDeleteModule = initBatchDelete({
                         getSelectedForBatch: () => selectedForBatch,
                         clearSelectedForBatch: () => selectedForBatch.clear(),
@@ -2904,7 +2959,7 @@
                 let openCustomImportModal = () => {};
                 let triggerFullImport = () => {};
 
-                const { initBackupManager, BACKUP_MODULE_DEFS } = await import(`${baseDir}modules/backup-manager.js?v=2.8.6`);
+                const { initBackupManager, BACKUP_MODULE_DEFS } = await import(`${baseDir}modules/backup-manager.js?v=2.8.7`);
                 const backupModule = initBackupManager({
                     getAllThemesFromAPI,
                     apiRequest,
@@ -2955,7 +3010,7 @@
                 let openSettingsPopup = () => {};
 
                 try {
-                    const { initSettingsManager } = await import(`${baseDir}modules/settings-manager.js?v=2.8.6`);
+                    const { initSettingsManager } = await import(`${baseDir}modules/settings-manager.js?v=2.8.7`);
                     const smModule = initSettingsManager({
                         settingsKeysToSync,
                         callGenericPopup,
@@ -3255,7 +3310,7 @@
                 // ========= 替换卡图/头像按钮注入 (模块化: modules/avatar-replace.js) =========
                 // ==========================================================
                 try {
-                    const { initAvatarReplace } = await import(`${baseDir}modules/avatar-replace.js?v=2.8.6`);
+                    const { initAvatarReplace } = await import(`${baseDir}modules/avatar-replace.js?v=2.8.7`);
                     const avatarReplaceModule = initAvatarReplace({
                         ENABLE_REPLACE_AVATAR_BTN_KEY,
                         toastr
@@ -3300,7 +3355,7 @@
                 let getSmartRecommendedThemes = () => [];
 
                 try {
-                    const { initColorTransfer } = await import(`${baseDir}modules/color-transfer.js?v=2.8.6`);
+                    const { initColorTransfer } = await import(`${baseDir}modules/color-transfer.js?v=2.8.7`);
                     const colorModule = initColorTransfer({
                         getAllParsedThemes: () => allParsedThemes,
                         allThemeObjectsMap,
@@ -3469,7 +3524,7 @@
                 let handleBatchThemeImport = () => {};
 
                 try {
-                    const { initThemeImport } = await import(`${baseDir}modules/theme-import.js?v=2.8.6`);
+                    const { initThemeImport } = await import(`${baseDir}modules/theme-import.js?v=2.8.7`);
                     const themeImportModule = initThemeImport({
                         loadThemeTags,
                         saveThemeTags,
@@ -3597,7 +3652,7 @@
 
                 let aiGroupModule = null;
                 try {
-                    const { initAiGroup } = await import(`${baseDir}modules/ai-group.js?v=2.8.6`);
+                    const { initAiGroup } = await import(`${baseDir}modules/ai-group.js?v=2.8.7`);
                     aiGroupModule = initAiGroup({
                         loadThemeTags,
                         saveThemeTags,
@@ -3621,7 +3676,7 @@
                 }
 
                 try {
-                    const { initAutoGroup, AUTO_GROUP_STOPWORDS, isTextMatchingCompositeSearch, sanitizeThemeTitle } = await import(`${baseDir}modules/auto-group.js?v=2.8.6`);
+                    const { initAutoGroup, AUTO_GROUP_STOPWORDS, isTextMatchingCompositeSearch, sanitizeThemeTitle } = await import(`${baseDir}modules/auto-group.js?v=2.8.7`);
                     const autoGroupModule = initAutoGroup({
                         loadThemeTags,
                         saveThemeTags,
@@ -3665,7 +3720,7 @@
                 let openTagRemovalPopup = () => {};
 
                 try {
-                    const { initTagUI } = await import(`${baseDir}modules/tag-ui.js?v=2.8.6`);
+                    const { initTagUI } = await import(`${baseDir}modules/tag-ui.js?v=2.8.7`);
                     const tagUiModule = initTagUI({
                         loadThemeTags,
                         saveThemeTags,
@@ -4364,7 +4419,7 @@
 
                 try {
                     const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                    const { initCharacterBinding } = await import(`${baseDir}modules/character-binding.js?v=2.8.6`);
+                    const { initCharacterBinding } = await import(`${baseDir}modules/character-binding.js?v=2.8.7`);
                     const cbModule = initCharacterBinding({
                         CHARACTER_THEME_BINDINGS_KEY,
                         loadThemeTags,
@@ -4390,7 +4445,7 @@
                 let autoModule = null;
                 try {
                     const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                    const { initAutoTheme } = await import(`${baseDir}modules/auto-theme.js?v=2.8.6`);
+                    const { initAutoTheme } = await import(`${baseDir}modules/auto-theme.js?v=2.8.7`);
                     autoModule = initAutoTheme({
                         AUTO_THEME_KEY,
                         THEME_DAY_NIGHT_PAIRS_KEY,
@@ -4423,7 +4478,7 @@
                 async function initBackgroundEnhancements() {
                     try {
                         const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                        const { initBackgroundEnhancements: initBg } = await import(`${baseDir}modules/background-batch.js?v=2.8.6`);
+                        const { initBackgroundEnhancements: initBg } = await import(`${baseDir}modules/background-batch.js?v=2.8.7`);
                         if (typeof initBg === 'function') {
                             initBg({ getRequestHeaders, showLoader, hideLoader, limitConcurrency });
                         }
@@ -4446,7 +4501,10 @@
                     // 监听聊天与角色切换事件，实现角色绑定的美化自动切换
                     if (eventSource && eventTypes) {
                         console.log(`[Theme Manager Debug] Event source & event types found. Registering listeners.`);
-                        eventSource.on(eventTypes.CHAT_CHANGED, () => {
+                        neutralizeContextThemeSync(eventSource);
+
+                        const onChatChangedHandler = () => {
+                            neutralizeContextThemeSync(eventSource);
                             const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
                             const lastActive = localStorage.getItem('themeManager_lastActiveTheme');
                             console.log(`[TM-TRACE] [CHAT_CHANGED] fired. select.value="${originalSelect?.value}", pu.theme="${pu?.theme}", lastActive="${lastActive}"`);
@@ -4463,9 +4521,16 @@
                                 // 短延迟确保在 SillyTavern 的 onChatChanged 完成后再应用
                                 setTimeout(() => applyBackgroundDirectly(boundBg), 300);
                             }
-                        });
+                        };
+
+                        if (typeof eventSource.makeFirst === 'function') {
+                            eventSource.makeFirst(eventTypes.CHAT_CHANGED, onChatChangedHandler);
+                        } else {
+                            eventSource.on(eventTypes.CHAT_CHANGED, onChatChangedHandler);
+                        }
 
                         eventSource.on(eventTypes.CHARACTER_SELECTED, () => {
+                            neutralizeContextThemeSync(eventSource);
                             const ctx = SillyTavern.getContext() || {};
                             const { characters, characterId } = ctx;
                             const character = characters ? characters[characterId] : null;

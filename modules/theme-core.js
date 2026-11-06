@@ -1,4 +1,4 @@
-﻿// modules/theme-core.js
+// modules/theme-core.js
 // 主题核心数据模型、标准化清洗、API 通信、ST 内存同步与原生切换管道
 
 export const DEFAULT_THEME_PROPS = {
@@ -112,6 +112,12 @@ async function loadNativePowerUserModule() {
 // 提前异步触发加载
 loadNativePowerUserModule();
 
+let _applyDirectFallback = null;
+
+export function setApplyDirectFallback(fn) {
+    _applyDirectFallback = fn;
+}
+
 export function installThemePropertyInterceptor(pu) {
     if (!pu || typeof pu !== 'object' || pu._themeTrapInstalled) return;
     try {
@@ -134,6 +140,14 @@ export function installThemePropertyInterceptor(pu) {
                     if (lastActive && val !== lastActive) {
                         console.log(`[TM-TRACE] [SUPPRESS-CONTEXT-SYNC-REVERT] 成功拦截原生上下文切聊尝试将主题回滚为 "${val}"，强制维持当前选定美化: "${lastActive}"`);
                         currentTheme = lastActive;
+                        if (typeof _applyDirectFallback === 'function') {
+                            const fallback = _applyDirectFallback;
+                            if (typeof queueMicrotask === 'function') {
+                                queueMicrotask(() => { fallback(lastActive); });
+                            } else {
+                                setTimeout(() => { fallback(lastActive); }, 0);
+                            }
+                        }
                         return;
                     }
                 }
@@ -1296,6 +1310,8 @@ export function initThemeCore(options) {
         _cachedValidThemeNames = names;
         return names;
     }
+
+    setApplyDirectFallback(applyThemeDirect);
 
     return {
         getPowerUser,
