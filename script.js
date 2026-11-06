@@ -2,7 +2,7 @@
     'use strict';
 
     // === [TM-TRACE] 全局移动端诊断日志捕获系统 (专为手机端调试打造) ===
-    const EXTENSION_VERSION = '2.9.0';
+    const EXTENSION_VERSION = '2.9.1';
     if (typeof window !== 'undefined' && !window.__TM_HOOKED__) {
         window.__TM_HOOKED__ = true;
         window.__TM_TRACE_LOGS__ = [];
@@ -443,7 +443,7 @@
                 }
 
                 const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                const themeCoreModule = await import(`${baseDir}modules/theme-core.js?v=2.9.0`);
+                const themeCoreModule = await import(`${baseDir}modules/theme-core.js?v=2.9.1`);
                 const { getSolidRgbFromCssVar, getAdaptivePopoverBg, DEFAULT_THEME_PROPS, normalizeThemeObject } = themeCoreModule;
 
 
@@ -541,7 +541,7 @@
                     isSwitchingTheme
                 } = themeCore;
 
-                const { createTagManager } = await import(`${baseDir}modules/tag-manager.js?v=2.9.0`);
+                const { createTagManager } = await import(`${baseDir}modules/tag-manager.js?v=2.9.1`);
                 const tagManager = createTagManager({
                     getValidInstalledThemeNames,
                     getAllParsedThemes: () => allParsedThemes
@@ -804,7 +804,6 @@
                                 <button id="batch-import-btn" class="menu_button" title="从 JSON 文件或 ZIP 压缩包批量导入主题 (支持拖拽导入)"><i class="fa-solid fa-folder-open"></i> 导入</button>
                                 <button id="manage-tags-btn" class="menu_button" title="管理标签"><i class="fa-solid fa-tags"></i> 标签</button>
                                 <button id="tm-auto-group-btn" class="menu_button" title="自动提取美化名中的共同词组并向导生成标签/分类"><i class="fa-solid fa-wand-magic-sparkles"></i> 分组</button>
-                                <button id="tm-vault-archive-btn" class="menu_button" style="color:#4caf50;" title="一键将非收藏闲置美化转存入浏览器大仓库（为酒馆原生瘦身，彻底根治手机端闪退）"><i class="fa-solid fa-box-archive"></i> 瘦身</button>
                                 <button id="tm-settings-btn" class="menu_button" title="插件高级设置"><i class="fa-solid fa-gear"></i> 设置</button>
                             </div>
                         </div>
@@ -2884,7 +2883,7 @@
                 let performBatchRename = () => {};
                 let openBatchRenamePopup = () => {};
                 try {
-                    const { initBatchRename } = await import(`${baseDir}modules/batch-rename.js?v=2.9.0`);
+                    const { initBatchRename } = await import(`${baseDir}modules/batch-rename.js?v=2.9.1`);
                     const batchRenameModule = initBatchRename({
                         getSelectedForBatch: () => selectedForBatch,
                         clearSelectedForBatch: () => {
@@ -2927,7 +2926,7 @@
 
                 let performBatchDelete = () => {};
                 try {
-                    const { initBatchDelete } = await import(`${baseDir}modules/batch-delete.js?v=2.9.0`);
+                    const { initBatchDelete } = await import(`${baseDir}modules/batch-delete.js?v=2.9.1`);
                     const batchDeleteModule = initBatchDelete({
                         getSelectedForBatch: () => selectedForBatch,
                         clearSelectedForBatch: () => selectedForBatch.clear(),
@@ -2980,7 +2979,7 @@
                 let openCustomImportModal = () => {};
                 let triggerFullImport = () => {};
 
-                const { initBackupManager, BACKUP_MODULE_DEFS } = await import(`${baseDir}modules/backup-manager.js?v=2.9.0`);
+                const { initBackupManager, BACKUP_MODULE_DEFS } = await import(`${baseDir}modules/backup-manager.js?v=2.9.1`);
                 const backupModule = initBackupManager({
                     getAllThemesFromAPI,
                     apiRequest,
@@ -3031,7 +3030,7 @@
                 let openSettingsPopup = () => {};
 
                 try {
-                    const { initSettingsManager } = await import(`${baseDir}modules/settings-manager.js?v=2.9.0`);
+                    const { initSettingsManager } = await import(`${baseDir}modules/settings-manager.js?v=2.9.1`);
                     const smModule = initSettingsManager({
                         settingsKeysToSync,
                         callGenericPopup,
@@ -3063,6 +3062,10 @@
                         setFavorites: (favs) => { favorites = favs; favoritesSet = new Set(favs); },
                         setAutoThemeSettings: (ats) => { autoThemeSettings = ats; },
                         getAutoThemeSettings: () => autoThemeSettings,
+                        archiveIdleThemesToVault: () => {
+                            if (typeof archiveIdleThemesToVault === 'function') archiveIdleThemesToVault();
+                        },
+                        getAllThemeObjects: () => allThemeObjects,
                         keys: {
                             TWO_LINE_LAYOUT_KEY,
                             TAG_PILL_MODE_KEY,
@@ -3235,29 +3238,6 @@
                     buildThemeListLazy(0);
                 });
 
-                // 大仓库瘦身归档按钮
-                const vaultArchiveBtn = managerPanel.querySelector('#tm-vault-archive-btn');
-                if (vaultArchiveBtn) {
-                    vaultArchiveBtn.addEventListener('click', async () => {
-                        const totalInstalled = allThemeObjects.length;
-                        if (totalInstalled <= 30) {
-                            toastr.info(`当前酒馆原生目录仅有 ${totalInstalled} 个美化，非常轻量，无需进行大仓库瘦身。`);
-                            return;
-                        }
-                        const confirmed = confirm(
-                            `【📦 一键美化大仓库瘦身归档】\n\n` +
-                            `检测到酒馆原生目录装有 ${totalInstalled} 个美化。\n` +
-                            `是否将除「当前使用」与「已收藏星标」之外的闲置美化，安全转移到浏览器大仓库（IndexedDB）中？\n\n` +
-                            `✨ 瘦身后效果：\n` +
-                            `1. 所有的美化依然完整保留在列表和分类中，随时点击即可秒换使用；\n` +
-                            `2. 酒馆原生目录负担骤降 90% 以上，手机端进首页、切聊天绝对不再卡顿闪退！`
-                        );
-                        if (confirmed && typeof archiveIdleThemesToVault === 'function') {
-                            await archiveIdleThemesToVault();
-                        }
-                    });
-                }
-
                 // 使用次数显示 toggle
                 const toggleUsageCountBtn = managerPanel.querySelector('#tm-toggle-usage-count-btn');
                 if (toggleUsageCountBtn) {
@@ -3354,7 +3334,7 @@
                 // ========= 替换卡图/头像按钮注入 (模块化: modules/avatar-replace.js) =========
                 // ==========================================================
                 try {
-                    const { initAvatarReplace } = await import(`${baseDir}modules/avatar-replace.js?v=2.9.0`);
+                    const { initAvatarReplace } = await import(`${baseDir}modules/avatar-replace.js?v=2.9.1`);
                     const avatarReplaceModule = initAvatarReplace({
                         ENABLE_REPLACE_AVATAR_BTN_KEY,
                         toastr
@@ -3399,7 +3379,7 @@
                 let getSmartRecommendedThemes = () => [];
 
                 try {
-                    const { initColorTransfer } = await import(`${baseDir}modules/color-transfer.js?v=2.9.0`);
+                    const { initColorTransfer } = await import(`${baseDir}modules/color-transfer.js?v=2.9.1`);
                     const colorModule = initColorTransfer({
                         getAllParsedThemes: () => allParsedThemes,
                         allThemeObjectsMap,
@@ -3571,7 +3551,7 @@
                 let getAllVaultThemesSummary = () => [];
 
                 try {
-                    const { initThemeVault, getAllVaultThemesSummary: getVaultSummary, saveThemesToVault: saveVault } = await import(`${baseDir}modules/theme-vault.js?v=2.9.0`);
+                    const { initThemeVault, getAllVaultThemesSummary: getVaultSummary, saveThemesToVault: saveVault } = await import(`${baseDir}modules/theme-vault.js?v=2.9.1`);
                     saveThemesToVault = saveVault;
                     getAllVaultThemesSummary = getVaultSummary;
                     vaultModule = initThemeVault({
@@ -3600,7 +3580,7 @@
                 let handleBatchThemeImport = () => {};
 
                 try {
-                    const { initThemeImport } = await import(`${baseDir}modules/theme-import.js?v=2.9.0`);
+                    const { initThemeImport } = await import(`${baseDir}modules/theme-import.js?v=2.9.1`);
                     const themeImportModule = initThemeImport({
                         loadThemeTags,
                         saveThemeTags,
@@ -3733,7 +3713,7 @@
 
                 let aiGroupModule = null;
                 try {
-                    const { initAiGroup } = await import(`${baseDir}modules/ai-group.js?v=2.9.0`);
+                    const { initAiGroup } = await import(`${baseDir}modules/ai-group.js?v=2.9.1`);
                     aiGroupModule = initAiGroup({
                         loadThemeTags,
                         saveThemeTags,
@@ -3757,7 +3737,7 @@
                 }
 
                 try {
-                    const { initAutoGroup, AUTO_GROUP_STOPWORDS, isTextMatchingCompositeSearch, sanitizeThemeTitle } = await import(`${baseDir}modules/auto-group.js?v=2.9.0`);
+                    const { initAutoGroup, AUTO_GROUP_STOPWORDS, isTextMatchingCompositeSearch, sanitizeThemeTitle } = await import(`${baseDir}modules/auto-group.js?v=2.9.1`);
                     const autoGroupModule = initAutoGroup({
                         loadThemeTags,
                         saveThemeTags,
@@ -3801,7 +3781,7 @@
                 let openTagRemovalPopup = () => {};
 
                 try {
-                    const { initTagUI } = await import(`${baseDir}modules/tag-ui.js?v=2.9.0`);
+                    const { initTagUI } = await import(`${baseDir}modules/tag-ui.js?v=2.9.1`);
                     const tagUiModule = initTagUI({
                         loadThemeTags,
                         saveThemeTags,
@@ -4485,7 +4465,7 @@
 
                 try {
                     const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                    const { initCharacterBinding } = await import(`${baseDir}modules/character-binding.js?v=2.9.0`);
+                    const { initCharacterBinding } = await import(`${baseDir}modules/character-binding.js?v=2.9.1`);
                     const cbModule = initCharacterBinding({
                         CHARACTER_THEME_BINDINGS_KEY,
                         loadThemeTags,
@@ -4511,7 +4491,7 @@
                 let autoModule = null;
                 try {
                     const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                    const { initAutoTheme } = await import(`${baseDir}modules/auto-theme.js?v=2.9.0`);
+                    const { initAutoTheme } = await import(`${baseDir}modules/auto-theme.js?v=2.9.1`);
                     autoModule = initAutoTheme({
                         AUTO_THEME_KEY,
                         THEME_DAY_NIGHT_PAIRS_KEY,
@@ -4544,7 +4524,7 @@
                 async function initBackgroundEnhancements() {
                     try {
                         const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                        const { initBackgroundEnhancements: initBg } = await import(`${baseDir}modules/background-batch.js?v=2.9.0`);
+                        const { initBackgroundEnhancements: initBg } = await import(`${baseDir}modules/background-batch.js?v=2.9.1`);
                         if (typeof initBg === 'function') {
                             initBg({ getRequestHeaders, showLoader, hideLoader, limitConcurrency });
                         }

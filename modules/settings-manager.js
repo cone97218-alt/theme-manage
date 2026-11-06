@@ -35,6 +35,8 @@ export function initSettingsManager(config) {
         setFavorites = () => {},
         setAutoThemeSettings = () => {},
         getAutoThemeSettings = () => ({}),
+        archiveIdleThemesToVault = () => {},
+        getAllThemeObjects = () => [],
         keys = {}
     } = config;
 
@@ -391,6 +393,21 @@ export function initSettingsManager(config) {
                     </div>
                 </div>
 
+                <div style="margin-bottom: 14px;">
+                    <h4 class="tm-settings-section-title">
+                        <i class="fa-solid fa-box-archive" style="margin-right: 6px; color: #4caf50;"></i> 美化大仓库与性能瘦身 (防闪退)
+                    </h4>
+                    <div style="font-size: 11.5px; opacity: 0.65; margin-bottom: 6px; padding: 0 2px; line-height: 1.4;">
+                        <i class="fa-solid fa-shield-halved" style="margin-right: 4px; color: #4caf50;"></i>
+                        将除「当前使用」与「已收藏星标」之外的闲置美化转存入浏览器大仓库（IndexedDB），使原生目录减负，<b>拥有千级美化在手机端也绝不卡顿闪退</b>。美化仍保留在列表中随时可用。
+                    </div>
+                    <div class="tm-settings-buttons-flex">
+                        <button id="tm-pop-vault-archive" class="menu_button" style="color: #4caf50; width: 100%; justify-content: center; gap: 8px;">
+                            <i class="fa-solid fa-box-archive"></i> 一键为酒馆瘦身归档 (转存闲置至大仓库)
+                        </button>
+                    </div>
+                </div>
+
                 <div style="margin-bottom: 8px;">
                     <h4 class="tm-settings-section-title">
                         <i class="fa-solid fa-wrench" style="margin-right: 6px;"></i> 高级与系统维保
@@ -564,6 +581,29 @@ export function initSettingsManager(config) {
                     btnFullImport.addEventListener('click', () => {
                         const input = getFullBackupFileInput();
                         if (input) input.click();
+                    });
+                }
+
+                const btnVaultArchive = dlg.querySelector('#tm-pop-vault-archive');
+                if (btnVaultArchive) {
+                    btnVaultArchive.addEventListener('click', async () => {
+                        const total = typeof getAllThemeObjects === 'function' ? getAllThemeObjects().length : 0;
+                        if (total <= 30) {
+                            toastr.info(`当前酒馆原生目录仅有 ${total} 个美化，非常轻量，无需进行大仓库瘦身。`);
+                            return;
+                        }
+                        const confirmed = confirm(
+                            `【📦 一键美化大仓库瘦身归档】\n\n` +
+                            `检测到酒馆原生目录装有 ${total} 个美化。\n` +
+                            `是否将除「当前使用」与「已收藏星标」之外的闲置美化，安全转移到浏览器大仓库（IndexedDB）中？\n\n` +
+                            `✨ 瘦身后效果：\n` +
+                            `1. 所有的美化依然完整保留在列表和分类中，随时点击即可秒换使用；\n` +
+                            `2. 酒馆原生目录负担骤降 90% 以上，手机端进首页、切聊天绝对不再卡顿闪退！`
+                        );
+                        if (confirmed && typeof archiveIdleThemesToVault === 'function') {
+                            closePopup(popup);
+                            await archiveIdleThemesToVault();
+                        }
                     });
                 }
 
