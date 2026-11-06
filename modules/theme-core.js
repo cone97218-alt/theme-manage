@@ -123,10 +123,22 @@ export function installThemePropertyInterceptor(pu) {
             },
             set(val) {
                 const oldVal = currentTheme;
-                currentTheme = val;
                 const err = new Error();
                 const stack = err.stack ? err.stack.split('\n').slice(2).join('\n') : '';
                 console.log(`[TM-TRACE] [PU-THEME-SET] "${oldVal}" -> "${val}"\nCall Stack:\n${stack}`);
+
+                // 核心防线一：检测是否为移动端/原生环境上下文切聊 (syncThemeForCurrentContext / applyThemeForCurrentContext) 强行回退旧主题
+                const isContextSyncRevert = stack.includes('syncThemeForCurrentContext') || stack.includes('applyThemeForCurrentContext');
+                if (isContextSyncRevert) {
+                    const lastActive = typeof localStorage !== 'undefined' ? localStorage.getItem('themeManager_lastActiveTheme') : null;
+                    if (lastActive && val !== lastActive) {
+                        console.log(`[TM-TRACE] [SUPPRESS-CONTEXT-SYNC-REVERT] 成功拦截原生上下文切聊尝试将主题回滚为 "${val}"，强制维持当前选定美化: "${lastActive}"`);
+                        currentTheme = lastActive;
+                        return;
+                    }
+                }
+
+                currentTheme = val;
             },
             configurable: true,
             enumerable: true
@@ -1229,7 +1241,15 @@ export function initThemeCore(options) {
 
             if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
                 try {
-                    SillyTavern.getContext().saveSettingsDebounced();
+                    const ctx = SillyTavern.getContext();
+                    if (ctx?.saveSettingsDebounced) ctx.saveSettingsDebounced();
+                    if (ctx?.chat_metadata) {
+                        ctx.chat_metadata.theme = cleanTheme.name;
+                        if (typeof ctx.saveMetadataDebounced === 'function') ctx.saveMetadataDebounced();
+                    }
+                    if (ctx?.chatMetadata) {
+                        ctx.chatMetadata.theme = cleanTheme.name;
+                    }
                 } catch (e) {}
             }
 
