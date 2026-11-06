@@ -101,17 +101,7 @@ export function initBatchDelete(config) {
                 item.remove();
                 themeItemMap.delete(themeName);
             }
-
-            const idx = allParsedThemes.findIndex(t => t.value === themeName);
-            if (idx > -1) {
-                allParsedThemes.splice(idx, 1);
-                allParsedThemesMap.delete(themeName);
-            }
-
-            const objIndex = allThemeObjects.findIndex(t => t.name === themeName || t.value === themeName);
-            if (objIndex > -1) {
-                allThemeObjects.splice(objIndex, 1);
-            }
+            allParsedThemesMap.delete(themeName);
             allThemeObjectsMap.set(themeName, null);
             allThemeObjectsMap.delete(themeName);
             stKnownThemes.delete(themeName);
@@ -120,6 +110,19 @@ export function initBatchDelete(config) {
                 delete themeBackgroundBindings[themeName];
             }
         });
+
+        // 单次 O(N) 批量清理数组，彻底消除 O(N*M) 循环 splice 瓶颈
+        for (let i = allParsedThemes.length - 1; i >= 0; i--) {
+            if (successSet.has(allParsedThemes[i].value)) {
+                allParsedThemes.splice(i, 1);
+            }
+        }
+        for (let i = allThemeObjects.length - 1; i >= 0; i--) {
+            const t = allThemeObjects[i];
+            if (t && (successSet.has(t.name) || successSet.has(t.value))) {
+                allThemeObjects.splice(i, 1);
+            }
+        }
 
         // 4. 清理收藏和标签数据
         let currentFavs = getFavorites ? getFavorites() : [];

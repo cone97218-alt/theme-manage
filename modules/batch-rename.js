@@ -55,7 +55,6 @@ export function initBatchRename(config = {}) {
         let activeThemeWasRenamed = false;
 
         try {
-            const currentThemes = await getAllThemesFromAPI();
             const favoritesKey = 'themeManager_favorites';
             let favoritesToUpdate = JSON.parse(localStorage.getItem(favoritesKey)) || [];
             let tagsToUpdate = loadThemeTags();
@@ -64,6 +63,18 @@ export function initBatchRename(config = {}) {
             const renameTasks = [];
             const usedNewNames = new Set();
 
+            const isNameConflict = (name, oldName) => {
+                if (name === oldName) return false;
+                if (usedNewNames.has(name)) return true;
+                if (typeof findThemeObject === 'function' && findThemeObject(name)) return true;
+                if (originalSelect && originalSelect.options) {
+                    for (let i = 0; i < originalSelect.options.length; i++) {
+                        if (originalSelect.options[i].value === name) return true;
+                    }
+                }
+                return false;
+            };
+
             for (const oldName of selectedForBatch) {
                 const newName = renameLogic(oldName);
                 if (!newName || !newName.trim()) {
@@ -71,7 +82,7 @@ export function initBatchRename(config = {}) {
                     continue;
                 }
 
-                if (usedNewNames.has(newName) || currentThemes.some(t => t.name === newName && t.name !== oldName)) {
+                if (isNameConflict(newName, oldName)) {
                     console.warn(`批量操作：目标名称 "${newName}" 已存在或内部冲突，已跳过 "${oldName}"。`);
                     toastr.warning(`主题名称 "${newName}" 冲突，已跳过。`);
                     skippedCount++;
