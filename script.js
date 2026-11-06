@@ -2,7 +2,7 @@
     'use strict';
 
     // === [TM-TRACE] 全局移动端诊断日志捕获系统 (专为手机端调试打造) ===
-    const EXTENSION_VERSION = '2.8.5';
+    const EXTENSION_VERSION = '2.8.6';
     if (typeof window !== 'undefined' && !window.__TM_HOOKED__) {
         window.__TM_HOOKED__ = true;
         window.__TM_TRACE_LOGS__ = [];
@@ -389,7 +389,7 @@
                 }
 
                 const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                const themeCoreModule = await import(`${baseDir}modules/theme-core.js?v=2.8.5`);
+                const themeCoreModule = await import(`${baseDir}modules/theme-core.js?v=2.8.6`);
                 const { getSolidRgbFromCssVar, getAdaptivePopoverBg, DEFAULT_THEME_PROPS, normalizeThemeObject } = themeCoreModule;
 
 
@@ -487,7 +487,7 @@
                     isSwitchingTheme
                 } = themeCore;
 
-                const { createTagManager } = await import(`${baseDir}modules/tag-manager.js?v=2.8.5`);
+                const { createTagManager } = await import(`${baseDir}modules/tag-manager.js?v=2.8.6`);
                 const tagManager = createTagManager({
                     getValidInstalledThemeNames,
                     getAllParsedThemes: () => allParsedThemes
@@ -751,7 +751,6 @@
                                 <button id="manage-tags-btn" class="menu_button" title="管理标签"><i class="fa-solid fa-tags"></i> 标签</button>
                                 <button id="tm-auto-group-btn" class="menu_button" title="自动提取美化名中的共同词组并向导生成标签/分类"><i class="fa-solid fa-wand-magic-sparkles"></i> 分组</button>
                                 <button id="tm-settings-btn" class="menu_button" title="插件高级设置"><i class="fa-solid fa-gear"></i> 设置</button>
-                                <button id="tm-view-log-btn" class="menu_button" title="查看并复制诊断日志（手机端排查神器）" style="color: var(--SmartThemeQuoteColor, #4a90e2);"><i class="fa-solid fa-clipboard-list"></i> 日志</button>
                             </div>
                         </div>
 
@@ -1215,21 +1214,14 @@
                             const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
                             const lastActive = localStorage.getItem('themeManager_lastActiveTheme');
                             const activeVal = (lastActive && serverThemeNames.has(lastActive)) ? lastActive : (pu?.theme || originalSelect.value || '');
-                            const prevSuspend = _suspendObserver;
-                            _suspendObserver = true;
-                            try {
-                                Array.from(originalSelect.options).forEach(opt => {
-                                    if (opt.value && !serverThemeNames.has(opt.value)) {
-                                        console.log(`[TM-TRACE] [PRUNE-DEAD-OPTION] "${opt.value}" removed from select`);
-                                        console.log(`[Theme Manager] 🧹 清理原生下拉框中的死选项: "${opt.value}"`);
-                                        opt.remove();
-                                    }
-                                });
-                                if (activeVal && serverThemeNames.has(activeVal) && originalSelect.value !== activeVal) {
+                            if (activeVal && serverThemeNames.has(activeVal) && originalSelect.value !== activeVal) {
+                                const prevSuspend = _suspendObserver;
+                                _suspendObserver = true;
+                                try {
                                     originalSelect.value = activeVal;
+                                } finally {
+                                    _suspendObserver = prevSuspend;
                                 }
-                            } finally {
-                                _suspendObserver = prevSuspend;
                             }
                         }
 
@@ -2816,7 +2808,7 @@
                 let performBatchRename = () => {};
                 let openBatchRenamePopup = () => {};
                 try {
-                    const { initBatchRename } = await import(`${baseDir}modules/batch-rename.js?v=2.8.5`);
+                    const { initBatchRename } = await import(`${baseDir}modules/batch-rename.js?v=2.8.6`);
                     const batchRenameModule = initBatchRename({
                         getSelectedForBatch: () => selectedForBatch,
                         clearSelectedForBatch: () => {
@@ -2859,7 +2851,7 @@
 
                 let performBatchDelete = () => {};
                 try {
-                    const { initBatchDelete } = await import(`${baseDir}modules/batch-delete.js?v=2.8.5`);
+                    const { initBatchDelete } = await import(`${baseDir}modules/batch-delete.js?v=2.8.6`);
                     const batchDeleteModule = initBatchDelete({
                         getSelectedForBatch: () => selectedForBatch,
                         clearSelectedForBatch: () => selectedForBatch.clear(),
@@ -2912,7 +2904,7 @@
                 let openCustomImportModal = () => {};
                 let triggerFullImport = () => {};
 
-                const { initBackupManager, BACKUP_MODULE_DEFS } = await import(`${baseDir}modules/backup-manager.js?v=2.8.5`);
+                const { initBackupManager, BACKUP_MODULE_DEFS } = await import(`${baseDir}modules/backup-manager.js?v=2.8.6`);
                 const backupModule = initBackupManager({
                     getAllThemesFromAPI,
                     apiRequest,
@@ -2963,7 +2955,7 @@
                 let openSettingsPopup = () => {};
 
                 try {
-                    const { initSettingsManager } = await import(`${baseDir}modules/settings-manager.js?v=2.8.5`);
+                    const { initSettingsManager } = await import(`${baseDir}modules/settings-manager.js?v=2.8.6`);
                     const smModule = initSettingsManager({
                         settingsKeysToSync,
                         callGenericPopup,
@@ -3263,7 +3255,7 @@
                 // ========= 替换卡图/头像按钮注入 (模块化: modules/avatar-replace.js) =========
                 // ==========================================================
                 try {
-                    const { initAvatarReplace } = await import(`${baseDir}modules/avatar-replace.js?v=2.8.5`);
+                    const { initAvatarReplace } = await import(`${baseDir}modules/avatar-replace.js?v=2.8.6`);
                     const avatarReplaceModule = initAvatarReplace({
                         ENABLE_REPLACE_AVATAR_BTN_KEY,
                         toastr
@@ -3308,7 +3300,7 @@
                 let getSmartRecommendedThemes = () => [];
 
                 try {
-                    const { initColorTransfer } = await import(`${baseDir}modules/color-transfer.js?v=2.8.5`);
+                    const { initColorTransfer } = await import(`${baseDir}modules/color-transfer.js?v=2.8.6`);
                     const colorModule = initColorTransfer({
                         getAllParsedThemes: () => allParsedThemes,
                         allThemeObjectsMap,
@@ -3477,7 +3469,7 @@
                 let handleBatchThemeImport = () => {};
 
                 try {
-                    const { initThemeImport } = await import(`${baseDir}modules/theme-import.js?v=2.8.5`);
+                    const { initThemeImport } = await import(`${baseDir}modules/theme-import.js?v=2.8.6`);
                     const themeImportModule = initThemeImport({
                         loadThemeTags,
                         saveThemeTags,
@@ -3605,7 +3597,7 @@
 
                 let aiGroupModule = null;
                 try {
-                    const { initAiGroup } = await import(`${baseDir}modules/ai-group.js?v=2.8.5`);
+                    const { initAiGroup } = await import(`${baseDir}modules/ai-group.js?v=2.8.6`);
                     aiGroupModule = initAiGroup({
                         loadThemeTags,
                         saveThemeTags,
@@ -3629,7 +3621,7 @@
                 }
 
                 try {
-                    const { initAutoGroup, AUTO_GROUP_STOPWORDS, isTextMatchingCompositeSearch, sanitizeThemeTitle } = await import(`${baseDir}modules/auto-group.js?v=2.8.5`);
+                    const { initAutoGroup, AUTO_GROUP_STOPWORDS, isTextMatchingCompositeSearch, sanitizeThemeTitle } = await import(`${baseDir}modules/auto-group.js?v=2.8.6`);
                     const autoGroupModule = initAutoGroup({
                         loadThemeTags,
                         saveThemeTags,
@@ -3673,7 +3665,7 @@
                 let openTagRemovalPopup = () => {};
 
                 try {
-                    const { initTagUI } = await import(`${baseDir}modules/tag-ui.js?v=2.8.5`);
+                    const { initTagUI } = await import(`${baseDir}modules/tag-ui.js?v=2.8.6`);
                     const tagUiModule = initTagUI({
                         loadThemeTags,
                         saveThemeTags,
@@ -4372,7 +4364,7 @@
 
                 try {
                     const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                    const { initCharacterBinding } = await import(`${baseDir}modules/character-binding.js?v=2.8.5`);
+                    const { initCharacterBinding } = await import(`${baseDir}modules/character-binding.js?v=2.8.6`);
                     const cbModule = initCharacterBinding({
                         CHARACTER_THEME_BINDINGS_KEY,
                         loadThemeTags,
@@ -4398,7 +4390,7 @@
                 let autoModule = null;
                 try {
                     const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                    const { initAutoTheme } = await import(`${baseDir}modules/auto-theme.js?v=2.8.5`);
+                    const { initAutoTheme } = await import(`${baseDir}modules/auto-theme.js?v=2.8.6`);
                     autoModule = initAutoTheme({
                         AUTO_THEME_KEY,
                         THEME_DAY_NIGHT_PAIRS_KEY,
@@ -4431,7 +4423,7 @@
                 async function initBackgroundEnhancements() {
                     try {
                         const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                        const { initBackgroundEnhancements: initBg } = await import(`${baseDir}modules/background-batch.js?v=2.8.5`);
+                        const { initBackgroundEnhancements: initBg } = await import(`${baseDir}modules/background-batch.js?v=2.8.6`);
                         if (typeof initBg === 'function') {
                             initBg({ getRequestHeaders, showLoader, hideLoader, limitConcurrency });
                         }
