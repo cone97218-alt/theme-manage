@@ -112,26 +112,51 @@ async function loadNativePowerUserModule() {
 // 提前异步触发加载
 loadNativePowerUserModule();
 
-export function getPowerUser() {
-    if (typeof power_user !== 'undefined' && power_user) return power_user;
-    if (typeof window !== 'undefined' && window.power_user) return window.power_user;
-    if (_powerUserModule && _powerUserModule.power_user) {
-        if (typeof window !== 'undefined') window.power_user = _powerUserModule.power_user;
-        return _powerUserModule.power_user;
+export function installThemePropertyInterceptor(pu) {
+    if (!pu || typeof pu !== 'object' || pu._themeTrapInstalled) return;
+    try {
+        let currentTheme = pu.theme;
+        Object.defineProperty(pu, '_themeTrapInstalled', { value: true, writable: false, configurable: true });
+        Object.defineProperty(pu, 'theme', {
+            get() {
+                return currentTheme;
+            },
+            set(val) {
+                const oldVal = currentTheme;
+                currentTheme = val;
+                const err = new Error();
+                const stack = err.stack ? err.stack.split('\n').slice(2).join('\n') : '';
+                console.log(`[TM-TRACE] [PU-THEME-SET] "${oldVal}" -> "${val}"\nCall Stack:\n${stack}`);
+            },
+            configurable: true,
+            enumerable: true
+        });
+        console.log(`[TM-TRACE] [INSTALL-TRAP] power_user.theme 拦截器安装成功, 当前主题: "${currentTheme}"`);
+    } catch (e) {
+        console.warn('[TM-TRACE] [INSTALL-TRAP-FAIL] 拦截器安装异常:', e);
     }
-    if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+}
+
+export function getPowerUser() {
+    let pu = null;
+    if (typeof power_user !== 'undefined' && power_user) pu = power_user;
+    else if (typeof window !== 'undefined' && window.power_user) pu = window.power_user;
+    else if (_powerUserModule && _powerUserModule.power_user) {
+        if (typeof window !== 'undefined') window.power_user = _powerUserModule.power_user;
+        pu = _powerUserModule.power_user;
+    } else if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
         try {
             const ctx = SillyTavern.getContext();
             if (ctx) {
-                const pu = ctx.powerUserSettings || ctx.power_user || null;
+                pu = ctx.powerUserSettings || ctx.power_user || null;
                 if (pu && typeof window !== 'undefined' && !window.power_user) {
                     window.power_user = pu;
                 }
-                return pu;
             }
         } catch (e) {}
     }
-    return null;
+    if (pu) installThemePropertyInterceptor(pu);
+    return pu;
 }
 
 export function initThemeCore(options) {
@@ -633,6 +658,7 @@ export function initThemeCore(options) {
     // 高性能批量内存与原生环境同步引擎（专为大规模批量导入优化，时间复杂度 O(N+M)，彻底消除循环查找与反复重绘）
     function updateSTThemeMemoryBatch(themeObjects) {
         if (!Array.isArray(themeObjects) || themeObjects.length === 0) return;
+        console.log(`[TM-TRACE] [BATCH-MEMORY-SYNC] 批量同步数量: ${themeObjects.length}`);
         try {
             const normalizedList = themeObjects.map(t => normalizeThemeObject(t)).filter(t => t && t.name);
             if (normalizedList.length === 0) return;
@@ -849,6 +875,7 @@ export function initThemeCore(options) {
 
     function triggerSelectChange(selectEl) {
         if (!selectEl) return;
+        console.log(`[TM-TRACE] [TRIGGER-CHANGE] selectEl.value="${selectEl.value}", selectedIndex=${selectEl.selectedIndex}`);
         console.log(`[Theme Manager] 触发展示与原生 change 事件, 当前选中值: ${selectEl.value}`);
         selectEl.dispatchEvent(new Event('change', { bubbles: true }));
         if (typeof window !== 'undefined' && window.jQuery) {
@@ -957,6 +984,7 @@ export function initThemeCore(options) {
 
     function applyThemeDirect(themeName) {
         if (!themeName) return;
+        console.log(`[TM-TRACE] [APPLY-DIRECT-START] themeName="${themeName}", pu.theme="${getPowerUser()?.theme}", select.value="${originalSelect?.value}"`);
         console.log(`[Theme Manager] 切换至主题: "${themeName}"`);
 
         _isSwitchingTheme = true;
@@ -1219,6 +1247,7 @@ export function initThemeCore(options) {
             } catch (e) {}
         } finally {
             _isSwitchingTheme = false;
+            console.log(`[TM-TRACE] [APPLY-DIRECT-DONE] themeName="${themeName}", pu.theme="${getPowerUser()?.theme}", select.value="${originalSelect?.value}"`);
         }
     }
 

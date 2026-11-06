@@ -527,6 +527,7 @@ export function initThemeImport(config) {
 
     async function handleBatchThemeImport(files) {
         if (!files || !files.length) return;
+        console.log(`[TM-TRACE] [IMPORT-START] files count=${files ? files.length : 0}`);
 
         showLoader();
 
@@ -829,6 +830,7 @@ export function initThemeImport(config) {
             });
 
             // 3. 批量更新下拉框、内存及 UI DOM (一次性处理，消除 N^2 开销)
+            console.log(`[TM-TRACE] [IMPORT-SAVED] count=${importedThemes.length}, names=${importedThemes.map(t => t.name).join(", ")}`);
             if (importedThemes.length > 0) {
                 needsUIUpdate = true;
 
@@ -884,6 +886,7 @@ export function initThemeImport(config) {
                             if (typeof updateSTThemeMemoryBatch === 'function') {
                                 updateSTThemeMemoryBatch(freshThemes);
                             }
+                            console.log(`[TM-TRACE] [HOT-SYNC-RESULT] freshThemes count=${freshThemes.length}`);
                         }
                     } catch (e) {
                         console.warn('[Theme Manager] 批量导入后热同步全量列表异常:', e);

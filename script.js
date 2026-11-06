@@ -1167,6 +1167,7 @@
                     deduplicateSelectOptions(originalSelect);
                     const scrollTop = contentWrapper.scrollTop;
 
+                    console.log(`[TM-TRACE] [BUILD-THEME-UI-START] select.value="${originalSelect?.value}", pu.theme="${typeof getPowerUser === 'function' ? getPowerUser()?.theme : 'N/A'}", lastActive="${localStorage.getItem('themeManager_lastActiveTheme')}"`);
                     if (!contentWrapper.querySelector('.theme-list')) {
                         contentWrapper.innerHTML = '正在加载主题...';
                     }
@@ -1192,6 +1193,7 @@
                             try {
                                 Array.from(originalSelect.options).forEach(opt => {
                                     if (opt.value && !serverThemeNames.has(opt.value)) {
+                                        console.log(`[TM-TRACE] [PRUNE-DEAD-OPTION] "${opt.value}" removed from select`);
                                         console.log(`[Theme Manager] 🧹 清理原生下拉框中的死选项: "${opt.value}"`);
                                         opt.remove();
                                     }
@@ -4083,8 +4085,12 @@
                     const newThemeName = event.target.value;
                     if (!newThemeName) return;
 
-                    // 若是由外部/用户在原生下拉框直接选择主题（非 applyThemeDirect 程序内触发），统一走纯净切换引擎
                     const switching = (typeof isSwitchingTheme === 'function') ? isSwitchingTheme() : false;
+                    const err = new Error();
+                    const stack = err.stack ? err.stack.split('\n').slice(2).join('\n') : '';
+                    console.log(`[TM-TRACE] [SELECT-CHANGE] target.value="${newThemeName}", switching=${switching}\nCall Stack:\n${stack}`);
+
+                    // 若是由外部/用户在原生下拉框直接选择主题（非 applyThemeDirect 程序内触发），统一走纯净切换引擎
                     if (!switching) {
                         applyThemeDirect(newThemeName);
                         return;
@@ -4133,6 +4139,9 @@
 
                 const observer = new MutationObserver((mutations) => {
                     if (_suspendObserver) return;
+                    const added = mutations.reduce((acc, m) => acc + m.addedNodes.length, 0);
+                    const removed = mutations.reduce((acc, m) => acc + m.removedNodes.length, 0);
+                    console.log(`[TM-TRACE] [MUTATION-OBSERVER] childList: +${added} -${removed}, select.value="${originalSelect.value}"`);
                     debouncedBuildThemeUI(300);
                 });
                 observer.observe(originalSelect, { childList: true }); // 仅监听 option 增减，移除 characterData 避免文本变化误触发重建
@@ -4351,9 +4360,9 @@
                     if (eventSource && eventTypes) {
                         console.log(`[Theme Manager Debug] Event source & event types found. Registering listeners.`);
                         eventSource.on(eventTypes.CHAT_CHANGED, () => {
-                            console.log(`[Theme Manager Debug] CHAT_CHANGED event fired`);
                             const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
                             const lastActive = localStorage.getItem('themeManager_lastActiveTheme');
+                            console.log(`[TM-TRACE] [CHAT_CHANGED] fired. select.value="${originalSelect?.value}", pu.theme="${pu?.theme}", lastActive="${lastActive}"`);
                             if (lastActive && (stKnownThemes?.has(lastActive) || allThemeObjectsMap?.has(lastActive))) {
                                 if (originalSelect && originalSelect.value !== lastActive) {
                                     originalSelect.value = lastActive;
@@ -4371,9 +4380,10 @@
                         });
 
                         eventSource.on(eventTypes.CHARACTER_SELECTED, () => {
-                            console.log(`[Theme Manager Debug] CHARACTER_SELECTED event fired`);
-                            const { characters, characterId } = SillyTavern.getContext();
-                            const character = characters[characterId];
+                            const ctx = SillyTavern.getContext() || {};
+                            const { characters, characterId } = ctx;
+                            const character = characters ? characters[characterId] : null;
+                            console.log(`[TM-TRACE] [CHARACTER_SELECTED] characterId=${characterId}, avatar=${character ? character.avatar : 'none'}`);
                             if (character && character.avatar) {
                                 console.log(`[Theme Manager Debug] CHARACTER_SELECTED avatar:`, character.avatar);
                                 // 短延时确保上下文就绪

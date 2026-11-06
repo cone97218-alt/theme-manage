@@ -77,6 +77,7 @@ export function initCharacterBinding({
         if (!avatarName) return;
         const cleanName = getAvatarFilename(avatarName);
         if (!cleanName) return;
+        console.log(`[TM-TRACE] [CHAR-BINDING-CHECK] avatarName="${avatarName}", cleanName="${cleanName}"`);
 
         let bindings = {};
         try {
