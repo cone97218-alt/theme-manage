@@ -5,6 +5,8 @@
  * 彻底解决 SillyTavern 原生 settings/get 接口全量加载导致的手机端内存溢出 (OOM) 与闪退问题。
  */
 
+import { getJSZip } from './theme-import.js';
+
 const DB_NAME = 'ThemeManager_VaultDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'vault_themes';
@@ -157,6 +159,34 @@ export async function getVaultThemeCount() {
 }
 
 /**
+ * 获取仓库中所有美化的完整数据
+ */
+export async function getAllVaultThemesFullData() {
+    const db = await getVaultDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = (e) => reject(e.target.error);
+    });
+}
+
+/**
+ * 清空大仓库数据库中的所有主题
+ */
+export async function clearVaultDB() {
+    const db = await getVaultDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.clear();
+        req.onsuccess = () => resolve(true);
+        req.onerror = (e) => reject(e.target.error);
+    });
+}
+
+/**
  * 初始化冷仓库控制模块工厂
  */
 export function initThemeVault(config = {}) {
@@ -277,13 +307,130 @@ export function initThemeVault(config = {}) {
         }
     }
 
+    /**
+     * 将大仓库中的所有美化全部写回酒馆原生磁盘文件夹 (还原为本地 .json 物理文件)
+     */
+    async function restoreAllThemesFromVaultToDisk() {
+        if (showLoader) showLoader();
+        try {
+            const allThemes = await getAllVaultThemesFullData();
+            if (!allThemes || allThemes.length === 0) {
+                if (hideLoader) hideLoader();
+                if (toastr) toastr.info('大仓库中暂无可写回的美化数据。');
+                return { success: true, count: 0 };
+            }
+
+            const total = allThemes.length;
+            console.log(`[Theme Vault] 开始全部还原写回本地磁盘: 共 ${total} 个主题...`);
+
+            let successCount = 0;
+            let failCount = 0;
+
+            // 采用 5 并发分批写入，保证酒馆后端平稳写入且不丢文件
+            const BATCH_SIZE = 5;
+            for (let i = 0; i < total; i += BATCH_SIZE) {
+                const batch = allThemes.slice(i, i + BATCH_SIZE);
+                await Promise.all(batch.map(async (themeData) => {
+                    const themeName = themeData.name || themeData.value;
+                    if (!themeName) return;
+                    try {
+                        const cleanTheme = { ...themeData };
+                        delete cleanTheme.isVault;
+                        if (typeof saveTheme === 'function') {
+                            await saveTheme(cleanTheme, { isBatch: true });
+                            successCount++;
+                        }
+                    } catch (e) {
+                        console.warn(`[Theme Vault] 还原写回美化 "${themeName}" 失败:`, e);
+                        failCount++;
+                    }
+                }));
+            }
+
+            // 写回磁盘完成后，清空大仓库中存储的副本
+            await clearVaultDB();
+
+            if (hideLoader) hideLoader();
+            const msg = `全部写回成功！已将大仓库中全部 ${successCount} 个美化写回酒馆磁盘文件夹（${failCount > 0 ? failCount + ' 个写入失败' : '全部成功'}）。`;
+            if (toastr) toastr.success(msg);
+            console.log(`[Theme Vault] ${msg}`);
+
+            // 刷新界面
+            if (typeof softRefreshUI === 'function') softRefreshUI();
+            if (typeof updateActiveState === 'function') updateActiveState();
+
+            return { success: true, count: successCount, failCount };
+        } catch (err) {
+            if (hideLoader) hideLoader();
+            console.error('[Theme Vault] 全部写回磁盘失败:', err);
+            if (toastr) toastr.error(`写回磁盘失败: ${err.message}`);
+            return { success: false, error: err };
+        }
+    }
+
+    /**
+     * 将大仓库中的所有美化打包导出为 Zip 压缩包备份
+     */
+    async function exportVaultThemesAsZip() {
+        if (showLoader) showLoader();
+        try {
+            const allThemes = await getAllVaultThemesFullData();
+            if (!allThemes || allThemes.length === 0) {
+                if (hideLoader) hideLoader();
+                if (toastr) toastr.info('大仓库中暂无可导出的美化。');
+                return false;
+            }
+
+            const JSZip = await getJSZip();
+            const zip = new JSZip();
+
+            for (const theme of allThemes) {
+                const name = theme.name || theme.value || 'untitled';
+                const cleanTheme = { ...theme };
+                delete cleanTheme.isVault;
+                const jsonStr = JSON.stringify(cleanTheme, null, 4);
+                zip.file(`${name}.json`, jsonStr);
+            }
+
+            const blob = await zip.generateAsync({
+                type: 'blob',
+                compression: 'DEFLATE',
+                compressionOptions: { level: 6 }
+            });
+
+            const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+            const filename = `ThemeVault_Backup_${dateStr}_(${allThemes.length}themes).zip`;
+            const downloadUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(downloadUrl);
+
+            if (hideLoader) hideLoader();
+            if (toastr) toastr.success(`已成功打包并导出 ${allThemes.length} 个大仓库美化为 ${filename}`);
+            return true;
+        } catch (err) {
+            if (hideLoader) hideLoader();
+            console.error('[Theme Vault] 导出 Zip 失败:', err);
+            if (toastr) toastr.error(`导出 Zip 压缩包失败: ${err.message}`);
+            return false;
+        }
+    }
+
     return {
         saveThemesToVault,
         getThemeFromVault,
         deleteThemeFromVault,
         getAllVaultThemesSummary,
+        getAllVaultThemesFullData,
+        clearVaultDB,
         getVaultThemeCount,
         activateAndApplyVaultTheme,
-        archiveIdleThemesToVault
+        archiveIdleThemesToVault,
+        restoreAllThemesFromVaultToDisk,
+        exportVaultThemesAsZip
     };
 }

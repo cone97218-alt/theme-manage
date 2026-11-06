@@ -443,7 +443,7 @@
                 }
 
                 const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                const themeCoreModule = await import(`${baseDir}modules/theme-core.js?v=2.9.1`);
+                const themeCoreModule = await import(`${baseDir}modules/theme-core.js?v=2.9.2`);
                 const { getSolidRgbFromCssVar, getAdaptivePopoverBg, DEFAULT_THEME_PROPS, normalizeThemeObject } = themeCoreModule;
 
 
@@ -541,7 +541,7 @@
                     isSwitchingTheme
                 } = themeCore;
 
-                const { createTagManager } = await import(`${baseDir}modules/tag-manager.js?v=2.9.1`);
+                const { createTagManager } = await import(`${baseDir}modules/tag-manager.js?v=2.9.2`);
                 const tagManager = createTagManager({
                     getValidInstalledThemeNames,
                     getAllParsedThemes: () => allParsedThemes
@@ -2883,7 +2883,7 @@
                 let performBatchRename = () => {};
                 let openBatchRenamePopup = () => {};
                 try {
-                    const { initBatchRename } = await import(`${baseDir}modules/batch-rename.js?v=2.9.1`);
+                    const { initBatchRename } = await import(`${baseDir}modules/batch-rename.js?v=2.9.2`);
                     const batchRenameModule = initBatchRename({
                         getSelectedForBatch: () => selectedForBatch,
                         clearSelectedForBatch: () => {
@@ -2926,7 +2926,7 @@
 
                 let performBatchDelete = () => {};
                 try {
-                    const { initBatchDelete } = await import(`${baseDir}modules/batch-delete.js?v=2.9.1`);
+                    const { initBatchDelete } = await import(`${baseDir}modules/batch-delete.js?v=2.9.2`);
                     const batchDeleteModule = initBatchDelete({
                         getSelectedForBatch: () => selectedForBatch,
                         clearSelectedForBatch: () => selectedForBatch.clear(),
@@ -2979,7 +2979,7 @@
                 let openCustomImportModal = () => {};
                 let triggerFullImport = () => {};
 
-                const { initBackupManager, BACKUP_MODULE_DEFS } = await import(`${baseDir}modules/backup-manager.js?v=2.9.1`);
+                const { initBackupManager, BACKUP_MODULE_DEFS } = await import(`${baseDir}modules/backup-manager.js?v=2.9.2`);
                 const backupModule = initBackupManager({
                     getAllThemesFromAPI,
                     apiRequest,
@@ -3030,7 +3030,7 @@
                 let openSettingsPopup = () => {};
 
                 try {
-                    const { initSettingsManager } = await import(`${baseDir}modules/settings-manager.js?v=2.9.1`);
+                    const { initSettingsManager } = await import(`${baseDir}modules/settings-manager.js?v=2.9.2`);
                     const smModule = initSettingsManager({
                         settingsKeysToSync,
                         callGenericPopup,
@@ -3064,6 +3064,16 @@
                         getAutoThemeSettings: () => autoThemeSettings,
                         archiveIdleThemesToVault: () => {
                             if (typeof archiveIdleThemesToVault === 'function') archiveIdleThemesToVault();
+                        },
+                        restoreAllThemesFromVaultToDisk: () => {
+                            if (typeof restoreAllThemesFromVaultToDisk === 'function') return restoreAllThemesFromVaultToDisk();
+                        },
+                        exportVaultThemesAsZip: () => {
+                            if (typeof exportVaultThemesAsZip === 'function') return exportVaultThemesAsZip();
+                        },
+                        getVaultThemeCount: () => {
+                            if (typeof getVaultThemeCount === 'function') return getVaultThemeCount();
+                            return 0;
                         },
                         getAllThemeObjects: () => allThemeObjects,
                         keys: {
@@ -3334,7 +3344,7 @@
                 // ========= 替换卡图/头像按钮注入 (模块化: modules/avatar-replace.js) =========
                 // ==========================================================
                 try {
-                    const { initAvatarReplace } = await import(`${baseDir}modules/avatar-replace.js?v=2.9.1`);
+                    const { initAvatarReplace } = await import(`${baseDir}modules/avatar-replace.js?v=2.9.2`);
                     const avatarReplaceModule = initAvatarReplace({
                         ENABLE_REPLACE_AVATAR_BTN_KEY,
                         toastr
@@ -3379,7 +3389,7 @@
                 let getSmartRecommendedThemes = () => [];
 
                 try {
-                    const { initColorTransfer } = await import(`${baseDir}modules/color-transfer.js?v=2.9.1`);
+                    const { initColorTransfer } = await import(`${baseDir}modules/color-transfer.js?v=2.9.2`);
                     const colorModule = initColorTransfer({
                         getAllParsedThemes: () => allParsedThemes,
                         allThemeObjectsMap,
@@ -3548,10 +3558,13 @@
                 let saveThemesToVault = () => {};
                 let activateAndApplyVaultTheme = () => false;
                 let archiveIdleThemesToVault = () => {};
+                let restoreAllThemesFromVaultToDisk = () => {};
+                let exportVaultThemesAsZip = () => {};
+                let getVaultThemeCount = () => 0;
                 let getAllVaultThemesSummary = () => [];
 
                 try {
-                    const { initThemeVault, getAllVaultThemesSummary: getVaultSummary, saveThemesToVault: saveVault } = await import(`${baseDir}modules/theme-vault.js?v=2.9.1`);
+                    const { initThemeVault, getAllVaultThemesSummary: getVaultSummary, saveThemesToVault: saveVault } = await import(`${baseDir}modules/theme-vault.js?v=2.9.2`);
                     saveThemesToVault = saveVault;
                     getAllVaultThemesSummary = getVaultSummary;
                     vaultModule = initThemeVault({
@@ -3571,6 +3584,9 @@
                     });
                     activateAndApplyVaultTheme = vaultModule.activateAndApplyVaultTheme;
                     archiveIdleThemesToVault = vaultModule.archiveIdleThemesToVault;
+                    restoreAllThemesFromVaultToDisk = vaultModule.restoreAllThemesFromVaultToDisk;
+                    exportVaultThemesAsZip = vaultModule.exportVaultThemesAsZip;
+                    getVaultThemeCount = vaultModule.getVaultThemeCount;
                 } catch (e) {
                     console.error('[Theme Manager] 加载大仓库模块失败:', e);
                 }
@@ -3580,7 +3596,7 @@
                 let handleBatchThemeImport = () => {};
 
                 try {
-                    const { initThemeImport } = await import(`${baseDir}modules/theme-import.js?v=2.9.1`);
+                    const { initThemeImport } = await import(`${baseDir}modules/theme-import.js?v=2.9.2`);
                     const themeImportModule = initThemeImport({
                         loadThemeTags,
                         saveThemeTags,
@@ -3713,7 +3729,7 @@
 
                 let aiGroupModule = null;
                 try {
-                    const { initAiGroup } = await import(`${baseDir}modules/ai-group.js?v=2.9.1`);
+                    const { initAiGroup } = await import(`${baseDir}modules/ai-group.js?v=2.9.2`);
                     aiGroupModule = initAiGroup({
                         loadThemeTags,
                         saveThemeTags,
@@ -3737,7 +3753,7 @@
                 }
 
                 try {
-                    const { initAutoGroup, AUTO_GROUP_STOPWORDS, isTextMatchingCompositeSearch, sanitizeThemeTitle } = await import(`${baseDir}modules/auto-group.js?v=2.9.1`);
+                    const { initAutoGroup, AUTO_GROUP_STOPWORDS, isTextMatchingCompositeSearch, sanitizeThemeTitle } = await import(`${baseDir}modules/auto-group.js?v=2.9.2`);
                     const autoGroupModule = initAutoGroup({
                         loadThemeTags,
                         saveThemeTags,
@@ -3781,7 +3797,7 @@
                 let openTagRemovalPopup = () => {};
 
                 try {
-                    const { initTagUI } = await import(`${baseDir}modules/tag-ui.js?v=2.9.1`);
+                    const { initTagUI } = await import(`${baseDir}modules/tag-ui.js?v=2.9.2`);
                     const tagUiModule = initTagUI({
                         loadThemeTags,
                         saveThemeTags,
@@ -4465,7 +4481,7 @@
 
                 try {
                     const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                    const { initCharacterBinding } = await import(`${baseDir}modules/character-binding.js?v=2.9.1`);
+                    const { initCharacterBinding } = await import(`${baseDir}modules/character-binding.js?v=2.9.2`);
                     const cbModule = initCharacterBinding({
                         CHARACTER_THEME_BINDINGS_KEY,
                         loadThemeTags,
@@ -4491,7 +4507,7 @@
                 let autoModule = null;
                 try {
                     const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                    const { initAutoTheme } = await import(`${baseDir}modules/auto-theme.js?v=2.9.1`);
+                    const { initAutoTheme } = await import(`${baseDir}modules/auto-theme.js?v=2.9.2`);
                     autoModule = initAutoTheme({
                         AUTO_THEME_KEY,
                         THEME_DAY_NIGHT_PAIRS_KEY,
@@ -4524,7 +4540,7 @@
                 async function initBackgroundEnhancements() {
                     try {
                         const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                        const { initBackgroundEnhancements: initBg } = await import(`${baseDir}modules/background-batch.js?v=2.9.1`);
+                        const { initBackgroundEnhancements: initBg } = await import(`${baseDir}modules/background-batch.js?v=2.9.2`);
                         if (typeof initBg === 'function') {
                             initBg({ getRequestHeaders, showLoader, hideLoader, limitConcurrency });
                         }

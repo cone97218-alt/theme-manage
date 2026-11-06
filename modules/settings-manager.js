@@ -36,6 +36,9 @@ export function initSettingsManager(config) {
         setAutoThemeSettings = () => {},
         getAutoThemeSettings = () => ({}),
         archiveIdleThemesToVault = () => {},
+        restoreAllThemesFromVaultToDisk = () => {},
+        exportVaultThemesAsZip = () => {},
+        getVaultThemeCount = () => 0,
         getAllThemeObjects = () => [],
         keys = {}
     } = config;
@@ -406,6 +409,14 @@ export function initSettingsManager(config) {
                             <i class="fa-solid fa-box-archive"></i> 一键为酒馆瘦身归档 (转存闲置至大仓库)
                         </button>
                     </div>
+                    <div class="tm-settings-buttons-flex" style="margin-top: 6px; display: flex; gap: 6px;">
+                        <button id="tm-pop-vault-restore" class="menu_button" style="color: #e67e22; flex: 1; justify-content: center; gap: 6px;" title="将大仓库内的所有美化全部写回酒馆原生磁盘文件夹">
+                            <i class="fa-solid fa-file-arrow-down"></i> 全部写回本地磁盘
+                        </button>
+                        <button id="tm-pop-vault-export-zip" class="menu_button" style="flex: 1; justify-content: center; gap: 6px;" title="将大仓库所有美化打包导出为 Zip 压缩包备份">
+                            <i class="fa-solid fa-file-zipper"></i> 导出仓库为 Zip
+                        </button>
+                    </div>
                 </div>
 
                 <div style="margin-bottom: 8px;">
@@ -603,6 +614,44 @@ export function initSettingsManager(config) {
                         if (confirmed && typeof archiveIdleThemesToVault === 'function') {
                             closePopup(popup);
                             await archiveIdleThemesToVault();
+                        }
+                    });
+                }
+
+                const btnVaultRestore = dlg.querySelector('#tm-pop-vault-restore');
+                if (btnVaultRestore) {
+                    btnVaultRestore.addEventListener('click', async () => {
+                        const vaultCount = typeof getVaultThemeCount === 'function' ? await getVaultThemeCount() : 0;
+                        if (vaultCount === 0) {
+                            toastr.info('大仓库中目前没有美化数据，无需写回。');
+                            return;
+                        }
+                        const confirmed = confirm(
+                            `【⚠️ 确认将大仓库全部写回本地磁盘？】\n\n` +
+                            `大仓库中当前存有 ${vaultCount} 个美化。\n` +
+                            `是否将它们全部恢复为物理 .json 文件，写回酒馆原生的 themes/ 文件夹？\n\n` +
+                            `⚠️ 风险提醒：\n` +
+                            `写回后，酒馆原生目录的美化数量将暴增至千级以上，手机端刷新页面可能会重新出现内存溢出闪退！\n` +
+                            `（建议在切换回旧版扩展前，或在电脑上备份文件时使用此功能）`
+                        );
+                        if (confirmed && typeof restoreAllThemesFromVaultToDisk === 'function') {
+                            closePopup(popup);
+                            await restoreAllThemesFromVaultToDisk();
+                        }
+                    });
+                }
+
+                const btnVaultExportZip = dlg.querySelector('#tm-pop-vault-export-zip');
+                if (btnVaultExportZip) {
+                    btnVaultExportZip.addEventListener('click', async () => {
+                        const vaultCount = typeof getVaultThemeCount === 'function' ? await getVaultThemeCount() : 0;
+                        if (vaultCount === 0) {
+                            toastr.info('大仓库中目前没有美化数据，无法导出。');
+                            return;
+                        }
+                        if (typeof exportVaultThemesAsZip === 'function') {
+                            closePopup(popup);
+                            await exportVaultThemesAsZip();
                         }
                     });
                 }
