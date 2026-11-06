@@ -245,7 +245,27 @@ export function initThemeCore(options) {
         if (_themesCache && (now - _themesCacheTime) < CACHE_TTL) {
             return _themesCache;
         }
-        const rawThemes = await getAllThemesFromAPI();
+
+        // 优先复用酒馆原生环境中已经加载好的 themes 数组，彻底避免手机端超大体量下重复向后端发起庞大的 settings/get 请求
+        let rawThemes = null;
+        try {
+            const pu = getPowerUser();
+            if (pu && Array.isArray(pu.themes) && pu.themes.length > 0) {
+                rawThemes = pu.themes;
+            } else if (typeof SillyTavern !== 'undefined' && SillyTavern.getContext) {
+                const ctx = SillyTavern.getContext();
+                if (ctx && Array.isArray(ctx.themes) && ctx.themes.length > 0) {
+                    rawThemes = ctx.themes;
+                }
+            } else if (typeof themes !== 'undefined' && Array.isArray(themes) && themes.length > 0) {
+                rawThemes = themes;
+            }
+        } catch (_) {}
+
+        if (!rawThemes || rawThemes.length === 0) {
+            rawThemes = await getAllThemesFromAPI();
+        }
+
         _themesCache = (rawThemes || []).map(t => {
             const clean = normalizeThemeObject(t);
             if (clean.name) allThemeObjectsMap.set(clean.name, clean);

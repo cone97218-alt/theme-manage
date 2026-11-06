@@ -2,7 +2,7 @@
     'use strict';
 
     // === [TM-TRACE] 全局移动端诊断日志捕获系统 (专为手机端调试打造) ===
-    const EXTENSION_VERSION = '2.8.11';
+    const EXTENSION_VERSION = '2.8.12';
     if (typeof window !== 'undefined' && !window.__TM_HOOKED__) {
         window.__TM_HOOKED__ = true;
         window.__TM_TRACE_LOGS__ = [];
@@ -18,8 +18,7 @@
                 if (typeof first === 'string' && (first.includes('[TM-TRACE]') || first.includes('[Theme Manager]'))) {
                     const text = args.map(a => typeof a === 'object' ? (a instanceof Error ? a.stack : JSON.stringify(a)) : String(a)).join(' ');
                     window.__TM_TRACE_LOGS__.push(`[${new Date().toLocaleTimeString()}] ${text}`);
-                    if (window.__TM_TRACE_LOGS__.length > 400) window.__TM_TRACE_LOGS__.shift();
-                    try { sessionStorage.setItem('TM_TRACE_LOGS', JSON.stringify(window.__TM_TRACE_LOGS__)); } catch (e) {}
+                    if (window.__TM_TRACE_LOGS__.length > 100) window.__TM_TRACE_LOGS__.shift();
                 }
             } catch (e) {}
         };
@@ -444,7 +443,7 @@
                 }
 
                 const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                const themeCoreModule = await import(`${baseDir}modules/theme-core.js?v=2.8.11`);
+                const themeCoreModule = await import(`${baseDir}modules/theme-core.js?v=2.8.12`);
                 const { getSolidRgbFromCssVar, getAdaptivePopoverBg, DEFAULT_THEME_PROPS, normalizeThemeObject } = themeCoreModule;
 
 
@@ -542,7 +541,7 @@
                     isSwitchingTheme
                 } = themeCore;
 
-                const { createTagManager } = await import(`${baseDir}modules/tag-manager.js?v=2.8.11`);
+                const { createTagManager } = await import(`${baseDir}modules/tag-manager.js?v=2.8.12`);
                 const tagManager = createTagManager({
                     getValidInstalledThemeNames,
                     getAllParsedThemes: () => allParsedThemes
@@ -2863,7 +2862,7 @@
                 let performBatchRename = () => {};
                 let openBatchRenamePopup = () => {};
                 try {
-                    const { initBatchRename } = await import(`${baseDir}modules/batch-rename.js?v=2.8.11`);
+                    const { initBatchRename } = await import(`${baseDir}modules/batch-rename.js?v=2.8.12`);
                     const batchRenameModule = initBatchRename({
                         getSelectedForBatch: () => selectedForBatch,
                         clearSelectedForBatch: () => {
@@ -2906,7 +2905,7 @@
 
                 let performBatchDelete = () => {};
                 try {
-                    const { initBatchDelete } = await import(`${baseDir}modules/batch-delete.js?v=2.8.11`);
+                    const { initBatchDelete } = await import(`${baseDir}modules/batch-delete.js?v=2.8.12`);
                     const batchDeleteModule = initBatchDelete({
                         getSelectedForBatch: () => selectedForBatch,
                         clearSelectedForBatch: () => selectedForBatch.clear(),
@@ -2959,7 +2958,7 @@
                 let openCustomImportModal = () => {};
                 let triggerFullImport = () => {};
 
-                const { initBackupManager, BACKUP_MODULE_DEFS } = await import(`${baseDir}modules/backup-manager.js?v=2.8.11`);
+                const { initBackupManager, BACKUP_MODULE_DEFS } = await import(`${baseDir}modules/backup-manager.js?v=2.8.12`);
                 const backupModule = initBackupManager({
                     getAllThemesFromAPI,
                     apiRequest,
@@ -3010,7 +3009,7 @@
                 let openSettingsPopup = () => {};
 
                 try {
-                    const { initSettingsManager } = await import(`${baseDir}modules/settings-manager.js?v=2.8.11`);
+                    const { initSettingsManager } = await import(`${baseDir}modules/settings-manager.js?v=2.8.12`);
                     const smModule = initSettingsManager({
                         settingsKeysToSync,
                         callGenericPopup,
@@ -3310,7 +3309,7 @@
                 // ========= 替换卡图/头像按钮注入 (模块化: modules/avatar-replace.js) =========
                 // ==========================================================
                 try {
-                    const { initAvatarReplace } = await import(`${baseDir}modules/avatar-replace.js?v=2.8.11`);
+                    const { initAvatarReplace } = await import(`${baseDir}modules/avatar-replace.js?v=2.8.12`);
                     const avatarReplaceModule = initAvatarReplace({
                         ENABLE_REPLACE_AVATAR_BTN_KEY,
                         toastr
@@ -3355,7 +3354,7 @@
                 let getSmartRecommendedThemes = () => [];
 
                 try {
-                    const { initColorTransfer } = await import(`${baseDir}modules/color-transfer.js?v=2.8.11`);
+                    const { initColorTransfer } = await import(`${baseDir}modules/color-transfer.js?v=2.8.12`);
                     const colorModule = initColorTransfer({
                         getAllParsedThemes: () => allParsedThemes,
                         allThemeObjectsMap,
@@ -3524,7 +3523,7 @@
                 let handleBatchThemeImport = () => {};
 
                 try {
-                    const { initThemeImport } = await import(`${baseDir}modules/theme-import.js?v=2.8.11`);
+                    const { initThemeImport } = await import(`${baseDir}modules/theme-import.js?v=2.8.12`);
                     const themeImportModule = initThemeImport({
                         loadThemeTags,
                         saveThemeTags,
@@ -3656,7 +3655,7 @@
 
                 let aiGroupModule = null;
                 try {
-                    const { initAiGroup } = await import(`${baseDir}modules/ai-group.js?v=2.8.11`);
+                    const { initAiGroup } = await import(`${baseDir}modules/ai-group.js?v=2.8.12`);
                     aiGroupModule = initAiGroup({
                         loadThemeTags,
                         saveThemeTags,
@@ -3680,7 +3679,7 @@
                 }
 
                 try {
-                    const { initAutoGroup, AUTO_GROUP_STOPWORDS, isTextMatchingCompositeSearch, sanitizeThemeTitle } = await import(`${baseDir}modules/auto-group.js?v=2.8.11`);
+                    const { initAutoGroup, AUTO_GROUP_STOPWORDS, isTextMatchingCompositeSearch, sanitizeThemeTitle } = await import(`${baseDir}modules/auto-group.js?v=2.8.12`);
                     const autoGroupModule = initAutoGroup({
                         loadThemeTags,
                         saveThemeTags,
@@ -3724,7 +3723,7 @@
                 let openTagRemovalPopup = () => {};
 
                 try {
-                    const { initTagUI } = await import(`${baseDir}modules/tag-ui.js?v=2.8.11`);
+                    const { initTagUI } = await import(`${baseDir}modules/tag-ui.js?v=2.8.12`);
                     const tagUiModule = initTagUI({
                         loadThemeTags,
                         saveThemeTags,
@@ -4403,7 +4402,7 @@
 
                 try {
                     const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                    const { initCharacterBinding } = await import(`${baseDir}modules/character-binding.js?v=2.8.11`);
+                    const { initCharacterBinding } = await import(`${baseDir}modules/character-binding.js?v=2.8.12`);
                     const cbModule = initCharacterBinding({
                         CHARACTER_THEME_BINDINGS_KEY,
                         loadThemeTags,
@@ -4429,7 +4428,7 @@
                 let autoModule = null;
                 try {
                     const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                    const { initAutoTheme } = await import(`${baseDir}modules/auto-theme.js?v=2.8.11`);
+                    const { initAutoTheme } = await import(`${baseDir}modules/auto-theme.js?v=2.8.12`);
                     autoModule = initAutoTheme({
                         AUTO_THEME_KEY,
                         THEME_DAY_NIGHT_PAIRS_KEY,
@@ -4462,7 +4461,7 @@
                 async function initBackgroundEnhancements() {
                     try {
                         const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                        const { initBackgroundEnhancements: initBg } = await import(`${baseDir}modules/background-batch.js?v=2.8.11`);
+                        const { initBackgroundEnhancements: initBg } = await import(`${baseDir}modules/background-batch.js?v=2.8.12`);
                         if (typeof initBg === 'function') {
                             initBg({ getRequestHeaders, showLoader, hideLoader, limitConcurrency });
                         }
@@ -4476,95 +4475,100 @@
                 // ==========================================================
 
 
-                buildThemeUI().then(() => {
-                    applyAutoThemeLoop();
-                    initBackgroundEnhancements();
+                // 1. 立即设置面板折叠状态，避免初始布局抖动与无效绘制
+                const isInitiallyCollapsed = localStorage.getItem(COLLAPSE_KEY) !== 'false';
+                setCollapsed(isInitiallyCollapsed, false);
 
-                    // 监听聊天切换事件，在 SillyTavern 重置背景后重新应用绑定的背景图
-                    // 解决移动端进入角色卡聊天时背景图被 onChatChanged() 覆盖的问题
-                    // 监听聊天与角色切换事件，实现角色绑定的美化自动切换
-                    if (eventSource && eventTypes) {
-                        console.log(`[Theme Manager Debug] Event source & event types found. Registering listeners.`);
+                // 2. 立即注册核心切聊与角色绑定事件监听器，保证即使在超大负荷下切聊也不会脱节
+                if (eventSource && eventTypes) {
+                    console.log(`[Theme Manager Debug] Event source & event types found. Registering listeners.`);
+                    neutralizeContextThemeSync(eventSource);
+
+                    const onChatChangedHandler = () => {
                         neutralizeContextThemeSync(eventSource);
-
-                        const onChatChangedHandler = () => {
-                            neutralizeContextThemeSync(eventSource);
-                            const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
-                            const lastActive = localStorage.getItem('themeManager_lastActiveTheme');
-                            console.log(`[TM-TRACE] [CHAT_CHANGED] fired. select.value="${originalSelect?.value}", pu.theme="${pu?.theme}", lastActive="${lastActive}"`);
-                            if (lastActive && (stKnownThemes?.has(lastActive) || allThemeObjectsMap?.has(lastActive))) {
-                                const isMismatch = (originalSelect && originalSelect.value !== lastActive) || (pu && pu.theme !== lastActive);
-                                if (isMismatch) {
-                                    console.log(`[TM-TRACE] [CHAT_CHANGED_RESTORE] 检测到原生环境上下文切聊导致美化脱节 (select="${originalSelect?.value}", pu="${pu?.theme}"), 权威重新应用: "${lastActive}"`);
-                                    applyThemeDirect(lastActive);
-                                }
+                        const pu = typeof getPowerUser === 'function' ? getPowerUser() : null;
+                        const lastActive = localStorage.getItem('themeManager_lastActiveTheme');
+                        console.log(`[TM-TRACE] [CHAT_CHANGED] fired. select.value="${originalSelect?.value}", pu.theme="${pu?.theme}", lastActive="${lastActive}"`);
+                        if (lastActive && (stKnownThemes?.has(lastActive) || allThemeObjectsMap?.has(lastActive))) {
+                            const isMismatch = (originalSelect && originalSelect.value !== lastActive) || (pu && pu.theme !== lastActive);
+                            if (isMismatch) {
+                                console.log(`[TM-TRACE] [CHAT_CHANGED_RESTORE] 检测到原生环境上下文切聊导致美化脱节 (select="${originalSelect?.value}", pu="${pu?.theme}"), 权威重新应用: "${lastActive}"`);
+                                applyThemeDirect(lastActive);
                             }
-                            const currentTheme = originalSelect?.value || pu?.theme || lastActive || '';
-                            const boundBg = themeBackgroundBindings[currentTheme];
-                            if (boundBg) {
-                                // 短延迟确保在 SillyTavern 的 onChatChanged 完成后再应用
-                                setTimeout(() => applyBackgroundDirectly(boundBg), 300);
-                            }
-                        };
-
-                        if (typeof eventSource.makeFirst === 'function') {
-                            eventSource.makeFirst(eventTypes.CHAT_CHANGED, onChatChangedHandler);
-                        } else {
-                            eventSource.on(eventTypes.CHAT_CHANGED, onChatChangedHandler);
                         }
+                        const currentTheme = originalSelect?.value || pu?.theme || lastActive || '';
+                        const boundBg = themeBackgroundBindings[currentTheme];
+                        if (boundBg) {
+                            // 短延迟确保在 SillyTavern 的 onChatChanged 完成后再应用
+                            setTimeout(() => applyBackgroundDirectly(boundBg), 300);
+                        }
+                    };
 
-                        eventSource.on(eventTypes.CHARACTER_SELECTED, () => {
-                            neutralizeContextThemeSync(eventSource);
-                            const ctx = SillyTavern.getContext() || {};
-                            const { characters, characterId } = ctx;
-                            const character = characters ? characters[characterId] : null;
-                            console.log(`[TM-TRACE] [CHARACTER_SELECTED] characterId=${characterId}, avatar=${character ? character.avatar : 'none'}`);
-                            if (character && character.avatar) {
-                                console.log(`[Theme Manager Debug] CHARACTER_SELECTED avatar:`, character.avatar);
-                                // 短延时确保上下文就绪
-                                setTimeout(() => applyBoundThemeForCharacter(character.avatar), 100);
-                            } else {
-                                console.log(`[Theme Manager Debug] CHARACTER_SELECTED: no character or avatar. ID:`, characterId);
-                            }
-                        });
+                    if (typeof eventSource.makeFirst === 'function') {
+                        eventSource.makeFirst(eventTypes.CHAT_CHANGED, onChatChangedHandler);
                     } else {
-                        console.warn(`[Theme Manager Debug] eventSource or eventTypes not found!`);
+                        eventSource.on(eventTypes.CHAT_CHANGED, onChatChangedHandler);
                     }
 
-                    // 首次载入时，自动应用当前选中角色的绑定主题
-                    try {
-                        const { characters, characterId } = SillyTavern.getContext();
-                        const character = characters[characterId];
-                        console.log(`[Theme Manager Debug] Startup character avatar:`, character ? character.avatar : 'none');
+                    eventSource.on(eventTypes.CHARACTER_SELECTED, () => {
+                        neutralizeContextThemeSync(eventSource);
+                        const ctx = SillyTavern.getContext() || {};
+                        const { characters, characterId } = ctx;
+                        const character = characters ? characters[characterId] : null;
+                        console.log(`[TM-TRACE] [CHARACTER_SELECTED] characterId=${characterId}, avatar=${character ? character.avatar : 'none'}`);
                         if (character && character.avatar) {
-                            applyBoundThemeForCharacter(character.avatar);
+                            console.log(`[Theme Manager Debug] CHARACTER_SELECTED avatar:`, character.avatar);
+                            // 短延时确保上下文就绪
+                            setTimeout(() => applyBoundThemeForCharacter(character.avatar), 100);
+                        } else {
+                            console.log(`[Theme Manager Debug] CHARACTER_SELECTED: no character or avatar. ID:`, characterId);
                         }
-                    } catch (e) {
-                        console.warn('[Theme Manager] 首次载入应用绑定美化失败:', e);
+                    });
+                } else {
+                    console.warn(`[Theme Manager Debug] eventSource or eventTypes not found!`);
+                }
+
+                // 首次载入时，自动应用当前选中角色的绑定主题
+                try {
+                    const { characters, characterId } = SillyTavern.getContext() || {};
+                    const character = characters ? characters[characterId] : null;
+                    if (character && character.avatar) {
+                        applyBoundThemeForCharacter(character.avatar);
                     }
+                } catch (e) {
+                    console.warn('[Theme Manager] 首次载入应用绑定美化失败:', e);
+                }
 
+                // 3. 平滑空闲调度 UI 构建与后台任务，优先让酒馆完成首页核心路由渲染，消除手机端启动时的卡死与闪退
+                const runSmoothInit = (fn) => {
+                    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+                        window.requestIdleCallback(() => fn(), { timeout: 1200 });
+                    } else {
+                        setTimeout(() => fn(), 260);
+                    }
+                };
 
-                    const isInitiallyCollapsed = localStorage.getItem(COLLAPSE_KEY) !== 'false';
-                    setCollapsed(isInitiallyCollapsed, false);
+                runSmoothInit(() => {
+                    buildThemeUI().then(() => {
+                        applyAutoThemeLoop();
+                        initBackgroundEnhancements();
 
-                    // === 加载独立的 avatar-settings.js 头像高级调整脚本 ===
-                    const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                    const avatarScript = document.createElement('script');
-                    avatarScript.src = `${baseDir}avatar-settings.js?v=${Date.now()}`;
-                    avatarScript.defer = true;
-                    document.head.appendChild(avatarScript);
-
-                    // === 首次安装运行提示 (加载独立的 first-run.js 脚本) ===
-                    const firstRunShownKey = 'themeManager_firstRunNotificationShown';
-                    if (!localStorage.getItem(firstRunShownKey)) {
-                        // 使用标准 ES Module 的 import.meta.url 获取当前脚本的绝对路径目录，确保在安装和任何目录下均能 100% 成功加载
+                        // === 加载独立的 avatar-settings.js 头像高级调整脚本 ===
                         const baseDir = import.meta.url.substring(0, import.meta.url.lastIndexOf('/') + 1);
-                        const script = document.createElement('script');
-                        // 增加时间戳查询参数以避免浏览器缓存旧版 JS 脚本
-                        script.src = `${baseDir}first-run.js?v=${Date.now()}`;
-                        script.defer = true;
-                        document.head.appendChild(script);
-                    }
+                        const avatarScript = document.createElement('script');
+                        avatarScript.src = `${baseDir}avatar-settings.js?v=${Date.now()}`;
+                        avatarScript.defer = true;
+                        document.head.appendChild(avatarScript);
+
+                        // === 首次安装运行提示 (加载独立的 first-run.js 脚本) ===
+                        const firstRunShownKey = 'themeManager_firstRunNotificationShown';
+                        if (!localStorage.getItem(firstRunShownKey)) {
+                            const firstRunScript = document.createElement('script');
+                            firstRunScript.src = `${baseDir}first-run.js?v=${Date.now()}`;
+                            firstRunScript.defer = true;
+                            document.head.appendChild(firstRunScript);
+                        }
+                    });
                 });
 
             } catch (error) {
