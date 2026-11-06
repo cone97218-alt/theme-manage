@@ -398,6 +398,7 @@ export function initSettingsManager(config) {
                     <div class="tm-settings-buttons-flex">
                         <button id="tm-pop-sync-disk" class="menu_button"><i class="fa-solid fa-arrows-rotate"></i> 对照磁盘</button>
                         <button id="tm-pop-reset-system" class="menu_button"><i class="fa-solid fa-triangle-exclamation"></i> 重置数据</button>
+                        <button id="tm-pop-view-logs" class="menu_button" style="color: var(--SmartThemeQuoteColor, #4a90e2);"><i class="fa-solid fa-clipboard-list"></i> 诊断日志</button>
                     </div>
                 </div>
             </div>
@@ -579,6 +580,15 @@ export function initSettingsManager(config) {
                     btnReset.addEventListener('click', () => {
                         closePopup(popup);
                         openResetSystemModal();
+                    });
+                }
+
+                const btnViewLogs = dlg.querySelector('#tm-pop-view-logs');
+                if (btnViewLogs) {
+                    btnViewLogs.addEventListener('click', () => {
+                        if (typeof window !== 'undefined' && typeof window.openThemeManagerTraceLog === 'function') {
+                            window.openThemeManagerTraceLog();
+                        }
                     });
                 }
             }
