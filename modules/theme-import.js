@@ -2,6 +2,7 @@
  * modules/theme-import.js
  * 美化主题批量导入与压缩包导入、目标标签分配交互模块
  */
+import { saveThemesToVault } from './theme-vault.js';
 
 let jszipPromise = null;
 
@@ -354,6 +355,21 @@ export function initThemeImport(config) {
                     </div>
                 ` : ''}
 
+                <!-- 大仓库冷存储模式 (当文件数大于 40 时强烈推荐并默认勾选) -->
+                <div style="background:rgba(255,255,255,0.03); border:1px solid ${validFiles.length > 40 ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.08)'}; border-radius:6px; padding:8px 10px;">
+                    <label style="display:flex; align-items:flex-start; gap:8px; font-size:12px; cursor:pointer; user-select:none; margin:0;">
+                        <input type="checkbox" id="tm-imp-to-vault" ${validFiles.length > 40 ? 'checked' : ''} style="margin-top:2px; flex-shrink:0;">
+                        <div style="flex:1;">
+                            <span style="font-weight:bold; color:#4caf50; display:flex; align-items:center; gap:5px;">
+                                <i class="fa-solid fa-box-archive"></i> 存入美化大仓库（强烈推荐：拥有上千美化也绝不卡顿闪退）
+                            </span>
+                            <div style="font-size:11px; opacity:0.75; margin-top:2px; line-height:1.4;">
+                                将美化存入浏览器专属高容量冷仓库（IndexedDB），不占用酒馆原生磁盘配额，完美绕过原生后端设置大体积读取。列表中依然可随意搜索、分类、即点即用！
+                            </div>
+                        </div>
+                    </label>
+                </div>
+
                 <!-- 规则选项 -->
                 <div style="padding:0 2px;">
                     <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; user-select:none;">
@@ -512,6 +528,7 @@ export function initThemeImport(config) {
                                 }
                             }
 
+                            const toVaultCb = dlg.querySelector('#tm-imp-to-vault');
                             isResolved = true;
                             resolve({
                                 confirmed: true,
@@ -519,7 +536,8 @@ export function initThemeImport(config) {
                                 newTagName,
                                 newTagParentId,
                                 applyKeywords: applyKwCb ? applyKwCb.checked : true,
-                                useZipFolderTags: zipFolderCb ? zipFolderCb.checked : false
+                                useZipFolderTags: zipFolderCb ? zipFolderCb.checked : false,
+                                importToVault: toVaultCb ? toVaultCb.checked : false
                             });
                         }, true);
                     }
@@ -806,36 +824,51 @@ export function initThemeImport(config) {
             const importedThemes = [];
             let needsUIUpdate = false;
 
-            // 2. 并行发送 API 保存请求 (动态提升并发度至 8~15，极大缩短网络 I/O 耗时)
-            const saveConcurrency = Math.min(15, Math.max(8, Math.ceil(validFiles.length / 6)));
-            console.log(`[Theme Manager] 开始并发保存 ${validFiles.length} 个有效主题 (并发度: ${saveConcurrency})...`);
-            
-            if (typeof setSuspendObserver === 'function') {
-                setSuspendObserver(true);
-            }
-
-            const saveResults = await limitConcurrency(saveConcurrency, validFiles, async (item) => {
-                try {
-                    await saveTheme(item.themeObject, { isBatch: true });
-                    return { success: true, themeObject: item.themeObject, item };
-                } catch (err) {
-                    return { success: false, themeObject: item.themeObject, item, error: err };
-                }
-            });
-
-            // 收集保存成功的主题
-            saveResults.forEach((res, index) => {
-                const orig = validFiles[index];
-                if (res.status === 'fulfilled' && res.value.success) {
-                    successCount++;
-                    const th = res.value.themeObject;
-                    th._zipFolderName = orig.zipFolderName || null;
+            if (importConfig.importToVault) {
+                console.log(`[Theme Vault] 🚀 启用大仓库模式: 将 ${validFiles.length} 个主题直接存入 IndexedDB 冷仓库...`);
+                const vaultThemes = validFiles.map(f => {
+                    const th = f.themeObject;
+                    th._zipFolderName = f.zipFolderName || null;
+                    return th;
+                });
+                await saveThemesToVault(vaultThemes);
+                successCount = validFiles.length;
+                vaultThemes.forEach(th => {
+                    th.isVault = true;
                     importedThemes.push(th);
-                } else {
-                    errorCount++;
-                    console.error(`[Theme Manager Error] 保存主题 "${orig.themeObject.name}" 失败:`, res.status === 'fulfilled' ? res.value.error : res.reason);
+                });
+            } else {
+                // 2. 并行发送 API 保存请求 (动态提升并发度至 8~15，极大缩短网络 I/O 耗时)
+                const saveConcurrency = Math.min(15, Math.max(8, Math.ceil(validFiles.length / 6)));
+                console.log(`[Theme Manager] 开始并发保存 ${validFiles.length} 个有效主题 (并发度: ${saveConcurrency})...`);
+                
+                if (typeof setSuspendObserver === 'function') {
+                    setSuspendObserver(true);
                 }
-            });
+
+                const saveResults = await limitConcurrency(saveConcurrency, validFiles, async (item) => {
+                    try {
+                        await saveTheme(item.themeObject, { isBatch: true });
+                        return { success: true, themeObject: item.themeObject, item };
+                    } catch (err) {
+                        return { success: false, themeObject: item.themeObject, item, error: err };
+                    }
+                });
+
+                // 收集保存成功的主题
+                saveResults.forEach((res, index) => {
+                    const orig = validFiles[index];
+                    if (res.status === 'fulfilled' && res.value.success) {
+                        successCount++;
+                        const th = res.value.themeObject;
+                        th._zipFolderName = orig.zipFolderName || null;
+                        importedThemes.push(th);
+                    } else {
+                        errorCount++;
+                        console.error(`[Theme Manager Error] 保存主题 "${orig.themeObject.name}" 失败:`, res.status === 'fulfilled' ? res.value.error : res.reason);
+                    }
+                });
+            }
 
             // 3. 批量更新下拉框、内存及 UI DOM (一次性处理，消除 N^2 开销)
             console.log(`[TM-TRACE] [IMPORT-SAVED] count=${importedThemes.length}, names=${importedThemes.map(t => t.name).join(", ")}`);
@@ -1011,6 +1044,9 @@ export function initThemeImport(config) {
             let summary = sourceZips.length > 0 
                 ? `压缩包导入完成！成功导入 ${successCount} 个美化主题` 
                 : `批量导入完成！成功 ${successCount} 个`;
+            if (importConfig.importToVault) {
+                summary += '（已安全存入美化大仓库，不占原生磁盘，零闪退）';
+            }
 
             if (importedThemes.length > 0 && (targetTagIds.length > 0 || importConfig.useZipFolderTags)) {
                 const finalTags = loadThemeTags();

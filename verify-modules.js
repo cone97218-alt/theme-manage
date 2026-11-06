@@ -56,6 +56,7 @@ const modulesToTest = [
     { name: 'settings-manager.js', init: 'initSettingsManager', args: { settingsKeysToSync: [] } },
     { name: 'avatar-replace.js', init: 'initAvatarReplace', args: {} },
     { name: 'ai-group.js', init: 'initAiGroup', args: {} },
+    { name: 'theme-vault.js', init: 'initThemeVault', args: {} },
 ];
 
 let allPassed = true;
@@ -77,7 +78,7 @@ for (const mod of modulesToTest) {
 
 if (allPassed) {
     console.log('\n==========================================');
-    console.log(' ALL 14 MODULES PASSED VERIFICATION! ');
+    console.log(' ALL 15 MODULES PASSED VERIFICATION! ');
     console.log('==========================================');
     process.exit(0);
 } else {
