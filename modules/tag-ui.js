@@ -191,18 +191,19 @@ export function initTagUI(config) {
                         <button id="tm-toggle-all-tree-fold" class="menu_button tm-btn-icon-only" style="margin:0;" title="一键全部展开/折叠"><i class="fa-solid fa-arrows-up-down"></i></button>
                     </div>
                 </div>
-                <button id="batch-delete-tags-mode-btn" class="menu_button" style="margin:0; font-size:12px; padding:4px 12px; white-space:nowrap; word-break:keep-all; flex-shrink:0; background:rgba(220,53,69,0.15) !important; color:#ff8888 !important; display:inline-flex !important; flex-direction:row !important; align-items:center !important; justify-content:center !important; writing-mode:horizontal-tb !important; width:auto !important; height:auto !important; min-height:28px !important; gap:4px;"><i class="fa-solid fa-trash-can" style="margin-right:4px;"></i> 批量删除标签</button>
+                <button id="batch-delete-tags-mode-btn" class="menu_button tm-btn-icon-only" style="margin:0; background:rgba(74,144,226,0.15) !important; color:var(--SmartThemeQuoteColor, #4a90e2) !important;" title="批量编辑标签"><i class="fa-solid fa-list-check"></i></button>
             </div>
-            <div id="tm-batch-delete-bar" style="display:none; background:rgba(220,53,69,0.12); padding:8px 12px; border-radius:6px; margin-bottom:10px; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; border:1px solid rgba(220,53,69,0.25); writing-mode:horizontal-tb !important;">
-                <span style="font-size:12px; font-weight:bold; color:#ff8888; white-space:nowrap;">
+            <div id="tm-batch-delete-bar" style="display:none; background:rgba(74,144,226,0.1); padding:8px 12px; border-radius:6px; margin-bottom:10px; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; border:1px solid rgba(74,144,226,0.25); writing-mode:horizontal-tb !important;">
+                <span style="font-size:12px; font-weight:bold; color:var(--SmartThemeQuoteColor, #4a90e2); white-space:nowrap;">
                     <i class="fa-solid fa-list-check" style="margin-right:4px;"></i> 已勾选 <b id="tm-batch-tag-count">0</b> / <span id="tm-batch-tag-total">0</span> 个标签
                 </span>
-                <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                    <button id="tm-batch-tag-select-all" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;"><i class="fa-solid fa-check-double"></i> 全选</button>
-                    <button id="tm-batch-tag-invert-select" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;"><i class="fa-solid fa-arrows-rotate"></i> 反选</button>
-                    <button id="tm-batch-tag-range-select" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;" title="移动端/点触连选：依次点击【起点】和【终点】标签"><i class="fa-solid fa-arrows-left-right-to-line"></i> 范围连选</button>
-                    <button id="tm-confirm-batch-delete" class="menu_button" style="margin:0; font-size:11px; padding:2px 10px; background:rgba(220,53,69,0.3) !important; color:#ff8888 !important; white-space:nowrap;" disabled><i class="fa-solid fa-trash"></i> 确认删除选中</button>
-                    <button id="tm-cancel-batch-delete" class="menu_button" style="margin:0; font-size:11px; padding:2px 8px; white-space:nowrap;">退出批量</button>
+                <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                    <button id="tm-batch-tag-select-all" class="menu_button tm-btn-icon-only" style="margin:0;" title="全选"><i class="fa-solid fa-check-double"></i></button>
+                    <button id="tm-batch-tag-invert-select" class="menu_button tm-btn-icon-only" style="margin:0;" title="反选"><i class="fa-solid fa-arrows-rotate"></i></button>
+                    <button id="tm-batch-tag-range-select" class="menu_button tm-btn-icon-only" style="margin:0;" title="范围连选：依次点击【起点】和【终点】标签"><i class="fa-solid fa-arrows-left-right-to-line"></i></button>
+                    <button id="tm-batch-tag-move" class="menu_button tm-btn-icon-only" style="margin:0; background:rgba(74,144,226,0.25) !important; color:var(--SmartThemeQuoteColor, #4a90e2) !important;" title="批量移动至..." disabled><i class="fa-solid fa-folder-tree"></i></button>
+                    <button id="tm-confirm-batch-delete" class="menu_button tm-btn-icon-only" style="margin:0; background:rgba(220,53,69,0.2) !important; color:#ff8888 !important;" title="批量删除" disabled><i class="fa-solid fa-trash"></i></button>
+                    <button id="tm-cancel-batch-delete" class="menu_button tm-btn-icon-only" style="margin:0;" title="退出批量"><i class="fa-solid fa-xmark"></i></button>
                 </div>
             </div>
             <div style="margin-bottom:15px; display:flex; gap:8px; align-items:center;">
@@ -238,6 +239,11 @@ export function initTagUI(config) {
 
                     const batchBar = dlg.querySelector('#tm-batch-delete-bar');
                     if (batchBar) batchBar.style.display = isBatchDeleteMode ? 'flex' : 'none';
+                    const batchModeBtnEl = dlg.querySelector('#batch-delete-tags-mode-btn');
+                    if (batchModeBtnEl) {
+                        batchModeBtnEl.style.setProperty('background', isBatchDeleteMode ? 'var(--SmartThemeQuoteColor, #4a90e2)' : 'rgba(74,144,226,0.15)', 'important');
+                        batchModeBtnEl.style.setProperty('color', isBatchDeleteMode ? '#ffffff' : 'var(--SmartThemeQuoteColor, #4a90e2)', 'important');
+                    }
 
                     const foldControls = dlg.querySelector('#tm-tree-fold-controls');
                     if (foldControls) {
@@ -286,6 +292,7 @@ export function initTagUI(config) {
                                         <div class="tm-tag-more-menu" data-id="${t.id}" style="display:none; position:absolute; right:0; top:100%; margin-top:2px; z-index:99999; border:1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.18)); border-radius:6px; padding:4px; box-shadow:0 6px 16px var(--SmartThemeShadowColor, rgba(0,0,0,0.6)); flex-direction:row; gap:4px; align-items:center; color:var(--SmartThemeBodyColor, #ffffff); writing-mode:horizontal-tb !important; white-space:nowrap;">
                                             <button class="menu_button move-flat-up tm-btn-icon-only" data-id="${t.id}" title="向上移动" ${idx === 0 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-up"></i></button>
                                             <button class="menu_button move-flat-down tm-btn-icon-only" data-id="${t.id}" title="向下移动" ${idx === tags.length - 1 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-down"></i></button>
+                                            <button class="menu_button move-tag-inline tm-btn-icon-only" data-id="${t.id}" title="转移到指定标签下 (连同子标签)"><i class="fa-solid fa-folder-tree"></i></button>
                                             <button class="menu_button delete-tag-inline tm-btn-icon-only" data-id="${t.id}" title="删除标签" style="color:#ff8888 !important; background:rgba(220,53,69,0.2) !important;"><i class="fa-solid fa-trash"></i></button>
                                         </div>
                                     </div>
@@ -329,6 +336,7 @@ export function initTagUI(config) {
                                                 <button class="menu_button move-node-up tm-btn-icon-only" data-id="${nodeTag.id}" title="向上移动" ${idx === 0 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-up"></i></button>
                                                 <button class="menu_button move-node-down tm-btn-icon-only" data-id="${nodeTag.id}" title="向下移动" ${idx === siblings.length - 1 ? 'disabled style="opacity:0.3;"' : ''}><i class="fa-solid fa-arrow-down"></i></button>
                                                 ${depth > 0 ? `<button class="menu_button promote-tag-inline tm-btn-icon-only" data-id="${nodeTag.id}" title="升一级 (提升给父级的父级)"><i class="fa-solid fa-turn-up"></i></button>` : ''}
+                                                <button class="menu_button move-tag-inline tm-btn-icon-only" data-id="${nodeTag.id}" title="转移到指定标签下 (连同子标签)"><i class="fa-solid fa-folder-tree"></i></button>
                                                 <button class="menu_button delete-tag-inline tm-btn-icon-only" data-id="${nodeTag.id}" title="删除标签" style="color:#ff8888 !important; background:rgba(220,53,69,0.2) !important;"><i class="fa-solid fa-trash"></i></button>
                                             </div>
                                         </div>
@@ -464,11 +472,16 @@ export function initTagUI(config) {
                     const countEl = dlg.querySelector('#tm-batch-tag-count');
                     const totalEl = dlg.querySelector('#tm-batch-tag-total');
                     const confirmBtn = dlg.querySelector('#tm-confirm-batch-delete');
+                    const moveBtn = dlg.querySelector('#tm-batch-tag-move');
                     if (countEl) countEl.textContent = selectedTagIds.size;
                     if (totalEl) totalEl.textContent = tags.length;
                     if (confirmBtn) {
                         confirmBtn.disabled = selectedTagIds.size === 0;
                         confirmBtn.style.opacity = selectedTagIds.size === 0 ? '0.4' : '1';
+                    }
+                    if (moveBtn) {
+                        moveBtn.disabled = selectedTagIds.size === 0;
+                        moveBtn.style.opacity = selectedTagIds.size === 0 ? '0.4' : '1';
                     }
                 };
 
@@ -537,6 +550,159 @@ export function initTagUI(config) {
 
                     lastCheckedIdx = idx;
                     updateBatchCount();
+                };
+
+                // 移动标签（支持批量移动及单标签移动，子标签递归随行完整迁移）
+                const openMoveTagsModal = async (tagIdsToMove) => {
+                    if (!tagIdsToMove || tagIdsToMove.length === 0) return;
+                    const movingTagIdsSet = new Set(tagIdsToMove);
+
+                    // 获取所有给定节点及其后代节点的 ID 集合
+                    const getAllDescendantIds = (rootIds, allTags) => {
+                        const descendants = new Set();
+                        const queue = [...rootIds];
+                        while (queue.length > 0) {
+                            const currId = queue.shift();
+                            const children = allTags.filter(t => t.parentId === currId);
+                            for (const child of children) {
+                                if (!descendants.has(child.id)) {
+                                    descendants.add(child.id);
+                                    queue.push(child.id);
+                                }
+                            }
+                        }
+                        return descendants;
+                    };
+
+                    // 严禁作为移动目标的标签：包含待移动标签自身以及自身子树下的所有后代（彻底杜绝循环引用成环）
+                    const forbiddenTargetIds = new Set([
+                        ...movingTagIdsSet,
+                        ...getAllDescendantIds(movingTagIdsSet, tags)
+                    ]);
+
+                    // 计算被选中的“根部”标签：如果一个被选标签的父级/祖先标签也在 movingTagIdsSet 中，
+                    // 则该标签属于内部子结构，移动时保持其原有相对父子关系不变，不作为直接更新 parentId 的顶层标签
+                    const topLevelMovingTags = tags.filter(t => {
+                        if (!movingTagIdsSet.has(t.id)) return false;
+                        let cur = t.parentId;
+                        const visited = new Set();
+                        while (cur && !visited.has(cur)) {
+                            visited.add(cur);
+                            if (movingTagIdsSet.has(cur)) return false;
+                            const p = tags.find(x => x.id === cur);
+                            cur = p ? p.parentId : null;
+                        }
+                        return true;
+                    });
+
+                    if (topLevelMovingTags.length === 0) return;
+
+                    // 计算包括所有子级/孙级在内的全部受影响标签总数
+                    const allAffectedTagIds = new Set([
+                        ...topLevelMovingTags.map(t => t.id),
+                        ...getAllDescendantIds(topLevelMovingTags.map(t => t.id), tags)
+                    ]);
+
+                    // 递归构建目标标签选择下拉列表
+                    const buildTargetOptions = (parentId = null, depth = 0) => {
+                        let optionsHtml = '';
+                        const children = tags.filter(t => (parentId === null ? (!t.parentId || !tags.some(p => p.id === t.parentId)) : t.parentId === parentId));
+                        for (const child of children) {
+                            if (forbiddenTargetIds.has(child.id)) {
+                                // 跳过自身及其整棵子树
+                                continue;
+                            }
+                            const indent = '\u00A0\u00A0\u00A0\u00A0'.repeat(depth) + (depth > 0 ? '└─ ' : '📁 ');
+                            optionsHtml += `<option value="${child.id}">${indent}${escapeHtml(child.name)}</option>`;
+                            optionsHtml += buildTargetOptions(child.id, depth + 1);
+                        }
+                        return optionsHtml;
+                    };
+
+                    const movingNamesPreview = topLevelMovingTags.map(t => `
+                        <span style="display:inline-flex; align-items:center; gap:4px; padding:2px 8px; background:rgba(74,144,226,0.15); border:1px solid rgba(74,144,226,0.3); border-radius:12px; font-size:11px; margin:2px;">
+                            <i class="fa-solid fa-folder" style="font-size:10px; color:var(--SmartThemeQuoteColor, #4a90e2);"></i>
+                            <b>${escapeHtml(t.name)}</b>
+                        </span>
+                    `).join('');
+
+                    const modalContent = `
+                        <div style="display:flex; flex-direction:column; gap:12px; writing-mode:horizontal-tb !important; font-size:12px;">
+                            <div style="background:rgba(255,255,255,0.04); padding:10px 12px; border-radius:6px; border-left:3px solid var(--SmartThemeQuoteColor, #4a90e2); line-height:1.5;">
+                                <div style="font-weight:bold; margin-bottom:6px;">
+                                    <i class="fa-solid fa-folder-tree" style="color:var(--SmartThemeQuoteColor, #4a90e2); margin-right:4px;"></i>
+                                    即将移动选中的 ${topLevelMovingTags.length} 个标签主节点${allAffectedTagIds.size > topLevelMovingTags.length ? `（连同子级共 ${allAffectedTagIds.size} 个标签）` : ''}：
+                                </div>
+                                <div style="display:flex; flex-wrap:wrap; max-height:80px; overflow-y:auto; margin-bottom:6px;">
+                                    ${movingNamesPreview}
+                                </div>
+                                <div style="opacity:0.8; font-size:11px;">
+                                    <i class="fa-solid fa-circle-check" style="color:var(--SmartThemeQuoteColor, #4a90e2); margin-right:2px;"></i>
+                                    其下包含的所有子标签与多级层级结构将被<b>完整随行迁移</b>，其名下的美化主题将自动递归并入新的父级标签。
+                                </div>
+                            </div>
+
+                            <div>
+                                <label style="font-weight:bold; display:block; margin-bottom:6px;">请选择目标归属标签 (目标父级)：</label>
+                                <select id="tm-move-destination-select" class="text_pole" style="width:100%; height:36px; font-size:13px; padding:4px 8px; border-radius:6px;">
+                                    <option value="__ROOT__">🏠【设为一级根标签 (顶级分类)】</option>
+                                    ${buildTargetOptions()}
+                                </select>
+                            </div>
+                        </div>
+                    `;
+
+                    await callGenericPopup(modalContent, 'confirm', null, {
+                        title: `转移标签 (${topLevelMovingTags.length} 个)`,
+                        okButton: '确认转移',
+                        cancelButton: '取消',
+                        wide: false,
+                        onOpen: (movePopup) => {
+                            const moveDlg = movePopup.dlg;
+                            const okBtn = moveDlg.querySelector('.popup-button-ok');
+                            if (okBtn) {
+                                okBtn.addEventListener('click', () => {
+                                    const sel = moveDlg.querySelector('#tm-move-destination-select');
+                                    if (!sel) return;
+                                    const destVal = sel.value;
+                                    const newParentId = (destVal === '__ROOT__' || !destVal) ? null : destVal;
+                                    const targetTag = newParentId ? tags.find(t => t.id === newParentId) : null;
+                                    const targetName = targetTag ? targetTag.name : '一级根目录';
+
+                                    // 检查是否已经在目标标签下
+                                    const alreadyThere = topLevelMovingTags.every(t => (t.parentId || null) === (newParentId || null));
+                                    if (alreadyThere) {
+                                        toastr.info('所选标签已位于该目标标签下，无需移动');
+                                        return;
+                                    }
+
+                                    // 执行迁移：仅修改顶层被迁移标签的 parentId，其内部子孙树原有关系完全保留
+                                    topLevelMovingTags.forEach(t => {
+                                        t.parentId = newParentId;
+                                    });
+
+                                    // 若移动到了某个标签下成为子标签，自动开启多级目录模式以便于用户直观查看
+                                    if (newParentId !== null && !subtagsEnabled) {
+                                        subtagsEnabled = true;
+                                        localStorage.setItem(ENABLE_SUBTAGS_KEY, 'true');
+                                        const chk = dlg.querySelector('#chk-enable-subtags');
+                                        if (chk) chk.checked = true;
+                                        const input = dlg.querySelector('#new-tag-name');
+                                        const addBtn = dlg.querySelector('#add-new-tag-btn');
+                                        if (input) input.placeholder = '新一级标签名称...';
+                                        if (addBtn) addBtn.innerHTML = '<i class="fa-solid fa-plus"></i> 添加一级标签';
+                                    }
+
+                                    saveThemeTags(tags);
+                                    selectedTagIds.clear();
+                                    renderList();
+                                    updateBatchCount();
+                                    softRefreshUI();
+                                    toastr.success(`已成功将 ${topLevelMovingTags.length} 个标签及其子标签转移至「${targetName}」！`);
+                                });
+                            }
+                        }
+                    });
                 };
 
                 const BindEvents = () => {
@@ -690,6 +856,17 @@ export function initTagUI(config) {
                                 saveThemeTags(tags);
                                 renderList();
                                 softRefreshUI([]);
+                            }
+                        });
+                    });
+
+                    // 转移标签到指定目标标签下
+                    dlg.querySelectorAll('.move-tag-inline').forEach(btn => {
+                        btn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const id = e.currentTarget.dataset.id;
+                            if (id) {
+                                openMoveTagsModal([id]);
                             }
                         });
                     });
@@ -1071,6 +1248,14 @@ export function initTagUI(config) {
                         isBatchDeleteMode = false;
                         selectedTagIds.clear();
                         renderList();
+                    });
+                }
+
+                const batchMoveBtn = dlg.querySelector('#tm-batch-tag-move');
+                if (batchMoveBtn) {
+                    batchMoveBtn.addEventListener('click', () => {
+                        if (selectedTagIds.size === 0) return;
+                        openMoveTagsModal(Array.from(selectedTagIds));
                     });
                 }
 
